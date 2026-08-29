@@ -1,0 +1,85 @@
+{
+  "identity": {
+    "id": "l2-financial-report-brief-v1",
+    "name": "财报风险一句话解读",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-financial-brief"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["sparkle", "lightning"],
+    "hoverLabel": "拖入财报PDF→一句话风险总结",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["财报", "风险", "财务", "解读", "摘要", "盈利", "亏损"],
+    "targetRoles": ["finance"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator"],
+    "inputType": "file",
+    "retrievalSummary": "拖入PDF财报，自动输出一句话风险总结"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取财报文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "财报文本内容"
+        },
+        {
+          "step": 2,
+          "description": "检索财务风险指标",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "财报风险指标 财务健康度 现金流 负债率" },
+          "expectedOutput": "财务风险评估框架"
+        },
+        {
+          "step": 3,
+          "description": "AI生成一句话解读",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是资深财务分析师。根据财报内容和风险评估框架，用一句话概括这份财报的核心风险。格式：'[公司名]财报风险：[核心风险]，[关键指标数据]。'\n\n评估框架：{{step_2_result}}\n\n财报内容：{{step_1_result}}"
+          },
+          "expectedOutput": "一句话风险总结",
+          "maxTokens": 200
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "财报PDF路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1800,
+    "avgExecutionTime": 8000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "identity": {
+    "id": "l2-email-categorizer-v1",
+    "name": "邮件自动分类",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-email-categorizer"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain"],
+    "hoverLabel": "输入邮件→自动分类归档",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["邮件", "分类", "归档", "标签", "自动", "收件箱"],
+    "targetRoles": ["general"],
+    "requiredL1": ["l1-task-translator", "l1-pipeline-builder"],
+    "inputType": "text",
+    "retrievalSummary": "自动识别邮件类型并分类归档标签"
+  },
+  "execution": {
+    "mode": "chain",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "提取邮件关键信息",
+          "tool": "llm_generate",
+          "depends_on": [],
+          "params": {
+            "prompt": "提取以下邮件的关键信息：发件人、主题、主要内容摘要、紧急程度、涉及部门。以JSON格式输出。\n\n邮件内容：{{input}}"
+          },
+          "expectedOutput": "邮件关键信息JSON"
+        },
+        {
+          "step": 2,
+          "description": "检索邮件分类标准",
+          "tool": "knowledge_search",
+          "depends_on": [1],
+          "params": { "query": "邮件分类标准 邮件标签体系 归档规则 优先级分类" },
+          "expectedOutput": "邮件分类规则",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 3,
+          "description": "AI分类并生成标签",
+          "tool": "llm_generate",
+          "depends_on": [2],
+          "params": {
+            "prompt": "你是邮件分类专家。根据邮件分类标准和邮件关键信息，给出分类结果：类别标签、优先级、建议处理方式、归档文件夹。\n\n分类标准：{{step_2_result}}\n\n邮件信息：{{step_1_result}}"
+          },
+          "expectedOutput": "分类标签结果"
+        },
+        {
+          "step": 4,
+          "description": "写入分类结果",
+          "tool": "write_file",
+          "depends_on": [3],
+          "params": { "path": "{{output_dir}}/email_categories.json", "content": "{{step_3_result}}" },
+          "expectedOutput": "分类结果文件"
+        }
+      ],
+      "fallbackStrategy": "skip",
+      "maxRetries": 1
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "邮件原文内容",
+          "required": true
+        },
+        {
+          "name": "{{output_dir}}",
+          "source": "context",
+          "description": "分类结果输出目录",
+          "required": false
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 1,
+          "targetParam": "prompt"
+        },
+        {
+          "slotName": "{{output_dir}}",
+          "targetStep": 4,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1000,
+    "avgExecutionTime": 8000,
+    "cacheable": true,
+    "cacheKeyTemplate": "email-cat-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 86400000
+  }
+}

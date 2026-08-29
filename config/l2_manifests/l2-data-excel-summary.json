@@ -1,0 +1,86 @@
+{
+  "identity": {
+    "id": "l2-data-excel-summary-v1",
+    "name": "Excel数据摘要",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-excel-summary"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传Excel→数据摘要报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["Excel", "数据", "摘要", "统计", "表格", "分析"],
+    "targetRoles": ["finance", "general"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator"],
+    "inputType": "file",
+    "retrievalSummary": "上传Excel文件，自动生成数据摘要和统计分析"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取Excel文件内容",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "Excel数据内容"
+        },
+        {
+          "step": 2,
+          "description": "检索数据分析框架",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "Excel数据分析 统计摘要 数据透视 关键指标" },
+          "expectedOutput": "数据分析框架",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 3,
+          "description": "AI生成数据摘要",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是数据分析专家。根据Excel数据和分析框架，生成数据摘要报告，包含：数据概览（行数、列数、字段说明）、关键统计指标（均值、中位数、极值）、数据分布特征、异常值提示、趋势分析。\n\n分析框架：{{step_2_result}}\n\n数据内容：{{step_1_result}}"
+          },
+          "expectedOutput": "数据摘要文本",
+          "fallback": "llm_generate"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "Excel文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2000,
+    "avgExecutionTime": 10000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "identity": {
+    "id": "l2-onboarding-guide-gen-v1",
+    "name": "入职引导生成器",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-onboarding-guide"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain"],
+    "hoverLabel": "输入岗位→生成入职引导手册",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["入职", "引导", "新员工", "onboarding", "入职手册", "岗前培训"],
+    "targetRoles": ["hr"],
+    "requiredL1": ["l1-pipeline-builder", "l1-result-beautifier"],
+    "inputType": "text",
+    "retrievalSummary": "根据岗位信息自动生成入职引导手册"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "检索入职引导模板",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "新员工入职引导 岗前培训模板 onboarding流程" },
+          "expectedOutput": "入职引导模板框架",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 2,
+          "description": "AI生成入职引导内容",
+          "tool": "llm_generate",
+          "depends_on": [1],
+          "params": {
+            "prompt": "你是HR专家。根据入职引导模板和以下岗位信息，生成一份完整的入职引导手册，包含：入职须知、部门介绍、岗位职责、培训计划、考核标准、常见问题。\n\n引导模板：{{step_1_result}}\n\n岗位信息：{{input}}"
+          },
+          "expectedOutput": "入职引导文本"
+        },
+        {
+          "step": 3,
+          "description": "生成入职引导文档",
+          "tool": "shell_exec",
+          "depends_on": [2],
+          "params": {
+            "command": "node -e \"const {Document,Packer,Paragraph,TextRun,HeadingLevel}=require('docx');const fs=require('fs');const r=process.env.ANALYSIS;const doc=new Document({sections:[{children:[new Paragraph({text:'入职引导手册',heading:HeadingLevel.HEADING_1}),new Paragraph({children:[new TextRun(r)]})]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\入职引导手册.docx',buf))\""
+          },
+          "expectedOutput": "桌面docx文档"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "岗位信息描述",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 2,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1600,
+    "avgExecutionTime": 12000,
+    "cacheable": true,
+    "cacheKeyTemplate": "onboarding-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

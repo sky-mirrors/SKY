@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-policy-doc-qa-v1",
+    "name": "政策文档问答",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-policy-qa"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "输入问题→政策文档精准解答",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["政策", "问答", "制度", "规章", "FAQ", "规定"],
+    "targetRoles": ["hr", "general"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-workspace-memory"],
+    "inputType": "text",
+    "retrievalSummary": "根据政策知识库精准回答政策相关问题"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请根据公司政策知识库，回答以下问题。要求：引用具体政策条款、给出明确答案、必要时补充相关注意事项。\n\n问题：{{input}}",
+      "maxTokens": 2048
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "政策相关问题",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 400,
+    "avgExecutionTime": 3500,
+    "cacheable": true,
+    "cacheKeyTemplate": "policy-qa-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 86400000
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "identity": {
+    "id": "l2-meeting-minutes-gen-v1",
+    "name": "会议纪要生成",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-meeting-minutes"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传会议记录→生成结构化纪要",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["会议", "纪要", "记录", "备忘录", "讨论", "决议"],
+    "targetRoles": ["general"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator", "l1-result-beautifier"],
+    "inputType": "file_or_text",
+    "retrievalSummary": "上传会议记录，自动生成结构化会议纪要"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取会议记录文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "会议原始记录",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 2,
+          "description": "检索会议纪要模板",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "会议纪要模板 议题整理 决议记录 待办事项" },
+          "expectedOutput": "会议纪要格式框架"
+        },
+        {
+          "step": 3,
+          "description": "AI生成结构化纪要",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是会议纪要整理专家。根据会议记录和纪要模板，生成结构化会议纪要，包含：会议信息、参会人员、议题讨论、决议事项、待办事项及负责人、下次会议安排。\n\n纪要模板：{{step_2_result}}\n\n会议记录：{{step_1_result}}"
+          },
+          "expectedOutput": "结构化会议纪要",
+          "fallback": "llm_generate"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "会议记录文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2200,
+    "avgExecutionTime": 11000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

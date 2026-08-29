@@ -1,0 +1,126 @@
+import { DialogMessage } from '@/models'
+import { ingestText, hybridSearch } from './knowledgeBase'
+
+const CONV_SUMMARY_KEY = 'holo-conv-summaries'
+
+interface PeriodSummary {
+  period: string
+  summary: string
+  from: number
+  to: number
+}
+
+function loadSummaries(): PeriodSummary[] {
+  try {
+    const raw = localStorage.getItem(CONV_SUMMARY_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+function saveSummaries(summaries: PeriodSummary[]): void {
+  localStorage.setItem(CONV_SUMMARY_KEY, JSON.stringify(summaries.slice(-20)))
+}
+
+let lastIndexTimestamp = 0
+
+export async function indexConversationRound(messages: DialogMessage[]): Promise<void> {
+  const userMsgs = messages.filter(m => m.role === 'user' || m.role === 'assistant')
+  if (userMsgs.length === 0) return
+
+  const newMsgs = userMsgs.filter(m =>
+    m.timestamp > lastIndexTimestamp &&
+    m.type !== 'system_notice' &&
+    m.type !== 'tool_log' &&
+    m.content && m.content.trim().length >= 5
+  )
+
+  if (newMsgs.length === 0) return
+
+  const batchText = newMsgs.map(m =>
+    `${m.role === 'user' ? '用户' : 'AI'}：${m.content.substring(0, 500)}`
+  ).join('\n\n')
+
+  try {
+    await ingestText(batchText, { type: 'conversation' }, `conv-round-${Date.now()}`)
+    lastIndexTimestamp = newMsgs[newMsgs.length - 1].timestamp
+  } catch { /* non-critical */ }
+}
+
+export async function searchConversationContext(query: string, topK: number = 3): Promise<string[]> {
+  try {
+    const results = await hybridSearch(query, topK, { ownerType: 'conversation' })
+    return results.map(r => r.text)
+  } catch {
+    return []
+  }
+}
+
+export function getLatestSummary(): string {
+  const summaries = loadSummaries()
+  if (summaries.length === 0) return ''
+  return summaries[summaries.length - 1].summary
+}
+
+export function savePeriodSummary(summary: string, from: number, to: number): void {
+  const summaries = loadSummaries()
+  summaries.push({
+    period: new Date(from).toLocaleDateString('zh-CN'),
+    summary,
+    from,
+    to
+  })
+  saveSummaries(summaries)
+}
+
+export function getAllSummaries(): string {
+  const summaries = loadSummaries()
+  if (summaries.length === 0) return ''
+  return summaries.map(s => `[${s.period}] ${s.summary}`).join('\n\n')
+}
+
+export function shouldCompress(messages: DialogMessage[]): boolean {
+  const userRounds = messages.filter(m => m.role === 'user').length
+  if (userRounds >= 10) return true
+
+  let totalChars = 0
+  for (const m of messages) {
+    totalChars += (m.content || '').length
+  }
+  return totalChars > 20000
+}
+
+export function detectChallenge(userInput: string, lastAssistantContent: string): boolean {
+  const challengePhrases = [
+    '不对', '不是吧', '你确定吗', '明明是', '搞错了', '说错了',
+    '记错了', '不可能', '跟之前不一样', '和昨天说的不一样',
+    '怎么会是', '我记得是', '之前说的是', '上次你说', '刚才你说',
+    '不是这样的', '不准确', '有误', '错的', '纠正', '更正'
+  ]
+  const lower = userInput.toLowerCase()
+  for (const phrase of challengePhrases) {
+    if (lower.includes(phrase)) return true
+  }
+
+  const numberPattern = /\d+\.?\d*/g
+  const userNums = userInput.match(numberPattern) || []
+  const aiNums = lastAssistantContent.match(numberPattern) || []
+  if (userNums.length > 0 && aiNums.length > 0) {
+    for (const n of userNums) {
+      if (aiNums.includes(n)) continue
+      const val = parseFloat(n)
+      for (const aiN of aiNums) {
+        if (Math.abs(val - parseFloat(aiN)) < 0.01) continue
+        if (Math.abs(val - parseFloat(aiN)) / Math.max(Math.abs(val), 1) < 0.3) {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
+}
+
+export function clearConvMemory(): void {
+  localStorage.removeItem(CONV_SUMMARY_KEY)
+  localStorage.removeItem('holo-conv-chunks')
+}

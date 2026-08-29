@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-announcement-draft-v1",
+    "name": "公告通知草稿",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-announcement"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "输入要点→正式公告文本",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["公告", "通知", "通告", "发文", "公告草稿"],
+    "targetRoles": ["hr", "general"],
+    "requiredL1": ["l1-task-translator"],
+    "inputType": "text",
+    "retrievalSummary": "根据要点自动生成正式公告通知文本"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请根据以下要点，生成一份正式的公司公告通知。要求：格式规范、措辞正式、结构清晰（标题+正文+落款）。\n\n要点：{{input}}",
+      "maxTokens": 2048
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "公告要点",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 800,
+    "avgExecutionTime": 3000,
+    "cacheable": true,
+    "cacheKeyTemplate": "announce-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

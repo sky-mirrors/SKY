@@ -1,0 +1,86 @@
+{
+  "identity": {
+    "id": "l2-resume-screening-v1",
+    "name": "简历初筛助手",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-resume-screening"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传简历→初筛评分报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["简历", "招聘", "筛选", "候选人", "初筛", "HR"],
+    "targetRoles": ["hr"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator"],
+    "inputType": "file",
+    "retrievalSummary": "上传简历文件，自动初筛评分并生成筛选报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "检索岗位匹配标准",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "简历筛选标准 岗位匹配度 技能评估 任职资格" },
+          "expectedOutput": "岗位匹配评估框架",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 2,
+          "description": "读取简历文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "简历文本内容"
+        },
+        {
+          "step": 3,
+          "description": "AI评分筛选",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是资深HR。根据岗位匹配标准和简历内容，对候选人进行初筛评分。输出：匹配度评分(0-100)、优势项、不足项、建议(推荐面试/待定/不推荐)。\n\n匹配标准：{{step_1_result}}\n\n简历内容：{{step_2_result}}"
+          },
+          "expectedOutput": "初筛评分结果",
+          "fallback": "llm_generate"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "简历文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 2,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2400,
+    "avgExecutionTime": 10000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

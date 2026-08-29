@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "lib": ["ES2020"],
+    "skipLibCheck": true,
+    "composite": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationDir": "./out/main",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["electron/**/*.ts", "electron/**/*.d.ts"]
+}

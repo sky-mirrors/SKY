@@ -1,0 +1,96 @@
+{
+  "identity": {
+    "id": "l2-contract-risk-review-v1",
+    "name": "合同风险审查",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-contract-risk-scan"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传合同→标注风险→生成报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["合同", "风险", "审查", "合规", "条款", "法律"],
+    "targetRoles": ["legal"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator", "l1-result-beautifier"],
+    "inputType": "file",
+    "retrievalSummary": "上传合同PDF，自动标注风险条款并生成docx审查报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "检索知识库获取合同审查要点",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "合同风险审查要点 常见陷阱 条款分析" },
+          "expectedOutput": "合同审查知识要点",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 2,
+          "description": "读取合同文件内容",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "合同全文"
+        },
+        {
+          "step": 3,
+          "description": "AI分析风险条款",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是一名合同审查专家。根据以下审查要点和合同原文，逐条分析风险条款。每个风险条款需标注：原文摘录、风险等级(高/中/低)、修改建议。\n\n审查要点：{{step_1_result}}\n\n合同原文：{{step_2_result}}"
+          },
+          "expectedOutput": "风险条款分析报告",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 4,
+          "description": "生成docx审查报告",
+          "tool": "shell_exec",
+          "depends_on": [3],
+          "params": {
+            "command": "node -e \"const {Document,Packer,Paragraph,TextRun,HeadingLevel}=require('docx');const fs=require('fs');const analysis=process.env.ANALYSIS;const doc=new Document({sections:[{children:[new Paragraph({text:'合同风险审查报告',heading:HeadingLevel.HEADING_1}),new Paragraph({children:[new TextRun(analysis)]})]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\合同风险审查报告.docx',buf))\""
+          },
+          "expectedOutput": "桌面docx报告"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "合同文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 2,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2800,
+    "avgExecutionTime": 15000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

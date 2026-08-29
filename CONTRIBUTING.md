@@ -1,0 +1,113 @@
+# 贡献指南
+
+感谢你对 HoloStarmap 的贡献兴趣！
+
+---
+
+## 开发环境
+
+**要求**：
+- Node.js >= 18
+- npm >= 9
+- Git
+- Windows（当前打包仅支持 Windows）
+
+**搭建**：
+
+```bash
+git clone https://github.com/<username>/holostarmap.git
+cd holostarmap
+npm install
+npm run dev
+```
+
+---
+
+## 分支策略
+
+- `main` — 稳定分支，仅接受 PR 合入
+- `feature/*` — 功能开发分支，从 main 拉出
+- `fix/*` — 修复分支
+
+---
+
+## 代码规范
+
+### TypeScript
+
+- `"strict": true` — 所有隐式 `any` 和类型不匹配都会导致编译失败
+- **禁止** `any`、`unknown`（除非显式允许）
+- **禁止** `as` 类型断言
+- **禁止** 动态属性访问 `obj[dynamicKey]`
+- 对象字面量必须提供显式类型上下文
+
+### 命名
+
+- 文件：kebab-case（`l0-skill-router.ts`）
+- 组件：PascalCase（`StarMap.vue`）
+- Composable：`use` 前缀（`useThreeScene.ts`）
+- Store：`use` 前缀 + `Store` 后缀（`useApiStore`）
+- Service：camelCase（`pipelineExecutor.ts`）
+
+### Vue 组件
+
+- 使用 `<script setup lang="ts">`
+- Props 使用 `defineProps<T>()` 类型声明
+- Emits 使用 `defineEmits<T>()`
+
+---
+
+## 提交规范
+
+使用 [Conventional Commits](https://www.conventionalcommits.org/)：
+
+```
+feat: 新功能
+fix: 修复 Bug
+docs: 文档变更
+style: 格式调整（不影响逻辑）
+refactor: 重构
+test: 测试相关
+chore: 构建/工具变更
+```
+
+示例：
+```
+feat: 添加 L2 工具编译清单
+fix: 修复流水线窗口置顶状态不同步
+docs: 更新 README 截图
+```
+
+---
+
+## 测试
+
+```bash
+# 运行全部测试
+npm test
+
+# 运行覆盖率
+npm run test:coverage
+
+# 运行单个测试文件
+npx vitest run test/unit/scheduleOptimizer.test.ts
+```
+
+---
+
+## PR 流程
+
+1. Fork 本仓库
+2. 从 `main` 拉出新分支：`git checkout -b feature/your-feature`
+3. 开发 + 测试
+4. 提交：`git commit -m "feat: your feature description"`
+5. 推送：`git push origin feature/your-feature`
+6. 创建 Pull Request，填写 PR 模板
+
+### PR 检查项
+
+- [ ] TypeScript strict 编译通过
+- [ ] 所有测试通过
+- [ ] 新功能有对应测试
+- [ ] 无 `any` / `as` 类型断言
+- [ ] 提交信息符合 Conventional Commits

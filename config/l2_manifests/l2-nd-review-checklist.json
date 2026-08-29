@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-nd-review-checklist-v1",
+    "name": "ND审查清单",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-nd-review-checklist"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "输入ND信息→审查清单",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["ND", "保密协议", "审查", "清单", "NDA", "保密条款"],
+    "targetRoles": ["legal"],
+    "requiredL1": ["l1-task-translator", "l1-result-beautifier"],
+    "inputType": "text",
+    "retrievalSummary": "根据ND信息自动生成审查清单"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请根据以下ND/保密协议信息，生成一份审查清单。包含：保密范围审查、期限条款审查、违约责任审查、例外条款审查、管辖权审查。每项标注审查要点和常见风险。\n\nND信息：{{input}}",
+      "maxTokens": 2048
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "ND/保密协议信息",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 600,
+    "avgExecutionTime": 4000,
+    "cacheable": true,
+    "cacheKeyTemplate": "nd-review-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

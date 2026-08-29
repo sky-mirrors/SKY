@@ -1,0 +1,815 @@
+export enum ToolLevel {
+  L0 = 'L0',
+  L1 = 'L1',
+  L2 = 'L2',
+  L3 = 'L3'
+}
+
+export enum JobRole {
+  HR = 'hr',
+  Finance = 'finance',
+  Sales = 'sales',
+  Legal = 'legal',
+  General = 'general'
+}
+
+export interface Vector3 {
+  x: number
+  y: number
+  z: number
+}
+
+export interface ToolNode {
+  id: string
+  name: string
+  level: ToolLevel
+  position: Vector3
+  gridIndex: [number, number, number]
+  description: string
+  icon?: string
+  apiRole?: string
+  enabled: boolean
+  locked: boolean
+  communityHeat?: number
+  lastUsedAt?: number
+  parentL1Id?: string
+  comboToolIds?: string[]
+  gravityWeight?: number
+  inputSchema?: SchemaField[]
+  outputSchema?: SchemaField[]
+  contextCache?: ContextCache
+  isL05?: boolean
+  isOrchestrator?: boolean
+  mcpToolIds?: string[]
+  jobRoles?: string[]
+}
+
+export interface SchemaField {
+  name: string
+  type: 'string' | 'number' | 'object' | 'array' | 'markdown'
+  required: boolean
+  description: string
+}
+
+export interface ContextCache {
+  id: string
+  toolId: string
+  partialInput: string
+  partialOutput: string
+  stepIndex: number
+  totalSteps: number
+  savedAt: number
+}
+
+export interface CircuitBreakerState {
+  isOpen: boolean
+  failureCount: number
+  lastFailureAt: number
+  cooldownMs: number
+  retryCount: number
+  maxRetries: number
+}
+
+export interface HistoryEntry {
+  id: string
+  toolId: string
+  toolName: string
+  input: string
+  output: string
+  timestamp: number
+  success: boolean
+}
+
+export interface ApiConfig {
+  baseUrl: string
+  models: ModelInfo[]
+  activeModel: string
+  isReachable: boolean
+  lastCheckedAt: number
+  providers: ProviderConfig[]
+  activeProviderId: string
+}
+
+export interface ProviderConfig {
+  id: string
+  name: string
+  baseUrl: string
+  authType: 'none' | 'bearer' | 'api-key'
+  apiKey: string
+  modelsEndpoint: string
+  chatFormat: 'openai' | 'anthropic' | 'custom'
+  models: ModelInfo[]
+  isReachable: boolean
+  lastCheckedAt: number
+}
+
+export interface ModelInfo {
+  id: string
+  name: string
+  size?: string
+  providerId?: string
+}
+
+export interface PipelineStep {
+  toolId: string
+  params: Record<string, string>
+  outputKey: string
+}
+
+export interface Pipeline {
+  id: string
+  name: string
+  steps: PipelineStep[]
+  mode: 'serial' | 'parallel'
+  createdAt: number
+  lastRunAt?: number
+  sessionId?: string
+  knowledgeGroupId?: string
+  attachedEntryIds: string[]
+  dagNodes?: DagNode[]
+  dagEdges?: DagEdge[]
+}
+
+export interface DagNode {
+  id: string
+  toolId: string
+  toolName: string
+  toolLevel: 'L1' | 'L2' | 'L3' | 'skill' | 'mcp'
+  position: { x: number; y: number }
+  params: Record<string, string>
+  outputKey: string
+  modelTier?: string
+  status?: 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+  result?: string
+}
+
+export interface DagEdge {
+  id: string
+  sourceNodeId: string
+  sourceOutputKey: string
+  targetNodeId: string
+  targetParamName: string
+}
+
+export interface KnowledgeEntry {
+  id: string
+  filename: string
+  fileType: string
+  chunks: number
+  fingerprint: string
+  createdAt: number
+  ownerType?: 'global' | 'session' | 'pipeline' | 'group' | 'conversation'
+  ownerId?: string
+}
+
+export interface ConversationMemory {
+  id: string
+  projectId: string
+  messages: ChatMessage[]
+  fileFingerprints: string[]
+  updatedAt: number
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  timestamp: number
+}
+
+export interface AdjacencyMap {
+  [nodeId: string]: string[]
+}
+
+export interface UserConfig {
+  jobRole: JobRole
+  selectedL2Ids: string[]
+  firstLaunchDone: boolean
+  apiConfig: ApiConfig
+}
+
+export interface InteractionState {
+  hoveredNodeId: string | null
+  selectedNodeId: string | null
+  draggingNodeId: string | null
+  dragTargetLevel: ToolLevel | null
+  isDragging: boolean
+  mouseSpeed: number
+  onboardingPhase: 'waiting' | 'pulsing' | 'stardust' | 'exploding' | 'done'
+  selectedRole: JobRole | null
+  toolUseCount: number
+  circuitBreaker: CircuitBreakerState
+  l0RedFlash: boolean
+  dialogMode: 'command' | 'plan' | 'teach'
+  ctrlKey: boolean
+}
+
+export interface IngestProgress {
+  totalChunks: number
+  processedChunks: number
+  isRunning: boolean
+}
+
+export interface L3DecayState {
+  nodeId: string
+  daysUntilCollapse: number
+  isCollapsed: boolean
+}
+
+export interface DegradedState {
+  isDegraded: boolean
+  unavailableToolIds: string[]
+  reason: string
+}
+
+export interface SessionMemory {
+  id: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ProjectMemory {
+  id: string
+  name: string
+  fileFingerprints: string[]
+  knowledgeEntryIds: string[]
+  vectorIndex: Record<string, number[]>
+  updatedAt: number
+  parentGroupId?: string
+}
+
+export interface KnowledgeGroup {
+  id: string
+  name: string
+  sharedEntryIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface GlobalMemory {
+  id: string
+  preferences: Record<string, string>
+  promptTemplates: PromptTemplate[]
+  frequentTerms: string[]
+  updatedAt: number
+}
+
+export interface PromptTemplate {
+  id: string
+  name: string
+  content: string
+  createdAt: number
+}
+
+export interface ThoughtStep {
+  phase: 'plan' | 'thought' | 'observation' | 'reflection'
+  content: string
+  toolName?: string
+  toolArgs?: Record<string, unknown>
+  toolResult?: string
+  timestamp: number
+}
+
+export interface TaskPlan {
+  intent: string
+  needs: string[]
+  steps: {
+    step: number
+    description: string
+    tool: string
+    depends_on: number[]
+    params: Record<string, unknown>
+    expectedOutput: string
+    fallback?: string
+  }[]
+}
+
+export interface TaskCase {
+  id: string
+  input: string
+  plan: TaskPlan
+  toolsUsed: string[]
+  success: boolean
+  vector: number[]
+  createdAt: number
+}
+
+export interface FileAttachment {
+  fileName: string
+  filePath: string
+  fileType: string
+  fileSize?: number
+  label?: string
+}
+
+export interface DialogMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  type: 'text' | 'workflow_card' | 'tool_log' | 'system_notice'
+  content: string
+  workflowCard?: WorkflowCard
+  toolLog?: ToolCallLog
+  thoughtChain?: ThoughtStep[]
+  taskPlan?: TaskPlan
+  lineage?: { step: number; source: string; tool: string; ruleId?: string; tier?: string }[]
+  fileAttachment?: FileAttachment
+  timestamp: number
+  isTyping?: boolean
+}
+
+export interface WorkflowCard {
+  nodeIds: string[]
+  edgeIds: string[]
+  status: 'running' | 'completed' | 'failed'
+}
+
+export interface ToolCallLog {
+  toolName: string
+  steps: ToolCallStep[]
+  totalTimeMs: number
+}
+
+export interface ToolCallStep {
+  toolId: string
+  toolName: string
+  action: string
+  result: string
+  resultHash?: string
+  durationMs: number
+}
+
+export interface Skill {
+  id: string
+  name: string
+  description: string
+  version: string
+  nodes: SkillNode[]
+  edges: SkillEdge[]
+  dependencies: string[]
+  author: string
+  createdAt: number
+  isInstalled: boolean
+  isFromMarket: boolean
+  catalogId?: string
+}
+
+export interface SkillNode {
+  toolId: string
+  params: Record<string, string>
+  position: { x: number; y: number }
+}
+
+export interface SkillEdge {
+  from: string
+  to: string
+  type: 'data' | 'control'
+}
+
+export interface McpConnection {
+  id: string
+  name: string
+  url: string
+  isConnected: boolean
+  tools: McpTool[]
+  lastTestedAt: number
+  isWhitelisted: boolean
+  catalogId?: string
+  catalogCommand?: string
+  catalogArgs?: string[]
+  catalogEnv?: Record<string, string>
+}
+
+export type McpToolPermission = 'readonly' | 'readwrite' | 'execute'
+
+export interface McpTool {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+  isAutoAllowed: boolean
+  permission: McpToolPermission
+}
+
+export interface McpRequestLog {
+  id: string
+  mcpId: string
+  toolName: string
+  request: string
+  response: string
+  timestamp: number
+  success: boolean
+}
+
+export interface WorkflowLog {
+  id: string
+  name: string
+  nodes: WorkflowLogNode[]
+  edges: WorkflowLogEdge[]
+  timestamps: number[]
+  ioSnapshots: WorkflowIoSnapshot[]
+  startedAt: number
+  completedAt: number
+  status: 'running' | 'completed' | 'failed'
+}
+
+export interface WorkflowLogNode {
+  toolId: string
+  toolName: string
+  startedAt: number
+  completedAt: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+}
+
+export interface WorkflowLogEdge {
+  from: string
+  to: string
+  type: 'data' | 'control'
+  activatedAt?: number
+}
+
+export interface WorkflowIoSnapshot {
+  toolId: string
+  input: string
+  output: string
+  inputHash?: string
+  outputHash?: string
+  timestamp: number
+}
+
+export interface AuditLogEntry {
+  id: string
+  userId: string
+  action: string
+  toolId: string
+  fileName?: string
+  mcpId?: string
+  timestamp: number
+  details: string
+}
+
+export interface ConnectionFlow {
+  from: string
+  to: string
+  type: 'data' | 'control'
+  isRunning: boolean
+  startTime: number
+}
+
+export interface NodeHandlerContext {
+  input: Record<string, unknown>
+  signal: AbortSignal
+  onProgress: (msg: string) => void
+  gateway: ModelGatewayAdapter
+  memory: MemoryAdapter
+  knowledge: KnowledgeAdapter
+}
+
+export interface NodeHandler {
+  id: string
+  inputSchema: SchemaField[]
+  outputSchema: SchemaField[]
+  run(ctx: NodeHandlerContext): Promise<Record<string, unknown>>
+}
+
+export interface ModelGatewayAdapter {
+  chatCompletion(messages: { role: string; content: string }[]): Promise<string>
+  listModels(): ModelInfo[]
+  switchProvider(providerId: string): void
+  switchModel(modelId: string): void
+  getActiveProvider(): ProviderConfig | null
+}
+
+export interface MemoryAdapter {
+  getRecent(projectId: string, tokenBudget: number): ChatMessage[]
+  addMessage(projectId: string, role: string, content: string): void
+  summarizeOld(projectId: string, tokenBudget: number): string
+}
+
+export interface KnowledgeAdapter {
+  ingestFile(file: File): Promise<KnowledgeEntry>
+  search(query: string, topK: number): Promise<SearchResult[]>
+  getEntry(id: string): KnowledgeEntry | null
+}
+
+export interface SearchResult {
+  text: string
+  entryId: string
+  score: number
+  source: 'vector' | 'keyword' | 'hybrid' | 'pseudo-vector'
+}
+
+export interface PromptChainStep {
+  tool: string
+  params: Record<string, unknown>
+  expectedOutput: string
+}
+
+export interface PromptChainResult {
+  steps: PromptChainStep[]
+  raw: string
+}
+
+export interface MarkdownDocument {
+  type: string
+  children: MarkdownNode[]
+}
+
+export interface MarkdownNode {
+  type: string
+  content?: string
+  children?: MarkdownNode[]
+  level?: number
+  ordered?: boolean
+  language?: string
+  href?: string
+  alt?: string
+}
+
+export interface McpCatalogItem {
+  id: string
+  name: string
+  description: string
+  category: string
+  command: string
+  args: string[]
+  envKeys: string[]
+  homepage: string
+  source: 'official' | 'community'
+  tags: string[]
+}
+
+export interface L2ToolIdentity {
+  id: string
+  name: string
+  version: string
+  author: 'official' | 'user' | 'community'
+  createdAt: number
+  updatedAt: number
+  templateId: string
+}
+
+export interface L2ToolVisual {
+  baseColor: string
+  ringStyle: 'solid' | 'dashed'
+  badges: ('sparkle' | 'chain' | 'lightning')[]
+  hoverLabel: string
+  anchorGlow: string
+  upgradeGlow: string
+}
+
+export interface L2ToolRouting {
+  keywords: string[]
+  targetRoles: ('hr' | 'finance' | 'legal' | 'sales' | 'general')[]
+  requiredL1: string[]
+  inputType: 'file' | 'text' | 'file_or_text'
+  retrievalSummary: string
+  userSummary: string
+  confidenceThreshold: number
+}
+
+export interface L2DagStep {
+  step: number
+  description: string
+  tool: string
+  depends_on: number[]
+  params: Record<string, unknown>
+  expectedOutput: string
+  fallback?: string
+  modelTier?: 'nano' | 'mini' | 'standard' | 'pro'
+  outputExtract?: string
+}
+
+export interface L2ParamSlot {
+  name: string
+  source: 'file_path' | 'input_text' | 'clipboard' | 'context'
+  description: string
+  required: boolean
+}
+
+export interface L2ParamBinding {
+  slotName: string
+  targetStep: number
+  targetParam: string
+}
+
+export interface L2ToolExecution {
+  mode: 'direct' | 'macro' | 'chain'
+  directCall?: {
+    l1Target: string
+    promptTemplate: string
+    maxTokens: number
+  }
+  dagPlan?: {
+    steps: L2DagStep[]
+    fallbackStrategy: 'retry' | 'skip' | 'ask_user'
+    maxRetries: number
+  }
+  paramMapping: {
+    slots: L2ParamSlot[]
+    bindings: L2ParamBinding[]
+  }
+  fallbackModelTier?: 'mini' | 'nano' | 'rule'
+  conditions?: L2ConditionBranch[]
+}
+
+export interface L2ConditionBranch {
+  fromStep: number
+  toStep: number
+  expr: string
+}
+
+export interface L2RuleCondition {
+  field: string
+  operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'contains' | 'not_contains' | 'regex' | 'between'
+  value: string | number
+  valueMax?: number
+}
+
+export interface L2RuleAction {
+  outputTemplate: string
+  severity?: 'info' | 'warning' | 'error'
+  tags?: string[]
+}
+
+export interface L2RuleEntry {
+  id: string
+  conditions: L2RuleCondition[]
+  action: L2RuleAction
+  priority: number
+}
+
+export interface L2RuleBasedFallback {
+  enabled: boolean
+  coverage: number
+  rules: L2RuleEntry[]
+  fallbackToLLM: boolean
+  targetStep?: number
+}
+
+export interface L2ToolCacheMeta {
+  estimatedTokenSaving: number
+  avgExecutionTime: number
+  cacheable: boolean
+  cacheKeyTemplate?: string
+  cacheTTL?: number
+}
+
+export interface L2ToolManifest {
+  identity: L2ToolIdentity
+  visual: L2ToolVisual
+  routing: L2ToolRouting
+  execution: L2ToolExecution
+  cacheMeta: L2ToolCacheMeta
+  ruleBasedFallback?: L2RuleBasedFallback
+}
+
+export interface SkillCatalogItem {
+  id: string
+  name: string
+  description: string
+  category: string
+  version: string
+  author: string
+  nodes: SkillNode[]
+  edges: SkillEdge[]
+  dependencies: string[]
+  tags: string[]
+  mcpServerId?: string
+  mcpCommand?: string
+  mcpArgs?: string[]
+  mcpEnvKeys?: string[]
+  mcpTools?: string[]
+  homepage?: string
+}
+
+export type ProbeSource = 'rule' | 'cache' | 'llm' | 'mcp' | 'shell' | 'read_file' | 'knowledge' | 'skip' | 'error'
+
+export type ConsoleLogLevel = 'log' | 'warn' | 'error' | 'info'
+
+export type ConsoleCategory = 'system' | 'raap' | 'llm' | 'shell' | 'cache' | 'rule' | 'dialog' | 'feedback' | 'factguard' | 'tool' | 'schedule'
+
+export interface ConsoleLogEntry {
+  id: string
+  level: ConsoleLogLevel
+  text: string
+  timestamp: number
+  tag?: string
+  category?: ConsoleCategory
+  detail?: string
+}
+
+export interface ProbeSnapshot {
+  id: string
+  stepNum: number
+  manifestId: string
+  source: ProbeSource
+  sourceDetail: string
+  toolName: string
+  inputSnapshot: Record<string, unknown>
+  outputSnapshot: string
+  modelTier?: string
+  modelParams?: { temperature?: number; topP?: number; maxTokens?: number }
+  ruleId?: string
+  cacheFingerprint?: string
+  errorStack?: string
+  timestamp: number
+  durationMs: number
+  tokenUsage?: { promptTokens: number; completionTokens: number; totalTokens: number; estimatedCostCny: number }
+}
+
+export interface DebugSession {
+  id: string
+  startedAt: number
+  probes: ProbeSnapshot[]
+  environment: {
+    model: string
+    provider: string
+    apiReachable: boolean
+    nodeCount: number
+    manifestCount: number
+  }
+}
+
+export interface DagCheckpoint {
+  id: string
+  manifestId: string
+  userInput: { filePath?: string; inputText?: string; context?: string }
+  completedResults: Record<number, string>
+  failedSteps: number[]
+  skipSteps: number[]
+  totalSteps: number
+  createdAt: number
+  updatedAt: number
+  resumed: boolean
+}
+
+export type FeedbackAction = 'thumbs_up' | 'thumbs_down' | 'undo'
+
+export interface DecisionContext {
+  rewriteStrategy: string
+  disambigStrategy: string
+  wasRewritten: boolean
+  originalQuery: string
+  rewrittenQuery?: string
+  matchResult: string
+  gate: string
+}
+
+export interface FeedbackEntry {
+  id: string
+  queryFingerprint: string
+  matchedSkillId: string
+  contextFiles: string[]
+  action: FeedbackAction
+  timestamp: number
+  sessionId: string
+  decisionContext?: DecisionContext
+}
+
+export interface SkillWeightModifier {
+  skillId: string
+  modifier: number
+  decayRate: number
+  lastUpdated: number
+}
+
+export interface SideEffectRecord {
+  stepNum: number
+  tool: string
+  operation: 'create' | 'modify' | 'read'
+  filePath: string
+  originalExisted: boolean
+  timestamp: number
+}
+
+export interface SideEffectManifest {
+  executionId: string
+  manifestId: string
+  userInput: string
+  queryFingerprint: string
+  sideEffects: SideEffectRecord[]
+  timestamp: number
+}
+
+export interface ActionManifest {
+  skill_id: string
+  target_file: string
+  operation: string
+  expected_output: string
+  intent: string
+  isHighRisk: boolean
+}
+
+export type RiskLevel = 'low' | 'medium' | 'high'
+
+export interface ValidationResult {
+  intent_match: boolean
+  parameter_sane: boolean
+  risk_level: RiskLevel
+  reason?: string
+  from_cache?: boolean
+}
+
+export interface ValidationCacheEntry {
+  key: string
+  result: ValidationResult
+  timestamp: number
+}

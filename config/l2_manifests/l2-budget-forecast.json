@@ -1,0 +1,86 @@
+{
+  "identity": {
+    "id": "l2-budget-forecast-v1",
+    "name": "预算预测助手",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-budget-forecast"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传预算数据→预测分析报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["预算", "预测", "财务", "规划", "成本", "支出预测"],
+    "targetRoles": ["finance"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator"],
+    "inputType": "file_or_text",
+    "retrievalSummary": "上传预算数据，自动生成预测分析报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取预算数据文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "预算原始数据"
+        },
+        {
+          "step": 2,
+          "description": "检索预算预测模型",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "预算预测方法 趋势分析 成本预测 财务规划模型" },
+          "expectedOutput": "预算预测方法论",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 3,
+          "description": "AI生成预算预测",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是财务规划专家。根据预算数据和预测模型，生成预算预测报告，包含：历史趋势分析、下季度/年度预测、关键假设、风险因素、调整建议。\n\n预测模型：{{step_2_result}}\n\n预算数据：{{step_1_result}}"
+          },
+          "expectedOutput": "预算预测报告",
+          "fallback": "llm_generate"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "预算数据文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2000,
+    "avgExecutionTime": 13000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "identity": {
+    "id": "l2-sales-proposal-draft-v1",
+    "name": "销售提案草稿",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-sales-proposal"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["sparkle"],
+    "hoverLabel": "输入客户需求→销售提案草稿",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["销售", "提案", "方案", "客户", "商务", "报价"],
+    "targetRoles": ["sales"],
+    "requiredL1": ["l1-task-translator", "l1-result-beautifier"],
+    "inputType": "text",
+    "retrievalSummary": "根据客户需求自动生成销售提案草稿"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "检索销售方案模板",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "销售提案模板 商务方案 客户需求分析 报价策略" },
+          "expectedOutput": "销售方案模板框架",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 2,
+          "description": "AI生成销售提案",
+          "tool": "llm_generate",
+          "depends_on": [1],
+          "params": {
+            "prompt": "你是资深销售顾问。根据销售提案模板和客户需求，生成一份完整的销售提案草稿，包含：客户痛点分析、解决方案概述、产品/服务推荐、报价方案、实施计划、成功案例。\n\n提案模板：{{step_1_result}}\n\n客户需求：{{input}}"
+          },
+          "expectedOutput": "销售提案文本"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "客户需求描述",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 2,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1800,
+    "avgExecutionTime": 9000,
+    "cacheable": true,
+    "cacheKeyTemplate": "sales-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

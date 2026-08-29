@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-client-email-compose-v1",
+    "name": "客户邮件撰写",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-client-email"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "输入要点→专业客户邮件",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["邮件", "客户", "撰写", "商务邮件", "回复", "沟通"],
+    "targetRoles": ["sales"],
+    "requiredL1": ["l1-task-translator", "l1-workspace-memory"],
+    "inputType": "text",
+    "retrievalSummary": "根据要点自动撰写专业商务客户邮件"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请根据以下要点，撰写一封专业的商务客户邮件。要求：语气得体、结构清晰（称呼+正文+落款）、突出重点、措辞专业。\n\n要点：{{input}}",
+      "maxTokens": 2048
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "邮件要点",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 600,
+    "avgExecutionTime": 3000,
+    "cacheable": true,
+    "cacheKeyTemplate": "email-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

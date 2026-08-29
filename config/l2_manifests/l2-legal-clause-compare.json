@@ -1,0 +1,106 @@
+{
+  "identity": {
+    "id": "l2-legal-clause-compare-v1",
+    "name": "条款对比助手",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-legal-clause-compare"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传两份条款→差异对比报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["条款", "对比", "合同条款", "差异", "法律条款", "修订"],
+    "targetRoles": ["legal"],
+    "requiredL1": ["l1-task-translator", "l1-result-beautifier"],
+    "inputType": "file",
+    "retrievalSummary": "上传两份条款文件，自动对比差异并生成报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取原条款文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "原条款内容"
+        },
+        {
+          "step": 2,
+          "description": "读取对比条款文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{compare_file}}" },
+          "expectedOutput": "对比条款内容"
+        },
+        {
+          "step": 3,
+          "description": "AI对比分析条款差异",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是法律条款分析专家。对比以下两份条款内容，逐条标注差异：原文、对比文、差异类型（新增/删除/修改）、影响评估、建议。\n\n原条款：{{step_1_result}}\n\n对比条款：{{step_2_result}}"
+          },
+          "expectedOutput": "条款差异分析文本",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 4,
+          "description": "生成对比报告docx",
+          "tool": "shell_exec",
+          "depends_on": [3],
+          "params": {
+            "command": "node -e \"const {Document,Packer,Paragraph,TextRun,HeadingLevel}=require('docx');const fs=require('fs');const r=process.env.ANALYSIS;const doc=new Document({sections:[{children:[new Paragraph({text:'条款对比报告',heading:HeadingLevel.HEADING_1}),new Paragraph({children:[new TextRun(r)]})]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\条款对比报告.docx',buf))\""
+          },
+          "expectedOutput": "桌面docx报告"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "原条款文件路径",
+          "required": true
+        },
+        {
+          "name": "{{compare_file}}",
+          "source": "file_path",
+          "description": "对比条款文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        },
+        {
+          "slotName": "{{compare_file}}",
+          "targetStep": 2,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2000,
+    "avgExecutionTime": 14000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

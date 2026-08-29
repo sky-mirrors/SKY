@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-doc-translate-en-v1",
+    "name": "文档翻译英文版",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-translate-en"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "中文文档→格式一致的英文版",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["翻译", "英文", "English", "中译英", "文档翻译"],
+    "targetRoles": ["general"],
+    "requiredL1": ["l1-task-translator", "l1-result-beautifier"],
+    "inputType": "file_or_text",
+    "retrievalSummary": "将中文文档翻译为格式一致的英文版本"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请将以下中文内容翻译为英文，保持原有格式和段落结构不变。专业术语保留原文并附英文翻译：\n\n{{input}}",
+      "maxTokens": 8192
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "待翻译的中文文本",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1200,
+    "avgExecutionTime": 5000,
+    "cacheable": true,
+    "cacheKeyTemplate": "translate-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

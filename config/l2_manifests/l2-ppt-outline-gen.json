@@ -1,0 +1,58 @@
+{
+  "identity": {
+    "id": "l2-ppt-outline-gen-v1",
+    "name": "PPT大纲生成",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-ppt-outline"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["lightning"],
+    "hoverLabel": "输入主题→PPT大纲结构",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["PPT", "大纲", "演示", "幻灯片", "演讲", "提纲"],
+    "targetRoles": ["general"],
+    "requiredL1": ["l1-task-translator", "l1-result-beautifier"],
+    "inputType": "text",
+    "retrievalSummary": "根据主题自动生成PPT大纲结构"
+  },
+  "execution": {
+    "mode": "direct",
+    "directCall": {
+      "l1Target": "l1-model-gateway",
+      "promptTemplate": "请根据以下主题，生成一份PPT大纲。要求：逻辑清晰、层次分明，每页包含标题和要点。输出格式：页码 + 标题 + 要点列表。\n\n主题：{{input}}",
+      "maxTokens": 4096
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{input}}",
+          "source": "input_text",
+          "description": "PPT主题描述",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{input}}",
+          "targetStep": 0,
+          "targetParam": "prompt"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 800,
+    "avgExecutionTime": 4000,
+    "cacheable": true,
+    "cacheKeyTemplate": "ppt-{{input_hash}}-v{{identity.version}}",
+    "cacheTTL": 604800000
+  }
+}

@@ -1,0 +1,1051 @@
+import { L2ToolManifest, L2DagStep, ProbeSnapshot, ProbeSource, DagCheckpoint } from '@/models'
+import { useApiStore } from '@/stores/apiStore'
+import { useMcpStore } from '@/stores/mcpStore'
+import { useDebugStore } from '@/stores/debugStore'
+import { extractEntities, shouldTrigger, runFactGuard, type FactGuardResult } from './factGuard'
+import {
+  compilePrompt,
+  fillCompiledPrompt,
+  computeInputFingerprint,
+  findCachedExecution,
+  saveExecutionFingerprint,
+  computeStepOutputHash,
+  findDirtySteps,
+  getTierConfig,
+  computeStepPlan,
+  computeParallelGroups,
+  formatStepPlanVisualization,
+  isManifestAutoCompiled,
+  simulateDataFlow
+} from './scheduleOptimizer'
+import { runRuleEngine, buildRuleContext } from './ruleEngine'
+import type { RuleEngineResult } from './ruleEngine'
+import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } from './dagCheckpoint'
+
+const STEP_TIMEOUT_MS: Record<string, number> = {
+  nano: 8000,
+  mini: 15000,
+  standard: 30000,
+  pro: 60000
+}
+
+const TIER_DOWNGRADE: Record<string, string> = {
+  pro: 'standard',
+  standard: 'mini',
+  mini: 'nano',
+  nano: 'rule'
+}
+
+const compiledPromptCache = new Map<string, ReturnType<typeof compilePrompt>>()
+
+function probeStep(
+  manifestId: string,
+  stepNum: number,
+  toolName: string,
+  source: ProbeSource,
+  sourceDetail: string,
+  inputSnapshot: Record<string, unknown>,
+  outputSnapshot: string,
+  durationMs: number,
+  extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>
+) {
+  try {
+    const debugStore = useDebugStore()
+    const stepCost = debugStore.stepCosts[stepNum]
+    const tokenUsage = stepCost ? {
+      promptTokens: stepCost.promptTokens,
+      completionTokens: stepCost.completionTokens,
+      totalTokens: stepCost.promptTokens + stepCost.completionTokens,
+      estimatedCostCny: stepCost.estimatedCostCny
+    } : undefined
+    debugStore.recordProbe({
+      id: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      stepNum,
+      manifestId,
+      source,
+      sourceDetail,
+      toolName,
+      inputSnapshot,
+      outputSnapshot: outputSnapshot.substring(0, 2000),
+      timestamp: Date.now(),
+      durationMs,
+      tokenUsage,
+      ...extra
+    })
+  } catch { /* non-critical */ }
+}
+
+function sourceForTool(toolName: string): ProbeSource {
+  if (toolName === 'llm_generate') return 'llm'
+  if (toolName === 'shell_exec') return 'shell'
+  if (toolName === 'read_file') return 'read_file'
+  if (toolName === 'file_write') return 'rule'
+  if (toolName === 'create_directory') return 'rule'
+  if (toolName === 'create_docx') return 'rule'
+  if (toolName === 'http_request') return 'shell'
+  if (toolName === 'knowledge_search') return 'knowledge'
+  if (toolName.includes('___')) return 'mcp'
+  return 'mcp'
+}
+
+function getCompiledPrompt(template: string) {
+  const existing = compiledPromptCache.get(template)
+  if (existing) return existing
+  const compiled = compilePrompt(template)
+  compiledPromptCache.set(template, compiled)
+  return compiled
+}
+
+export async function callToolDirectWithTier(
+  mcpStore: ReturnType<typeof useMcpStore>,
+  fullName: string,
+  args: Record<string, unknown>,
+  modelTier?: string,
+  timeoutMs?: number,
+  externalSignal?: AbortSignal,
+  stepResults?: Record<number, string>,
+  userInput?: { inputText?: string }
+): Promise<string> {
+  const isWin = window.electronAPI?.platform === 'win32'
+  const defaultHome = isWin ? 'C:\\Users\\Administrator' : '/home/user'
+
+  async function resolveFilePath(p: string): Promise<string> {
+    if (p.includes('%USERPROFILE%')) {
+      const resolved = await window.electronAPI?.resolvePath('%USERPROFILE%') || defaultHome
+      p = p.replace('%USERPROFILE%', resolved)
+    }
+    if (p.includes('%HOME%')) {
+      const resolved = await window.electronAPI?.resolvePath('%HOME%') || defaultHome
+      p = p.replace('%HOME%', resolved)
+    }
+    return p
+  }
+
+  if (fullName === 'file_write') {
+    if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
+    const filePath = await resolveFilePath(String(args.filePath || args.path || ''))
+    if (!filePath) throw new Error('file_write: missing filePath')
+    const result = await window.electronAPI.fileWrite({
+      filePath,
+      content: String(args.content || ''),
+      encoding: args.encoding ? String(args.encoding) as BufferEncoding : undefined
+    })
+    if (result.success) return `文件已写入: ${result.path}`
+    throw new Error(result.error || 'file_write failed')
+  }
+
+  if (fullName === 'create_directory') {
+    if (!window.electronAPI?.createDirectory) throw new Error('create_directory not available')
+    const dirPath = await resolveFilePath(String(args.path || args.dirPath || ''))
+    if (!dirPath) throw new Error('create_directory: missing path')
+    const result = await window.electronAPI.createDirectory(dirPath)
+    if (result.success) return `目录已创建: ${result.path}`
+    throw new Error(result.error || 'create_directory failed')
+  }
+
+  if (fullName === 'create_docx') {
+    if (!window.electronAPI?.createDocx) throw new Error('create_docx not available')
+    const filePath = await resolveFilePath(String(args.filePath || args.path || ''))
+    if (!filePath) throw new Error('create_docx: missing filePath')
+    const result = await window.electronAPI.createDocx({
+      filePath,
+      content: args.content ? String(args.content) : undefined,
+      title: args.title ? String(args.title) : undefined
+    })
+    if (result.success) return `docx文件已创建: ${result.path}`
+    throw new Error(result.error || 'create_docx failed')
+  }
+
+  if (fullName === 'shell_exec') {
+    if (!window.electronAPI?.shellExec) throw new Error('shell_exec not available')
+    const env: Record<string, string> = {}
+    if (userInput?.inputText) env['USER_INPUT'] = userInput.inputText.substring(0, 8000)
+    if (args.env_content) env['CONTENT'] = String(args.env_content).substring(0, 8000)
+    if (args.env_output_path) env['OUTPUT_PATH'] = String(args.env_output_path)
+    if (stepResults) {
+      for (const [sNum, sResult] of Object.entries(stepResults)) {
+        env[`STEP_${sNum}_RESULT`] = sResult.substring(0, 8000)
+      }
+      if (Object.keys(stepResults).length > 0) {
+        const lastKey = Object.keys(stepResults).sort((a, b) => Number(b) - Number(a))[0]
+        env['ANALYSIS'] = stepResults[Number(lastKey)].substring(0, 8000)
+      }
+    }
+    const result = await window.electronAPI.shellExec({
+      command: String(args.command || ''),
+      cwd: args.cwd ? String(args.cwd) : undefined,
+      timeout: timeoutMs || Number(args.timeout) || 60000,
+      env
+    })
+    if (result.success) {
+      const cmd = String(args.command || '')
+      try {
+        const { useDebugStore } = await import('@/stores/debugStore')
+        const ds = useDebugStore()
+        ds.emitEvent('info', 'shell', `[shell_exec] 成功 exit=0 | stdout=${(result.stdout || '').substring(0, 200)}`, result.stdout)
+        if (result.stderr) ds.emitEvent('warn', 'shell', `[shell_exec] stderr: ${result.stderr.substring(0, 200)}`, result.stderr)
+      } catch { /* ignore */ }
+      const desktopFileMatch = cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\\\([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\/([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\([^'"]+)/)
+      if (desktopFileMatch) {
+        const expectedFileName = desktopFileMatch[1].replace(/['"]/g, '')
+        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');console.log(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
+        try {
+          const checkResult = await window.electronAPI.shellExec({
+            command: checkCmd,
+            timeout: 5000,
+            env: {
+              HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Administrator' : '/home/user',
+              EXPECTED_FILE: expectedFileName
+            }
+          })
+          if (checkResult.stdout.includes('FILE_EXISTS')) {
+            return `文件已保存: ${expectedFileName}`
+          }
+          return `⚠️ 命令执行成功但文件未找到: ${expectedFileName}。原始输出: ${result.stdout || '(无输出)'}`
+        } catch {
+          return result.stdout || '(命令执行成功，无输出)'
+        }
+      }
+      return result.stdout || '(命令执行成功，无输出)'
+    }
+    try {
+      const { useDebugStore } = await import('@/stores/debugStore')
+      useDebugStore().emitEvent('error', 'shell', `[shell_exec] 失败 exit=${result.code}`, result.stderr)
+    } catch { /* ignore */ }
+    return `命令执行失败(exit code ${result.code}): ${result.stderr || result.stdout || '未知错误'}`
+  }
+
+  if (fullName === 'read_file') {
+    if (!window.electronAPI?.fileRead) throw new Error('read_file not available')
+    const path = String(args.path || args.file_path || '')
+    if (!path) throw new Error('read_file: missing path')
+    const result = await window.electronAPI.fileRead(path, 200000)
+    if (result.success && result.content) {
+      const header = result.isBinary ? '' : `[文件: ${path}, 大小: ${result.size}字节]\n`
+      return header + result.content
+    }
+    throw new Error(result.error || 'read_file failed')
+  }
+
+  if (fullName === 'http_request') {
+    if (!window.electronAPI?.httpFetch) throw new Error('http_request not available')
+    const url = String(args.url || '')
+    if (!url) throw new Error('http_request: missing url')
+    const result = await window.electronAPI.httpFetch({
+      url,
+      method: String(args.method || 'GET'),
+      headers: args.headers as Record<string, string> | undefined,
+      body: args.body ? String(args.body) : undefined,
+      timeout: Number(args.timeout) || 30000
+    })
+    if (result.success) {
+      return `[HTTP ${result.status}] ${result.body || '(空响应)'}`
+    }
+    throw new Error(result.error || `HTTP请求失败: ${result.status}`)
+  }
+
+  if (fullName === 'llm_generate') {
+    const apiStore = useApiStore()
+    const prompt = String(args.prompt || args.input || '')
+    if (!prompt) throw new Error('llm_generate: missing prompt')
+
+    const tier = modelTier || 'standard'
+    const tierConfig = getTierConfig(tier)
+    const maxTokens = Number(args.maxTokens) || tierConfig.maxTokens
+    const stepTimeout = timeoutMs || STEP_TIMEOUT_MS[tier] || 30000
+
+    let currentTier = tier
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), stepTimeout)
+
+      if (externalSignal) {
+        if (externalSignal.aborted) {
+          clearTimeout(timeoutId)
+          throw new DOMException('Aborted by external signal', 'AbortError')
+        }
+        externalSignal.addEventListener('abort', () => {
+          controller.abort()
+          clearTimeout(timeoutId)
+        }, { once: true })
+      }
+
+      try {
+        const resp = await apiStore.chatCompletion(
+          [{ role: 'user', content: prompt }],
+          true,
+          undefined,
+          Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
+          controller.signal
+        )
+        clearTimeout(timeoutId)
+        return resp.content || '(LLM无输出)'
+      } catch (err) {
+        clearTimeout(timeoutId)
+        lastError = err instanceof Error ? err : new Error(String(err))
+        if (externalSignal?.aborted) {
+          throw new DOMException('Aborted by external signal', 'AbortError')
+        }
+        const nextTier = TIER_DOWNGRADE[currentTier]
+        if (nextTier && nextTier !== 'rule') {
+          console.log(`[macroExecutor] tier降级: ${currentTier} → ${nextTier}`)
+          currentTier = nextTier
+        } else {
+          break
+        }
+      }
+    }
+
+    throw lastError || new Error('llm_generate failed after all tier downgrades')
+  }
+
+  if (fullName === 'knowledge_search') {
+    try {
+      const { searchKnowledge } = await import('./knowledgeBase')
+      const query = String(args.query || args.input || '')
+      const results = await searchKnowledge(query, 5)
+      return results.filter(r => r && r.trim()).join('\n---\n') || '(未检索到相关内容)'
+    } catch (err) {
+      throw new Error(`知识库检索失败: ${String(err).substring(0, 100)}`)
+    }
+  }
+
+  const sepIdx = fullName.indexOf('___')
+  if (sepIdx < 0) throw new Error(`无效工具名: ${fullName}`)
+  const mcpIdRaw = fullName.substring(0, sepIdx)
+  const toolName = fullName.substring(sepIdx + 3)
+  const conn = mcpStore.connections.find(c => {
+    const safeId = c.id.replace(/[^a-zA-Z0-9_-]/g, '_')
+    return safeId === mcpIdRaw
+  })
+  if (!conn) throw new Error(`MCP连接未找到: ${mcpIdRaw}`)
+  const result = await mcpStore.callTool(conn.id, toolName, args)
+  return result
+}
+
+export function extractStepResult(result: string, consumerStep: L2DagStep, sourceStepNum: number, allSteps: L2DagStep[]): string {
+  const sourceStep = allSteps.find(s => s.step === sourceStepNum)
+  const extract = sourceStep?.outputExtract
+  if (!extract) {
+    const consumerTier = consumerStep.modelTier || 'standard'
+    const limit = consumerTier === 'nano' ? 300 : consumerTier === 'mini' ? 600 : consumerTier === 'pro' ? 2000 : 800
+    return result.substring(0, limit)
+  }
+  try {
+    const jsonMatch = result.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>
+      const pathParts = extract.replace(/^\$\./, '').split('.')
+      let current: unknown = parsed
+      for (const part of pathParts) {
+        if (current && typeof current === 'object' && !Array.isArray(current)) {
+          current = (current as Record<string, unknown>)[part]
+        } else if (Array.isArray(current)) {
+          const idx = Number(part)
+          current = isNaN(idx) ? current : current[idx]
+        } else {
+          break
+        }
+      }
+      if (current !== undefined && current !== null) {
+        return typeof current === 'string' ? current : JSON.stringify(current)
+      }
+    }
+  } catch { /* fall through to truncation */ }
+  return result.substring(0, 500)
+}
+
+export function resolveParams(
+  step: L2DagStep,
+  manifest: L2ToolManifest,
+  userInput: { filePath?: string; inputText?: string; context?: string },
+  stepResults: Record<number, string>
+): Record<string, unknown> {
+  const allSteps = manifest.execution.dagPlan?.steps || []
+  const resolved: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(step.params)) {
+    resolved[k] = v
+  }
+  for (const binding of manifest.execution.paramMapping.bindings) {
+    if (binding.targetStep === step.step) {
+      const slot = manifest.execution.paramMapping.slots.find(s => s.name === binding.slotName)
+      if (slot) {
+        let value: string | undefined
+        if (slot.source === 'file_path') value = userInput.filePath
+        else if (slot.source === 'input_text') value = userInput.inputText
+        else if (slot.source === 'context') value = userInput.context
+        else if (slot.source === 'clipboard') value = ''
+        if (value) resolved[binding.targetParam] = value
+      }
+    }
+  }
+  for (const [key, val] of Object.entries(resolved)) {
+    if (typeof val !== 'string') continue
+    const compiled = getCompiledPrompt(val)
+    const variables: Record<string, string> = {
+      input: userInput.inputText || '',
+      user_file: userInput.filePath || '',
+      context: userInput.context || ''
+    }
+    for (const [sNum, sResult] of Object.entries(stepResults)) {
+      variables[`step_${sNum}_result`] = extractStepResult(sResult, step, Number(sNum), allSteps)
+    }
+    resolved[key] = fillCompiledPrompt(compiled, variables)
+  }
+  return resolved
+}
+
+export function evaluateCondition(expr: string, stepResults: Record<number, string>): boolean {
+  try {
+    const amountMatch = expr.match(/\$\.output\.(amount|totalAmount|total)\s*>\s*(\d+)/)
+    if (amountMatch) {
+      const threshold = Number(amountMatch[2])
+      for (const result of Object.values(stepResults)) {
+        const numMatch = result.match(/[\d,]+\.?\d*/g)
+        if (numMatch) {
+          const val = Number(numMatch[0].replace(/,/g, ''))
+          if (val > threshold) return true
+        }
+      }
+      return false
+    }
+    const containsMatch = expr.match(/\$\.output\.contains\(['"](.+?)['"]\)/)
+    if (containsMatch) {
+      const keyword = containsMatch[1]
+      for (const result of Object.values(stepResults)) {
+        if (result.includes(keyword)) return true
+      }
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function executeStep(
+  step: L2DagStep,
+  manifest: L2ToolManifest,
+  userInput: { filePath?: string; inputText?: string; context?: string },
+  stepResults: Record<number, string>,
+  mcpStore: ReturnType<typeof useMcpStore>,
+  onStepStart?: (stepNum: number, tool: string) => void,
+  onStepDone?: (stepNum: number, result: string) => void,
+  onStepFailed?: (stepNum: number, error: string) => void,
+  macroSignal?: AbortSignal,
+  onSideEffect?: (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => void
+): Promise<{ done: boolean; result?: string; fromCache?: boolean; fromRule?: boolean; ruleMatchedId?: string; usedFallback?: boolean }> {
+  const resolvedArgs = resolveParams(step, manifest, userInput, stepResults)
+  onStepStart?.(step.step, step.tool)
+
+  try {
+    const { useDebugStore } = await import('@/stores/debugStore')
+    const ds = useDebugStore()
+    ds.emitEvent('info', step.tool === 'shell_exec' ? 'shell' : step.tool === 'llm_generate' ? 'llm' : 'tool',
+      `[executeStep] S${step.step} ${step.tool} | 依赖=${(step.depends_on || []).join(',')} | 参数=${JSON.stringify(resolvedArgs).substring(0, 200)}`)
+  } catch { /* ignore */ }
+
+  if (macroSignal?.aborted) {
+    onStepFailed?.(step.step, '宏执行已取消')
+    return { done: false }
+  }
+
+  const ruleTarget = manifest.ruleBasedFallback?.targetStep
+  const ruleAppliesToStep = ruleTarget == null || ruleTarget === step.step
+  if (step.tool === 'llm_generate' && manifest.ruleBasedFallback?.enabled && ruleAppliesToStep) {
+    const ctx = buildRuleContext(userInput, stepResults)
+    const ruleResult = runRuleEngine(manifest.ruleBasedFallback, ctx)
+    if (ruleResult.matched) {
+      onStepDone?.(step.step, ruleResult.output)
+      probeStep(manifest.identity.id, step.step, step.tool, 'rule', `规则引擎命中: ${ruleResult.matchedRuleId}`, resolvedArgs, ruleResult.output, 0, { ruleId: ruleResult.matchedRuleId })
+      return { done: true, result: ruleResult.output, fromCache: false, fromRule: true, ruleMatchedId: ruleResult.matchedRuleId }
+    }
+  }
+
+  const stepStartTime = Date.now()
+  const tier = step.modelTier || (manifest.execution.fallbackModelTier as string | undefined)
+  try {
+    const contextText = Object.values(stepResults).join('\n') + '\n' + (userInput.inputText || '') + '\n' + (userInput.context || '')
+    let groundTruthEntities: ReturnType<typeof extractEntities> = []
+    if (step.tool === 'llm_generate' && shouldTrigger(manifest.routing.targetRoles, contextText)) {
+      groundTruthEntities = extractEntities(contextText.substring(0, 5000))
+    }
+
+    if (step.tool === 'shell_exec') {
+      const { shouldValidate, buildActionManifest, dualEngineValidate } = await import('./dualEngineValidator')
+      if (shouldValidate(step, manifest.identity.id)) {
+        const actionManifest = buildActionManifest(manifest.identity.id, step, userInput.inputText || '')
+        const validation = await dualEngineValidate(actionManifest, userInput.inputText || '')
+        try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('info', 'factguard', `[双引擎审核] S${step.step} | intent=${validation.intent_match} | param=${validation.parameter_sane} | risk=${validation.risk_level}${validation.reason ? ' | ' + validation.reason : ''}`) } catch { /* ignore */ }
+
+        if (!validation.intent_match) {
+          const msg = `双引擎审核: 意图偏离 — ${validation.reason || '动作不匹配用户意图'}`
+          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime)
+          throw new Error(msg)
+        }
+        if (!validation.parameter_sane) {
+          const msg = `双引擎审核: 参数存疑 — ${validation.reason || '目标文件格式不匹配'}`
+          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime)
+          throw new Error(msg)
+        }
+        if (validation.risk_level === 'high') {
+          try {
+            const { useDialogStore } = await import('@/stores/dialogStore')
+            const dialogStore = useDialogStore()
+            const approved = await dialogStore.requestRiskConfirm(actionManifest)
+            if (!approved) {
+              throw new Error('用户拒绝高风险操作')
+            }
+          } catch (e) {
+            if ((e as Error).message === '用户拒绝高风险操作') throw e
+          }
+        }
+      }
+    }
+
+    let result = await callToolDirectWithTier(mcpStore, step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+
+    if (step.tool === 'shell_exec') {
+      const cmd = String(resolvedArgs.command || '')
+      const fileMatch = cmd.match(/writeFileSync\(\s*['"]([^'"]+)['"]/)
+      if (fileMatch) {
+        onSideEffect?.(step.step, step.tool, 'create', fileMatch[1])
+      }
+    }
+    if (step.tool === 'read_file') {
+      const path = String(resolvedArgs.path || resolvedArgs.file_path || '')
+      if (path) onSideEffect?.(step.step, step.tool, 'read', path)
+    }
+
+    if (step.tool === 'llm_generate' && groundTruthEntities.length > 0) {
+      const outputEntities = extractEntities(result.substring(0, 5000))
+      const factResult = runFactGuard(groundTruthEntities, outputEntities, result)
+      console.log(`[FactGuard] step${step.step}: ${factResult.summary}`)
+      if (factResult.severity === 'critical') {
+        const errDetail = factResult.conflicts.filter(c => c.severity === 'critical').map(c => c.diff).join('；')
+        probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${errDetail}`, resolvedArgs, result, Date.now() - stepStartTime)
+        throw new Error(`FactGuard: ${errDetail}`)
+      }
+      if (factResult.severity === 'minor' && factResult.correctedOutput) {
+        result = factResult.correctedOutput
+        console.log(`[FactGuard] step${step.step}: 微小差异已自动修正`)
+      }
+      if (factResult.hallucinatedEntities.length > 0) {
+        const halluList = factResult.hallucinatedEntities.map(e => `${e.type}:${e.raw}`).join(', ')
+        console.warn(`[FactGuard] step${step.step}: 疑似幻觉实体: ${halluList}`)
+      }
+    }
+
+    onStepDone?.(step.step, result)
+    const dur = Date.now() - stepStartTime
+    const tierConfig = tier ? getTierConfig(tier) : null
+    probeStep(manifest.identity.id, step.step, step.tool, sourceForTool(step.tool), `${step.tool} @ tier=${tier || 'default'}`, resolvedArgs, result, dur, {
+      modelTier: tier,
+      modelParams: tierConfig ? { temperature: tierConfig.temperature, maxTokens: tierConfig.maxTokens } : undefined
+    })
+    return { done: true, result, fromCache: false }
+  } catch (err) {
+    if (macroSignal?.aborted) {
+      onStepFailed?.(step.step, '宏执行已取消')
+      return { done: false }
+    }
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const errStack = err instanceof Error ? err.stack : undefined
+    probeStep(manifest.identity.id, step.step, step.tool, 'error', errMsg, resolvedArgs, '', Date.now() - stepStartTime, { errorStack: errStack })
+
+    try {
+      const { classifyError } = await import('./errorClassifier')
+      const classification = await classifyError(errMsg, step.tool, step.description || '')
+      try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('warn', 'schedule', `[错误分类] S${step.step} ${step.tool}: ${classification.category} → ${classification.action}${classification.fixHint ? ' | ' + classification.fixHint : ''}`) } catch { /* ignore */ }
+
+      if (classification.action === 'abort') {
+        onStepFailed?.(step.step, `${errMsg} [${classification.category}] ${classification.fixHint || ''}`)
+        return { done: false }
+      }
+
+      if (classification.action === 'retry_with_fix' && classification.fixHint) {
+        const fixedArgs = { ...resolvedArgs }
+        if (step.tool === 'shell_exec' && classification.category === 'resource_missing') {
+          const installMatch = errMsg.match(/cannot find module ['"]([^'"]+)['"]/i)
+          if (installMatch) {
+            const mod = installMatch[1]
+            if (!/^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(mod)) {
+              try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('warn', 'shell', `[安全拒绝] npm包名不合法: ${mod}`) } catch { /* ignore */ }
+            } else {
+              try {
+                const installResult = await window.electronAPI?.shellExec({
+                  command: `npm install ${mod}`,
+                  timeout: 30000
+                })
+                if (installResult?.success) {
+                  try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('info', 'shell', `[自动修复] 已安装缺失模块: ${mod}`) } catch { /* ignore */ }
+                  const retryResult = await callToolDirectWithTier(mcpStore, step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
+                  onStepDone?.(step.step, retryResult)
+                  return { done: true, result: retryResult, fromCache: false }
+                }
+              } catch { /* install failed, fall through */ }
+            }
+          }
+        }
+      }
+
+      if (classification.action === 'retry' && !step.fallback) {
+        try {
+          const retryResult = await callToolDirectWithTier(mcpStore, step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+          onStepDone?.(step.step, retryResult)
+          return { done: true, result: retryResult, fromCache: false }
+        } catch (retryErr) {
+          onStepFailed?.(step.step, `重试失败: ${String(retryErr).substring(0, 100)} | 原始错误: ${errMsg}`)
+          return { done: false }
+        }
+      }
+    } catch { /* classification failed, fall through */ }
+
+    if (step.fallback) {
+      try {
+        const fbTier = step.modelTier || 'mini'
+        const fbResult = await callToolDirectWithTier(mcpStore, step.fallback, resolvedArgs, fbTier, undefined, macroSignal, stepResults, userInput)
+        onStepDone?.(step.step, fbResult)
+        return { done: true, result: fbResult, fromCache: false, usedFallback: true }
+      } catch (fbErr) {
+        onStepFailed?.(step.step, `fallback失败: ${String(fbErr).substring(0, 100)} | 原始错误: ${errMsg}`)
+        return { done: false }
+      }
+    }
+    onStepFailed?.(step.step, errMsg)
+    return { done: false }
+  }
+}
+
+export interface StepLineage {
+  step: number
+  source: 'llm_pro' | 'llm_standard' | 'llm_mini' | 'llm_nano' | 'rule_engine' | 'cache_reuse' | 'auto_compiled' | 'skipped' | 'tool_call' | 'fallback' | 'replay_reuse'
+  tool: string
+  tier?: string
+  ruleId?: string
+  durationMs?: number
+}
+
+export type MacroLineage = StepLineage[]
+
+function tierToLineage(tier?: string): StepLineage['source'] {
+  switch (tier) {
+    case 'pro': return 'llm_pro'
+    case 'standard': return 'llm_standard'
+    case 'mini': return 'llm_mini'
+    case 'nano': return 'llm_nano'
+    default: return 'llm_standard'
+  }
+}
+
+function sourceLabel(source: StepLineage['source']): string {
+  switch (source) {
+    case 'llm_pro': return '🤖 LLM Pro'
+    case 'llm_standard': return '🤖 LLM Standard'
+    case 'llm_mini': return '🤖 LLM Mini'
+    case 'llm_nano': return '🤖 LLM Nano'
+    case 'rule_engine': return '📏 规则引擎'
+    case 'cache_reuse': return '♻️ 缓存复用'
+    case 'auto_compiled': return '⚡ 编译态缓存'
+    case 'skipped': return '⏭️ 跳过'
+    case 'tool_call': return '🔧 工具调用'
+    case 'fallback': return '🔄 降级执行'
+    case 'replay_reuse': return '🔁 重放复用'
+    default: return '❓ 未知'
+  }
+}
+
+export function formatLineage(lineage: MacroLineage): string {
+  return lineage.map(l => `步骤${l.step}: ${sourceLabel(l.source)} (${l.tool}${l.ruleId ? ' 规则=' + l.ruleId : ''}${l.tier ? ' 层级=' + l.tier : ''})`).join('\n')
+}
+
+export function computeLineageSavings(lineage: MacroLineage): { tokensSaved: number; llmSteps: number; zeroTokenSteps: number } {
+  let tokensSaved = 0
+  let llmSteps = 0
+  let zeroTokenSteps = 0
+  for (const l of lineage) {
+    if (l.source.startsWith('llm_')) {
+      llmSteps++
+    } else {
+      zeroTokenSteps++
+      tokensSaved += l.tool === 'llm_generate' ? 2000 : 500
+    }
+  }
+  return { tokensSaved, llmSteps, zeroTokenSteps }
+}
+
+function buildStepLineage(step: L2DagStep, execResult: { fromRule?: boolean; ruleMatchedId?: string; usedFallback?: boolean }): StepLineage {
+  if (execResult.fromRule) {
+    return { step: step.step, source: 'rule_engine', tool: step.tool, ruleId: execResult.ruleMatchedId }
+  }
+  if (execResult.usedFallback) {
+    return { step: step.step, source: 'fallback', tool: step.fallback || step.tool, tier: step.modelTier }
+  }
+  if (step.tool === 'llm_generate') {
+    return { step: step.step, source: tierToLineage(step.modelTier), tool: step.tool, tier: step.modelTier }
+  }
+  return { step: step.step, source: 'tool_call', tool: step.tool }
+}
+
+export async function executeMacro(
+  manifest: L2ToolManifest,
+  userInput: { filePath?: string; inputText?: string; context?: string },
+  onStepStart?: (stepNum: number, tool: string) => void,
+  onStepDone?: (stepNum: number, result: string) => void,
+  onStepFailed?: (stepNum: number, error: string) => void,
+  onStepReuse?: (stepNum: number) => void,
+  onStepSkip?: (stepNum: number) => void,
+  onPlanPreview?: (preview: string) => void,
+  replayPriorResults?: Record<number, string>
+): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage }> {
+  const { execution } = manifest
+  const mcpStore = useMcpStore()
+  let savedTokens = 0
+  const macroController = new AbortController()
+  const debugStore = useDebugStore()
+  debugStore.registerAbortController(macroController)
+  const macroSignal = macroController.signal
+  const lineage: MacroLineage = []
+
+  if (execution.mode === 'direct' && execution.directCall) {
+    const apiStore = useApiStore()
+    const compiled = getCompiledPrompt(execution.directCall.promptTemplate)
+    const variables: Record<string, string> = {
+      input: userInput.inputText || '',
+      user_file: userInput.filePath || '',
+      context: userInput.context || ''
+    }
+    for (const slot of execution.paramMapping.slots) {
+      let value = ''
+      if (slot.source === 'file_path') value = userInput.filePath || ''
+      else if (slot.source === 'input_text') value = userInput.inputText || ''
+      else if (slot.source === 'context') value = userInput.context || ''
+      variables[slot.name.replace(/[{}]/g, '')] = value
+    }
+    const prompt = fillCompiledPrompt(compiled, variables)
+    const resp = await apiStore.chatCompletion(
+      [{ role: 'user', content: prompt }],
+      true,
+      undefined,
+      execution.directCall.maxTokens,
+      macroController.signal
+    )
+    return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }] }
+  }
+
+  if (!execution.dagPlan) {
+    throw new Error('macro/chain mode requires dagPlan')
+  }
+
+  const steps = execution.dagPlan.steps
+  const inputFingerprint = computeInputFingerprint(userInput)
+
+  const dataflowReport = simulateDataFlow(steps)
+  if (!dataflowReport.ok) {
+    console.warn(`[MacroExecutor] 数据流预检失败: ${dataflowReport.summary}`)
+    const issueList = dataflowReport.issues.filter(i => i.severity === 'error').map(i => i.description).join('；')
+    throw new Error(`DAG数据流预检失败：${issueList}`)
+  }
+  if (dataflowReport.issues.length > 0) {
+    const warnList = dataflowReport.issues.map(i => i.description).join('；')
+    console.warn(`[MacroExecutor] 数据流警告: ${warnList}`)
+  }
+
+  const executionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const sideEffects: import('@/models').SideEffectRecord[] = []
+  let queryFingerprint = ''
+
+  try {
+    const { computeQueryFingerprint } = await import('@/stores/feedbackStore')
+    queryFingerprint = computeQueryFingerprint(userInput.inputText || '')
+  } catch { /* ignore */ }
+  const cached = findCachedExecution(manifest.identity.id, inputFingerprint)
+  const autoCompiled = isManifestAutoCompiled(manifest.identity.id)
+
+  try {
+    const debugStore = (await import('@/stores/debugStore')).useDebugStore()
+    debugStore.emitEvent('info', 'schedule', `[macroExec] 开始执行 ${manifest.identity.id} | 输入指纹=${inputFingerprint.substring(0, 16)} | 缓存=${!!cached} | 自编译=${autoCompiled}`)
+  } catch { /* ignore */ }
+
+  const sideEffectCb = (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => {
+    sideEffects.push({ stepNum, tool, operation, filePath, originalExisted: operation !== 'create', timestamp: Date.now() })
+    try {
+      useDebugStore().emitEvent('info', 'shell', `[副作用] S${stepNum} ${tool} ${operation} → ${filePath}`)
+    } catch { /* ignore */ }
+  }
+
+  if (autoCompiled && cached) {
+    const finalResults: Record<number, string> = {}
+    for (const step of steps) {
+      if (step.tool === 'llm_generate') {
+        let ruleMatched = false
+        const ruleTarget = manifest.ruleBasedFallback?.targetStep
+        const ruleAppliesToStep = ruleTarget == null || ruleTarget === step.step
+        if (manifest.ruleBasedFallback?.enabled && ruleAppliesToStep) {
+          const ruleCtx = buildRuleContext(userInput, { ...cached.results, ...finalResults })
+          const ruleResult = runRuleEngine(manifest.ruleBasedFallback, ruleCtx)
+          if (ruleResult.matched) {
+            finalResults[step.step] = ruleResult.output
+            onStepDone?.(step.step, ruleResult.output)
+            savedTokens += 2000
+            lineage.push({ step: step.step, source: 'rule_engine', tool: step.tool, ruleId: ruleResult.matchedRuleId })
+            ruleMatched = true
+          }
+        }
+        if (!ruleMatched) {
+          if (cached.results[step.step]) {
+            finalResults[step.step] = cached.results[step.step]
+            onStepReuse?.(step.step)
+            savedTokens += 2000
+            lineage.push({ step: step.step, source: 'auto_compiled', tool: step.tool })
+          } else {
+            const { done, result } = await executeStep(step, manifest, userInput, finalResults, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+            if (done && result) finalResults[step.step] = result
+            lineage.push({ step: step.step, source: tierToLineage(step.modelTier), tool: step.tool, tier: step.modelTier })
+          }
+        }
+      } else {
+        const SIDE_EFFECT_TOOLS = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
+        const hasSideEffect = SIDE_EFFECT_TOOLS.has(step.tool)
+        if (!hasSideEffect && cached.results[step.step]) {
+          finalResults[step.step] = cached.results[step.step]
+          onStepReuse?.(step.step)
+          lineage.push({ step: step.step, source: 'cache_reuse', tool: step.tool })
+        } else {
+          const { done, result } = await executeStep(step, manifest, userInput, finalResults, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+          if (done && result) finalResults[step.step] = result
+          lineage.push({ step: step.step, source: 'tool_call', tool: step.tool })
+        }
+      }
+    }
+    const SIDE_EFFECT_TOOLS_FINGERPRINT = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
+    const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS_FINGERPRINT.has(s.tool)).map(s => s.step))
+    saveExecutionFingerprint(manifest.identity.id, inputFingerprint, {}, finalResults, true, sideEffectStepNums)
+    if (sideEffects.length > 0) {
+      try {
+        const { useFeedbackStore } = await import('@/stores/feedbackStore')
+        useFeedbackStore().addSideEffectManifest({ executionId, manifestId: manifest.identity.id, userInput: userInput.inputText || '', queryFingerprint, sideEffects, timestamp: Date.now() })
+      } catch { /* ignore */ }
+    }
+    const lastStep = steps[steps.length - 1]
+    return { results: finalResults, lastResult: finalResults[lastStep.step] || '执行完成(编译缓存)', savedTokens, lineage }
+  }
+
+  const dirtySteps = cached ? findDirtySteps(manifest, cached, {}) : new Set<number>()
+  const skipSteps = new Set<number>()
+  const stepPlan = computeStepPlan(steps, dirtySteps, skipSteps, cached?.results || null)
+  const parallelGroups = computeParallelGroups(steps, skipSteps)
+
+  const preview = formatStepPlanVisualization(steps, stepPlan, parallelGroups)
+  onPlanPreview?.(preview)
+
+  const stepDone = new Map<number, boolean>()
+  const stepFailed = new Map<number, boolean>()
+  const results: Record<number, string> = {}
+  const conditions = execution.conditions || []
+
+  if (replayPriorResults && Object.keys(replayPriorResults).length > 0) {
+    for (const [stepNum, resultStr] of Object.entries(replayPriorResults)) {
+      const num = Number(stepNum)
+      results[num] = resultStr
+      stepDone.set(num, true)
+      lineage.push({ step: num, source: 'replay_reuse', tool: steps.find(s => s.step === num)?.tool || 'unknown' })
+    }
+    savedTokens += Object.keys(replayPriorResults).length * 500
+  }
+
+  const NO_CACHE_REUSE_TOOLS = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request', 'read_file'])
+  for (const reuseStep of stepPlan.willReuse) {
+    if (NO_CACHE_REUSE_TOOLS.has(reuseStep.tool)) continue
+    if (cached?.results[reuseStep.step]) {
+      results[reuseStep.step] = cached.results[reuseStep.step]
+      stepDone.set(reuseStep.step, true)
+      onStepReuse?.(reuseStep.step)
+      savedTokens += reuseStep.tool === 'llm_generate' ? 2000 : 500
+      lineage.push({ step: reuseStep.step, source: 'cache_reuse', tool: reuseStep.tool })
+      probeStep(manifest.identity.id, reuseStep.step, reuseStep.tool, 'cache', `缓存复用(fingerprint=${inputFingerprint.substring(0, 16)})`, {}, cached.results[reuseStep.step], 0, { cacheFingerprint: inputFingerprint })
+    }
+  }
+
+  for (const skipStep of stepPlan.willSkip) {
+    skipSteps.add(skipStep.step)
+    onStepSkip?.(skipStep.step)
+    lineage.push({ step: skipStep.step, source: 'skipped', tool: skipStep.tool })
+    probeStep(manifest.identity.id, skipStep.step, skipStep.tool, 'skip', '条件短路跳过', {}, '', 0)
+  }
+
+  const activeSteps = stepPlan.willExecute
+  const maxIterations = activeSteps.length * 2
+  let iteration = 0
+
+  const cpId = createCheckpointId(manifest.identity.id, userInput)
+  const existingCp = await getCheckpoint(cpId)
+  if (existingCp && !replayPriorResults) {
+    for (const [sn, rv] of Object.entries(existingCp.completedResults)) {
+      const num = Number(sn)
+      if (!stepDone.has(num)) {
+        results[num] = rv
+        stepDone.set(num, true)
+        lineage.push({ step: num, source: 'replay_reuse', tool: steps.find(s => s.step === num)?.tool || 'unknown' })
+      }
+    }
+    for (const fs of existingCp.failedSteps) {
+      stepFailed.set(fs, true)
+    }
+    for (const ss of existingCp.skipSteps) {
+      skipSteps.add(ss)
+    }
+    savedTokens += Object.keys(existingCp.completedResults).length * 500
+  }
+  const cp: DagCheckpoint = {
+    id: cpId,
+    manifestId: manifest.identity.id,
+    userInput,
+    completedResults: { ...results },
+    failedSteps: Array.from(stepFailed.keys()),
+    skipSteps: Array.from(skipSteps),
+    totalSteps: steps.length,
+    createdAt: existingCp?.createdAt || Date.now(),
+    updatedAt: Date.now(),
+    resumed: !!existingCp
+  }
+
+  while (iteration < maxIterations) {
+    iteration++
+    if (macroController.signal.aborted) break
+
+    const readySteps = activeSteps.filter(s => {
+      if (stepDone.has(s.step) || stepFailed.has(s.step) || skipSteps.has(s.step)) return false
+      return (s.depends_on || []).every(d => stepDone.has(d))
+    })
+
+    if (readySteps.length === 0) break
+
+    if (readySteps.length === 1) {
+      const step = readySteps[0]
+
+      try {
+        const { useDialogStore } = await import('@/stores/dialogStore')
+        const ds = useDialogStore()
+        if (ds.dagPaused && ds.dagPausedStep === step.step) {
+          ds.addSystemNotice(`⏸️ 步骤${step.step}(${step.tool})已暂停，等待操作...`)
+          while (ds.dagPaused && !macroController.signal.aborted) {
+            await new Promise(r => setTimeout(r, 500))
+          }
+          if (ds.awaitingTakeover && ds.takeoverStepNum === step.step) {
+            const takeoverResult = await ds.requestTakeover(step.step)
+            if (takeoverResult) {
+              stepDone.set(step.step, true)
+              results[step.step] = takeoverResult
+              lineage.push({ step: step.step, source: 'tool_call' as const, tool: step.tool })
+              continue
+            }
+          }
+        }
+      } catch { /* ignore */ }
+
+      const execResult = await executeStep(step, manifest, userInput, results, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+      if (execResult.done && execResult.result) {
+        stepDone.set(step.step, true)
+        results[step.step] = execResult.result
+        lineage.push(buildStepLineage(step, execResult))
+        for (const cond of conditions) {
+          if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results)) {
+            skipSteps.add(cond.toStep)
+          }
+        }
+      } else {
+        stepFailed.set(step.step, true)
+        if (execution.dagPlan.fallbackStrategy === 'ask_user') break
+      }
+    } else {
+      const execResults = await Promise.all(
+        readySteps.map(async (step) => {
+      const execResult = await executeStep(step, manifest, userInput, results, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+          return { step, execResult }
+        })
+      )
+      for (const { step, execResult } of execResults) {
+        if (execResult.done && execResult.result) {
+          stepDone.set(step.step, true)
+          results[step.step] = execResult.result
+          lineage.push(buildStepLineage(step, execResult))
+          for (const cond of conditions) {
+            if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results)) {
+              skipSteps.add(cond.toStep)
+            }
+          }
+        } else {
+          stepFailed.set(step.step, true)
+          if (execution.dagPlan.fallbackStrategy === 'ask_user') return { results, lastResult: '执行中断', savedTokens, lineage }
+        }
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    cp.completedResults = { ...results }
+    cp.failedSteps = Array.from(stepFailed.keys())
+    cp.skipSteps = Array.from(skipSteps)
+    cp.updatedAt = Date.now()
+    saveCheckpoint(cp)
+  }
+
+  const allDone = steps.every(s => stepDone.has(s.step) || stepFailed.has(s.step) || skipSteps.has(s.step))
+  if (allDone) {
+    removeCheckpoint(cpId)
+  }
+
+  const stepHashes: Record<number, string> = {}
+  for (const [num, result] of Object.entries(results)) {
+    stepHashes[Number(num)] = computeStepOutputHash(result)
+  }
+  const SIDE_EFFECT_TOOLS_SAVE = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
+  const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS_SAVE.has(s.tool)).map(s => s.step))
+  saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, results, !!cached, sideEffectStepNums)
+
+  if (sideEffects.length > 0) {
+    try {
+      const { useFeedbackStore } = await import('@/stores/feedbackStore')
+      const feedbackStore = useFeedbackStore()
+      feedbackStore.addSideEffectManifest({
+        executionId,
+        manifestId: manifest.identity.id,
+        userInput: userInput.inputText || '',
+        queryFingerprint,
+        sideEffects,
+        timestamp: Date.now()
+      })
+    } catch { /* feedback store not available */ }
+  }
+
+  const lastStep = steps.filter(s => !skipSteps.has(s.step))
+  const finalStep = lastStep[lastStep.length - 1]
+  const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
+  debugStore.clearAbortController()
+  return { results, lastResult, savedTokens, lineage }
+}
+
+export function resolveDirectPrompt(
+  manifest: L2ToolManifest,
+  userInput: { filePath?: string; inputText?: string; context?: string }
+): { prompt: string; maxTokens: number } | null {
+  if (manifest.execution.mode !== 'direct' || !manifest.execution.directCall) return null
+  const compiled = getCompiledPrompt(manifest.execution.directCall.promptTemplate)
+  const variables: Record<string, string> = {
+    input: userInput.inputText || '',
+    user_file: userInput.filePath || '',
+    context: userInput.context || ''
+  }
+  for (const slot of manifest.execution.paramMapping.slots) {
+    let value = ''
+    if (slot.source === 'file_path') value = userInput.filePath || ''
+    else if (slot.source === 'input_text') value = userInput.inputText || ''
+    else if (slot.source === 'context') value = userInput.context || ''
+    variables[slot.name.replace(/[{}]/g, '')] = value
+  }
+  const prompt = fillCompiledPrompt(compiled, variables)
+  return { prompt, maxTokens: manifest.execution.directCall.maxTokens }
+}

@@ -1,0 +1,94 @@
+{
+  "identity": {
+    "id": "l2-competitor-analysis-v1",
+    "name": "竞品分析报告",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-competitor-analysis"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "输入竞品资料→对比分析报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["竞品", "对比", "分析", "市场", "竞争", "产品对比"],
+    "targetRoles": ["sales"],
+    "requiredL1": ["l1-knowledge-feeder", "l1-task-translator", "l1-result-beautifier"],
+    "inputType": "file_or_text",
+    "retrievalSummary": "输入竞品资料，生成对比分析报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "检索竞品分析方法论",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "竞品分析框架 SWOT 功能对比 市场定位" },
+          "expectedOutput": "竞品分析方法论"
+        },
+        {
+          "step": 2,
+          "description": "读取竞品资料",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "竞品原始资料"
+        },
+        {
+          "step": 3,
+          "description": "AI生成对比分析",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是市场分析专家。根据竞品分析框架和竞品资料，生成一份结构化的对比分析报告，包含：产品定位对比、功能差异、价格策略、优劣势分析、建议策略。\n\n分析框架：{{step_1_result}}\n\n竞品资料：{{step_2_result}}"
+          },
+          "expectedOutput": "竞品对比分析文本"
+        },
+        {
+          "step": 4,
+          "description": "生成docx报告",
+          "tool": "shell_exec",
+          "depends_on": [3],
+          "params": {
+            "command": "node -e \"const {Document,Packer,Paragraph,TextRun,HeadingLevel,Table,TableRow,TableCell,WidthType,BorderStyle}=require('docx');const fs=require('fs');const analysis=process.env.ANALYSIS;const doc=new Document({sections:[{children:[new Paragraph({text:'竞品分析报告',heading:HeadingLevel.HEADING_1}),new Paragraph({children:[new TextRun(analysis)]})]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\竞品分析报告.docx',buf))\""
+          },
+          "expectedOutput": "桌面docx报告"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "竞品资料文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 2,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2500,
+    "avgExecutionTime": 18000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

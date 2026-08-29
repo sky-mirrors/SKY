@@ -1,0 +1,96 @@
+{
+  "identity": {
+    "id": "l2-kpi-report-gen-v1",
+    "name": "KPI报告生成",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-kpi-report"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain", "sparkle"],
+    "hoverLabel": "上传KPI数据→可视化报告",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["KPI", "绩效", "指标", "报告", "考核", "OKR"],
+    "targetRoles": ["hr", "finance"],
+    "requiredL1": ["l1-pipeline-builder", "l1-result-beautifier"],
+    "inputType": "file_or_text",
+    "retrievalSummary": "上传KPI数据，自动生成绩效分析报告"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "读取KPI数据文件",
+          "tool": "read_file",
+          "depends_on": [],
+          "params": { "path": "{{user_file}}" },
+          "expectedOutput": "KPI原始数据"
+        },
+        {
+          "step": 2,
+          "description": "检索KPI分析框架",
+          "tool": "knowledge_search",
+          "depends_on": [],
+          "params": { "query": "KPI分析框架 绩效评估方法 指标解读 达成率计算" },
+          "expectedOutput": "KPI评估框架",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 3,
+          "description": "AI生成KPI分析报告",
+          "tool": "llm_generate",
+          "depends_on": [1, 2],
+          "params": {
+            "prompt": "你是绩效管理专家。根据KPI数据和分析框架，生成KPI分析报告，包含：指标达成概览、关键指标分析、同比环比对比、异常指标预警、改进建议。\n\n分析框架：{{step_2_result}}\n\nKPI数据：{{step_1_result}}"
+          },
+          "expectedOutput": "KPI分析文本",
+          "fallback": "llm_generate"
+        },
+        {
+          "step": 4,
+          "description": "生成KPI报告docx",
+          "tool": "shell_exec",
+          "depends_on": [3],
+          "params": {
+            "command": "node -e \"const {Document,Packer,Paragraph,TextRun,HeadingLevel}=require('docx');const fs=require('fs');const r=process.env.ANALYSIS;const doc=new Document({sections:[{children:[new Paragraph({text:'KPI绩效分析报告',heading:HeadingLevel.HEADING_1}),new Paragraph({children:[new TextRun(r)]})]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\KPI绩效分析报告.docx',buf))\""
+          },
+          "expectedOutput": "桌面docx报告"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{user_file}}",
+          "source": "file_path",
+          "description": "KPI数据文件路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{user_file}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 1800,
+    "avgExecutionTime": 15000,
+    "cacheable": false,
+    "cacheTTL": 0
+  }
+}

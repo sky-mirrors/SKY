@@ -1,0 +1,85 @@
+{
+  "identity": {
+    "id": "l2-weekly-report-draft-v1",
+    "name": "周报自动草稿",
+    "version": "1.0.0",
+    "author": "official",
+    "createdAt": 1700000000000,
+    "updatedAt": 1700000000000,
+    "templateId": "official-weekly-report"
+  },
+  "visual": {
+    "baseColor": "#00e5ff",
+    "ringStyle": "solid",
+    "badges": ["chain"],
+    "hoverLabel": "读取本周文档→生成周报草稿",
+    "anchorGlow": "#00ffcc",
+    "upgradeGlow": "#ffd700"
+  },
+  "routing": {
+    "keywords": ["周报", "工作总结", "汇报", "本周", "草稿"],
+    "targetRoles": ["finance", "general"],
+    "requiredL1": ["l1-pipeline-builder", "l1-workspace-memory"],
+    "inputType": "text",
+    "retrievalSummary": "读取本周编辑过的文档，自动生成周报草稿"
+  },
+  "execution": {
+    "mode": "macro",
+    "dagPlan": {
+      "steps": [
+        {
+          "step": 1,
+          "description": "列出本周修改的文件",
+          "tool": "directory_tree",
+          "depends_on": [],
+          "params": { "path": "{{workspace_dir}}" },
+          "expectedOutput": "文件列表"
+        },
+        {
+          "step": 2,
+          "description": "读取关键文档内容",
+          "tool": "read_file",
+          "depends_on": [1],
+          "params": { "path": "{{step_1_top_files}}" },
+          "expectedOutput": "文档内容摘要"
+        },
+        {
+          "step": 3,
+          "description": "AI生成周报",
+          "tool": "llm_generate",
+          "depends_on": [2],
+          "params": {
+            "prompt": "根据以下本周工作文档，生成一份周报草稿，包含：本周完成工作、进行中工作、下周计划、需要协调的事项。\n\n文档内容：{{step_2_result}}"
+          },
+          "expectedOutput": "周报文本"
+        }
+      ],
+      "fallbackStrategy": "retry",
+      "maxRetries": 2
+    },
+    "paramMapping": {
+      "slots": [
+        {
+          "name": "{{workspace_dir}}",
+          "source": "context",
+          "description": "工作目录路径",
+          "required": true
+        }
+      ],
+      "bindings": [
+        {
+          "slotName": "{{workspace_dir}}",
+          "targetStep": 1,
+          "targetParam": "path"
+        }
+      ]
+    }
+  },
+  "cacheMeta": {
+    "estimatedTokenSaving": 2200,
+    "avgExecutionTime": 12000,
+    "cacheable": true,
+    "cacheKeyTemplate": "weekly-{{current_week}}-v{{identity.version}}",
+    "cacheTTL": 86400000
+  }
+}
