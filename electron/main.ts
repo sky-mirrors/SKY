@@ -1,3 +1,4 @@
+const DEBUG = process.env.HOLO_DEBUG === '1'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, createBenchmarkWindow, getBenchmarkWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
@@ -128,7 +129,7 @@ app.whenReady().then(async () => {
   ipcMain.on('benchmark:window:close', () => { getBenchmarkWindow()?.close() })
 
   ipcMain.on('benchmark:ready', () => {
-    console.log('[BenchmarkWindow] Ready')
+    DEBUG && console.log('[BenchmarkWindow] Ready')
   })
 
   registerGlobalShortcuts()

@@ -1,5 +1,6 @@
 import { L2ToolManifest } from '@/models'
 import l2Manifests from '@/data/l2Manifests'
+import { debugLog } from '@/services/debugLog'
 
 interface ProactiveRule {
   manifestId: string
@@ -113,7 +114,7 @@ export function loadPersistedState(): void {
       if (pendingResults.length > MAX_PENDING_RESULTS) pendingResults = pendingResults.slice(-MAX_PENDING_RESULTS)
     }
   } catch { /* ignore */ }
-  console.log(`[ProactiveScheduler] 恢复状态: ${restoredRules}条规则, ${restoredBehavior}条行为日志, ${restoredPending}条待处理结果`)
+  debugLog(`[ProactiveScheduler] 恢复状态: ${restoredRules}条规则, ${restoredBehavior}条行为日志, ${restoredPending}条待处理结果`)
 }
 
 export function logManifestUsage(manifestId: string): void {

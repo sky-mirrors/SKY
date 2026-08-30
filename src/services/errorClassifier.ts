@@ -10,12 +10,12 @@ export interface ErrorClassification {
 }
 
 const ERROR_KEYWORDS: Record<ErrorCategory, string[]> = {
+  syntax: ['SyntaxError', 'TypeError', 'ReferenceError', 'unexpected', 'is not defined', 'Cannot read propert', 'is not a function'],
   network: ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'fetch failed', 'network', 'socket hang up', 'DNS', 'EAI_AGAIN'],
-  file_format: ['xlsx', 'csv', 'json', 'Unexpected token', 'parse error', 'invalid format', 'malformed', 'encoding', 'decode', 'not a valid'],
   permission: ['EACCES', 'EPERM', 'permission denied', 'access denied', 'not authorized', 'forbidden'],
   timeout: ['timeout', 'timed out', 'deadline exceeded', 'SIGKILL', '超时'],
-  syntax: ['SyntaxError', 'TypeError', 'ReferenceError', 'unexpected', 'is not defined', 'Cannot read propert', 'is not a function'],
   resource_missing: ['ENOENT', 'MODULE_NOT_FOUND', 'not found', 'no such file', 'does not exist', 'cannot find module'],
+  file_format: ['xlsx', 'csv', 'parse error', 'invalid format', 'malformed', 'encoding', 'decode', 'not a valid'],
   logic: ['FactGuard', 'intent_match', 'parameter_sane', '不一致', '冲突', 'mismatch'],
   unknown: []
 }

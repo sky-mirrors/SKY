@@ -141,6 +141,8 @@ import { ref, computed, reactive } from 'vue'
 import { useApiStore } from '@/stores/apiStore'
 import { createBenchmarkRunner, type BenchmarkProgress } from '@/benchmark/benchmarkRunner'
 import { getTestCases } from '@/benchmark/testCases'
+import { debugLog } from '@/services/debugLog'
+import type { BenchmarkStats } from '@/benchmark/statsTracker'
 
 const apiStore = useApiStore()
 const runner = createBenchmarkRunner()

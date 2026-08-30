@@ -2,12 +2,10 @@
 
 **全息星图企业级智能工具集成控制台 — 125节点太空拓扑交互界面**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/user/holostarmap) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-207%2F207-brightgreen.svg)](TEST_REPORT.md)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/sky-mirrors/HoloStarmap) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-442%2F442-brightgreen.svg)](TEST_REPORT.md)
 
-<!-- 截图占位：请将实际截图替换下方占位符 -->
-![HoloStarmap 3D Star Map](docs/screenshot.png)
-
-> 📸 **截图替换说明**：请运行应用后截取3D星图界面，保存为 `docs/screenshot.png` 替换上方占位图。
+<!-- 截图待补充 -->
+<!-- ![HoloStarmap 3D Star Map](docs/screenshot.png) -->
 
 ---
 
@@ -62,7 +60,7 @@ HoloStarmap 是一款企业级智能工具集成控制台，基于 Electron + Vu
 ### 开发
 
 ```bash
-git clone https://github.com/<username>/holostarmap.git
+git clone https://github.com/sky-mirrors/HoloStarmap.git
 cd holostarmap
 npm install
 npm run dev
@@ -85,14 +83,14 @@ npx electron-builder --win portable
 | 前端框架 | Vue | 3.5 |
 | 状态管理 | Pinia | 2.2 |
 | 3D 引擎 | Three.js | 0.170 |
-| 桌面框架 | Electron | - |
+| 桌面框架 | Electron | 33.x |
 | 构建工具 | electron-vite + electron-builder | - |
 | 类型系统 | TypeScript (strict) | ES2020 |
 | 文档处理 | docx / xlsx / pdf-parse / mammoth | 9.7 / 0.18 / 2.4 / 1.12 |
 | 向量嵌入 | @xenova/transformers | 2.17 |
 | 安全清洗 | DOMPurify | 3.4 |
 | 编码检测 | jschardet + iconv-lite | 3.1 + 0.7 |
-| 测试框架 | Vitest | 4.1 |
+| 测试框架 | Vitest | 3.x |
 
 ---
 
@@ -208,8 +206,8 @@ holostarmap/
 
 | 指标 | 数值 |
 |------|------|
-| 测试文件数 | 5 |
-| 总用例数 | 207 |
+| 测试文件数 | 15 |
+| 总用例数 | 442 |
 | 通过率 | **100%** |
 | 发现并修复 Bug | 3 |
 

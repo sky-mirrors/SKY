@@ -1,6 +1,7 @@
 import { KnowledgeEntry, SearchResult, KnowledgeAdapter } from '@/models'
 import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries } from './vectorStore'
 import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
+import { debugLog } from '@/services/debugLog'
 
 const STORAGE_KEY = 'holo-knowledge-entries'
 const VECTOR_KEY = 'holo-kb-vectors'
@@ -12,7 +13,7 @@ export async function initEmbedder(): Promise<boolean> {
   embedderReady = emb !== null
   if (embedderReady) {
     migrateFromLocalStorage().then(count => {
-      if (count > 0) console.log(`[KB] 迁移 ${count} 个向量存储到文件系统`)
+      if (count > 0) debugLog(`[KB] 迁移 ${count} 个向量存储到文件系统`)
     }).catch(() => {})
   }
   return embedderReady

@@ -350,11 +350,11 @@ describe('callToolDirectWithTier - knowledge_search', () => {
     expect(result).toContain('知识2')
   })
 
-  it('检索失败返回默认文本', async () => {
+  it('检索失败抛出异常', async () => {
     const { searchKnowledge } = await import('@/services/knowledgeBase')
     ;(searchKnowledge as any).mockRejectedValueOnce(new Error('search failed'))
-    const result = await callToolDirectWithTier(mockMcpStore, 'knowledge_search', { query: 'fail' })
-    expect(result).toBe('(知识库检索失败)')
+    await expect(callToolDirectWithTier(mockMcpStore, 'knowledge_search', { query: 'fail' }))
+      .rejects.toThrow('知识库检索失败')
   })
 
   it('空结果返回默认文本', async () => {

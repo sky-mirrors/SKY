@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js'
 import { useNodeStore } from '@/stores/nodeStore'
 import { JobRole } from '@/models'
+import { debugLog } from '@/services/debugLog'
 
 const ROLE_COLORS: Record<string, { core: string; glow: string; label: string }> = {
   [JobRole.Finance]: { core: '#ffd700', glow: '#cc9900', label: '财务' },
@@ -281,7 +282,7 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
 
     const w = el.clientWidth || window.innerWidth
     const h = el.clientHeight || window.innerHeight
-    console.log('[StarMap] init, size:', w, 'x', h)
+    debugLog('[StarMap] init, size:', w, 'x', h)
 
     clock = new THREE.Clock()
     starDotTexture = createStarDotTexture()

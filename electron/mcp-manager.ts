@@ -1,3 +1,4 @@
+const DEBUG = process.env.HOLO_DEBUG === '1'
 import { spawn, ChildProcess } from 'child_process'
 import { join } from 'path'
 import { appendFileSync, existsSync } from 'fs'
@@ -80,7 +81,7 @@ export function startMcpProcess(
       }
     }
 
-    console.log(`[MCP spawn] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}`)
+    DEBUG && console.log(`[MCP spawn] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}`)
 
     try {
       const logPath = join(app.getPath('home'), 'Desktop', 'mcp-spawn-debug.log')
@@ -117,11 +118,11 @@ export function startMcpProcess(
         if (!line) continue
         try {
           const msg = JSON.parse(line)
-          console.log(`[MCP ${id} <-]`, line.substring(0, 200))
+          DEBUG && console.log(`[MCP ${id} <-]`, line.substring(0, 200))
           handleMcpMessage(entry, msg)
         } catch {
           if (line.includes('{') || line.includes('"jsonrpc"')) {
-            console.log(`[MCP ${id} parse-err]`, line.substring(0, 200))
+            DEBUG && console.log(`[MCP ${id} parse-err]`, line.substring(0, 200))
           }
         }
       }
@@ -131,7 +132,7 @@ export function startMcpProcess(
       const text = data.toString()
       entry.stderrBuffer += text
       const trimmed = text.trim()
-      if (trimmed) console.log(`[MCP ${id} stderr]`, trimmed)
+      if (trimmed) DEBUG && console.log(`[MCP ${id} stderr]`, trimmed)
     })
 
     child.on('error', (err) => {
@@ -146,7 +147,7 @@ export function startMcpProcess(
     })
 
     child.on('exit', (code) => {
-      console.log(`[MCP ${id} exited] code=${code}`)
+      DEBUG && console.log(`[MCP ${id} exited] code=${code}`)
       entry.status = 'stopped'
       const stderrTail = entry.stderrBuffer.slice(-500)
       for (const [, pending] of entry.pendingRequests) {

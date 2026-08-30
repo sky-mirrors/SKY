@@ -6,6 +6,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['test/**/*.test.ts', 'test/**/*.spec.ts'],
+    exclude: ['test/e2e/**', 'node_modules/**'],
     coverage: {
       provider: 'v8',
       include: ['src/services/macroExecutor.ts', 'src/services/scheduleOptimizer.ts', 'src/services/errorClassifier.ts', 'src/services/dualEngineValidator.ts'],

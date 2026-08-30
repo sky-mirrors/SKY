@@ -1,6 +1,7 @@
 import { generateVector as genVec, cosineSimilarity } from './embedder'
 import { L2ToolManifest } from '@/models'
 import { getFileBoostForItem } from './fileContext'
+import { debugLog } from '@/services/debugLog'
 
 const STOP_WORDS_SET = new Set(['的', '了', '在', '是', '我', '你', '他', '她', '它', '们', '这', '那', '有', '和', '与', '或', '帮', '给', '让', '把', '被', '从', '到', '用', '对', '为', '以', '及', '等', '着', '过', '一下', '一下下', '一个', '一些', '请', '要', '会', '能', '可以', '帮我', '帮我看看', '搞', '搞一下', '做', '做一下', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'it', 'this', 'that', 'me', 'my', 'your'])
 
@@ -65,7 +66,7 @@ function lookupRouteCache(query: string, indexHash: string): UniversalMatchResul
     return null
   }
   _routeCacheHitCount++
-  console.log(`[RouteCache] 命中: "${query.substring(0, 30)}" → ${entry.result.item.name}`)
+  debugLog(`[RouteCache] 命中: "${query.substring(0, 30)}" → ${entry.result.item.name}`)
   return entry.result
 }
 
@@ -108,7 +109,7 @@ function ruleEngineFallback(
     }
   }
 
-  console.log(`[ruleEngineFallback] 离线模式，关键词决胜: ${best?.name || 'null'} (hits=${bestHits})`)
+  debugLog(`[ruleEngineFallback] 离线模式，关键词决胜: ${best?.name || 'null'} (hits=${bestHits})`)
   return bestHits > 0 ? best : candidates[0].item
 }
 
@@ -167,7 +168,7 @@ export async function buildL2Index(l2Manifests: L2ToolManifest[]): Promise<ToolI
       result.push(cached)
       continue
     }
-    console.log(`[RaaP] 生成L2向量: ${m.identity.name} (${key})`)
+    debugLog(`[RaaP] 生成L2向量: ${m.identity.name} (${key})`)
     const summary = `${m.identity.name}: ${m.routing.retrievalSummary}`
     const vector = await genVec(`${m.routing.keywords.join(' ')} ${m.routing.retrievalSummary}`)
     const entry: ToolIndex = {
@@ -576,10 +577,10 @@ export async function universalMatch(
   }))
   kwScores.sort((a, b) => b.score - a.score)
 
-  console.log(`[Universal] 输入: "${userInput.substring(0, 60)}"`)
-  console.log(`[Universal] 向量Top3:`, vectorScores.slice(0, 3).map(v => `${v.item.name}=${v.score.toFixed(4)}`))
-  console.log(`[Universal] 关键词Top3:`, kwScores.slice(0, 3).map(k => `${k.item.name}=${k.score.toFixed(4)}`))
-  if (isNegated) console.log(`[Universal] 检测到否定词，关键词分数降权至0.3x`)
+  debugLog(`[Universal] 输入: "${userInput.substring(0, 60)}"`)
+  debugLog(`[Universal] 向量Top3:`, vectorScores.slice(0, 3).map(v => `${v.item.name}=${v.score.toFixed(4)}`))
+  debugLog(`[Universal] 关键词Top3:`, kwScores.slice(0, 3).map(k => `${k.item.name}=${k.score.toFixed(4)}`))
+  if (isNegated) debugLog(`[Universal] 检测到否定词，关键词分数降权至0.3x`)
 
   try {
     const { useFeedbackStore } = await import('@/stores/feedbackStore')
@@ -634,7 +635,7 @@ export async function universalMatch(
   const candidates = buildCandidatesFromRRFGeneric(rrfResults, vectorScores, kwScores)
 
   if (rrfResults.length === 0) {
-    console.log(`[Universal] 无匹配`)
+    debugLog(`[Universal] 无匹配`)
     return null
   }
 
@@ -657,7 +658,7 @@ export async function universalMatch(
     recordScore(top1VecScore, 'vector')
     const gate = (top1KwScore >= dynGreenGate || top1VecScore >= dynGreenGate) ? 'green' : 'yellow'
     const isAmbiguous = gate === 'yellow'
-    console.log(`[Universal] RRF融合命中: ${top1.item.name} (rrf=${top1.rrfScore.toFixed(4)}, kw=${top1KwScore.toFixed(4)}, vec=${top1VecScore.toFixed(4)}, margin=${margin.toFixed(4)}, gate=${gate})`)
+    debugLog(`[Universal] RRF融合命中: ${top1.item.name} (rrf=${top1.rrfScore.toFixed(4)}, kw=${top1KwScore.toFixed(4)}, vec=${top1VecScore.toFixed(4)}, margin=${margin.toFixed(4)}, gate=${gate})`)
     const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous, candidates, gate }
     storeRouteCache(userInput, idxHash, result)
     return result
@@ -666,7 +667,7 @@ export async function universalMatch(
   if (hasStrongSignal && margin < MARGIN_THRESHOLD) {
     recordScore(top1KwScore, 'keyword')
     recordScore(top1VecScore, 'vector')
-    console.log(`[Universal] RRF高置信但margin小(margin=${margin.toFixed(4)})，判定模糊: ${top1.item.name}`)
+    debugLog(`[Universal] RRF高置信但margin小(margin=${margin.toFixed(4)})，判定模糊: ${top1.item.name}`)
     const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' }
     storeRouteCache(userInput, idxHash, result)
     return result
@@ -676,16 +677,16 @@ export async function universalMatch(
     recordScore(top1KwScore, 'keyword')
     recordScore(top1VecScore, 'vector')
     if (margin >= MARGIN_THRESHOLD) {
-      console.log(`[Universal] RRF中等置信唯一(margin=${margin.toFixed(4)}): ${top1.item.name}`)
+      debugLog(`[Universal] RRF中等置信唯一(margin=${margin.toFixed(4)}): ${top1.item.name}`)
       const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' }
       storeRouteCache(userInput, idxHash, result)
       return result
     }
-    console.log(`[Universal] RRF中等置信且margin小，拒绝强行指派: ${top1.item.name}`)
+    debugLog(`[Universal] RRF中等置信且margin小，拒绝强行指派: ${top1.item.name}`)
     return null
   }
 
-  console.log(`[Universal] 无匹配`)
+  debugLog(`[Universal] 无匹配`)
   return null
 }
 
@@ -698,7 +699,7 @@ export async function raapMatch(
 
   const index = toolIndex || []
   if (index.length === 0 && manifests.length > 0) {
-    console.log(`[RaaP] 无toolIndex，仅L2清单，走旧逻辑`)
+    debugLog(`[RaaP] 无toolIndex，仅L2清单，走旧逻辑`)
     const isNegated = hasNegation(userInput)
     const kwScores = manifests.map(m => ({
       manifest: m,
@@ -735,7 +736,7 @@ export async function raapMatch(
     }
   }
 
-  console.log(`[RaaP] universalMatch命中MCP工具: ${result.item.name}，raapMatch返回null（非L2）`)
+  debugLog(`[RaaP] universalMatch命中MCP工具: ${result.item.name}，raapMatch返回null（非L2）`)
   return null
 }
 
@@ -779,7 +780,7 @@ export async function rewriteQuery(
   if (userInput.length <= 4) return userInput
   if (/[a-zA-Z_]{3,}/.test(userInput) && userInput.length < 20) return userInput
   if (!isOnline()) {
-    console.log('[rewriteQuery] 离线模式，跳过查询改写')
+    debugLog('[rewriteQuery] 离线模式，跳过查询改写')
     return userInput
   }
 
@@ -795,10 +796,10 @@ export async function rewriteQuery(
     ])
     const rewritten = resp.content.trim()
     if (rewritten.length >= 2 && rewritten.length <= 100 && !rewritten.includes('\n')) {
-      console.log(`[rewriteQuery] "${userInput}" → "${rewritten}"`)
+      debugLog(`[rewriteQuery] "${userInput}" → "${rewritten}"`)
       return rewritten
     }
-    console.log(`[rewriteQuery] 改写结果无效，使用原始输入: "${rewritten.substring(0, 60)}"`)
+    debugLog(`[rewriteQuery] 改写结果无效，使用原始输入: "${rewritten.substring(0, 60)}"`)
     return userInput
   } catch (e) {
     console.warn('[rewriteQuery] LLM调用失败:', e instanceof Error ? e.message : String(e))
@@ -815,7 +816,7 @@ export async function llmFallback(
   if (candidates.length === 1) return candidates[0].item
 
   if (!isOnline()) {
-    console.log('[llmFallback] 离线模式，走规则引擎降级')
+    debugLog('[llmFallback] 离线模式，走规则引擎降级')
     return ruleEngineFallback(userInput, candidates)
   }
 
@@ -840,11 +841,11 @@ ${candidateLines}
     if (numMatch) {
       const idx = parseInt(numMatch[1]) - 1
       if (idx >= 0 && idx < Math.min(candidates.length, 5)) {
-        console.log(`[llmFallback] LLM选择: #${idx + 1} ${candidates[idx].item.name}`)
+        debugLog(`[llmFallback] LLM选择: #${idx + 1} ${candidates[idx].item.name}`)
         return candidates[idx].item
       }
     }
-    console.log(`[llmFallback] LLM返回无法解析: "${text}"`)
+    debugLog(`[llmFallback] LLM返回无法解析: "${text}"`)
     return null
   } catch (e) {
     console.warn('[llmFallback] LLM调用失败:', e instanceof Error ? e.message : String(e))

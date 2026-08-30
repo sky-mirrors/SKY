@@ -2,6 +2,7 @@ import { useApiStore } from '@/stores/apiStore'
 import { ChatMessage, PromptChainResult, PromptChainStep, TaskPlan, TaskCase } from '@/models'
 import type { L2ToolManifest } from '@/models'
 import { cosineSimilarity, generatePseudoVector, VECTOR_DIM } from './embedder'
+import { debugLog } from '@/services/debugLog'
 
 const SEED_CASES: TaskCase[] = [
   {
@@ -122,7 +123,7 @@ export async function disambiguateChoice(
   if (cached && Date.now() - cached.ts < DISAMBIG_CACHE_TTL) {
     const idx = cached.choice - 1
     if (idx >= 0 && idx < candidates.length) {
-      console.log(`[Disambig] 缓存命中: 选择${cached.choice}`)
+      debugLog(`[Disambig] 缓存命中: 选择${cached.choice}`)
       return { choiceIndex: idx, manifest: candidates[idx].manifest }
     }
   }
@@ -151,11 +152,11 @@ ${candList}${contextLine}
     const num = parseInt(text.replace(/[^0-9]/g, ''), 10)
     if (num >= 1 && num <= candidates.length) {
       DISAMBIG_CACHE.set(cacheKey, { choice: num, ts: Date.now() })
-      console.log(`[Disambig] 选择${num}: ${candidates[num - 1].manifest.identity.name}`)
+      debugLog(`[Disambig] 选择${num}: ${candidates[num - 1].manifest.identity.name}`)
       return { choiceIndex: num - 1, manifest: candidates[num - 1].manifest }
     }
   } catch (e) {
-    console.log(`[Disambig] 超时或失败，降级为用户选择: ${(e as Error).message}`)
+    debugLog(`[Disambig] 超时或失败，降级为用户选择: ${(e as Error).message}`)
   }
   return null
 }
@@ -193,11 +194,11 @@ ${slotDesc}${contextLine}
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const parsed = JSON.parse(cleaned)
     if (parsed.intent) {
-      console.log(`[TranslateIntent] 翻译: "${userInput.substring(0, 40)}" → ${parsed.intent}`)
+      debugLog(`[TranslateIntent] 翻译: "${userInput.substring(0, 40)}" → ${parsed.intent}`)
       return { intent: String(parsed.intent), params: parsed.params || {} }
     }
   } catch (e) {
-    console.log(`[TranslateIntent] 失败: ${(e as Error).message}`)
+    debugLog(`[TranslateIntent] 失败: ${(e as Error).message}`)
   }
   return null
 }

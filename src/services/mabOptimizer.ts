@@ -1,3 +1,4 @@
+import { debugLog } from '@/services/debugLog'
 export interface MABArm {
   name: string
   alpha: number
@@ -126,7 +127,7 @@ export function updateArm(banditId: string, armName: string, reward: number): vo
   arm.beta += (1 - clampedReward)
   arm.rewards += clampedReward
   saveToStorage()
-  console.log(`[MAB] updateArm(${banditId}, ${armName}, reward=${clampedReward.toFixed(2)}) → α=${arm.alpha.toFixed(2)} β=${arm.beta.toFixed(2)} E=${(arm.alpha / (arm.alpha + arm.beta)).toFixed(3)}`)
+  debugLog(`[MAB] updateArm(${banditId}, ${armName}, reward=${clampedReward.toFixed(2)}) → α=${arm.alpha.toFixed(2)} β=${arm.beta.toFixed(2)} E=${(arm.alpha / (arm.alpha + arm.beta)).toFixed(3)}`)
 }
 
 export function computeMABReward(action: string): number {
@@ -193,7 +194,7 @@ export function loadFromStorage(): void {
       _bandits.set(id, bandit)
     }
   } catch { /* ignore */ }
-  console.log('[MAB] State loaded from storage')
+  debugLog('[MAB] State loaded from storage')
 }
 
 export function resetBandit(banditId: string): void {

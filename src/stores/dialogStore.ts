@@ -49,6 +49,7 @@ function userRequestedFile(input: string): boolean {
 }
 
 import { useSessionStore } from './sessionStore'
+import { debugLog } from '@/services/debugLog'
 
 function loadSummaries(): { period: string; summary: string; from: number; to: number }[] {
   try {
@@ -403,7 +404,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       if (shellTool) result.push(shellTool)
     }
     result.sort((a, b) => a.name.localeCompare(b.name))
-    console.log(`[filterToolsByPlan] planned=${JSON.stringify(plannedTools)}, filtered=${result.map(t => t.name).join(',')}`)
+    debugLog(`[filterToolsByPlan] planned=${JSON.stringify(plannedTools)}, filtered=${result.map(t => t.name).join(',')}`)
     return result
   }
 
@@ -756,11 +757,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const isLikelyFeedback = lastAssistantContent.length > 50 && /没有|不存在|找不到|不行|错误|失败|没看到|没找到|搞错了|不对|不是/i.test(content)
       const isShortFeedback = content.length < 30 && /没有|不行|不对|错误|失败|找不到|不是/i.test(content)
 
-      console.log(`[Dialog] sendMessage: "${content.substring(0, 80)}"`)
-      console.log(`[Dialog] isLikelyFeedback=${isLikelyFeedback} isShortFeedback=${isShortFeedback} lastAssistantLen=${lastAssistantContent.length}`)
+      debugLog(`[Dialog] sendMessage: "${content.substring(0, 80)}"`)
+      debugLog(`[Dialog] isLikelyFeedback=${isLikelyFeedback} isShortFeedback=${isShortFeedback} lastAssistantLen=${lastAssistantContent.length}`)
 
       if (isLikelyFeedback || isShortFeedback) {
-        console.log('[Dialog] 跳过RaaP，作为反馈处理')
+        debugLog('[Dialog] 跳过RaaP，作为反馈处理')
         raapResult = null
       } else {
         try {
@@ -867,7 +868,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
               const mcpToolName = universalResult.item.id
               const matchedMcpTool = allMcpTools.find(t => t.name === mcpToolName)
               if (matchedMcpTool) {
-                console.log(`[Dialog] Universal匹配MCP工具: ${universalResult.item.name}，直接调用`)
+                debugLog(`[Dialog] Universal匹配MCP工具: ${universalResult.item.name}，直接调用`)
                 addSystemNotice(`🎯 自动匹配工具：**${universalResult.item.name}**（置信${(universalResult.confidence * 100).toFixed(0)}%，${universalResult.matchMethod}）`)
                 try {
                   const apiResult = await apiStore.chatCompletion([{ role: 'user', content }], true, [matchedMcpTool])

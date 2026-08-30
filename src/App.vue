@@ -107,6 +107,7 @@ import { useDebugStore } from '@/stores/debugStore'
 import DebugProbePanel from '@/components/DebugProbePanel.vue'
 import ResultPreviewStage from '@/components/ResultPreviewStage.vue'
 import { initFileContextWatch } from '@/services/fileContext'
+import { debugLog } from '@/services/debugLog'
 
 const nodeStore = useNodeStore()
 const apiStore = useApiStore()
@@ -702,7 +703,7 @@ onMounted(async () => {
     const lazyBuild = () => {
       import('@/services/toolRetrieval').then(({ buildL2Index }) => {
         buildL2Index(l2Manifests).then(() => {
-          console.log(`[App] L2向量索引预构建完成 (${l2Manifests.length}个清单)`)
+          debugLog(`[App] L2向量索引预构建完成 (${l2Manifests.length}个清单)`)
         }).catch(() => {})
       }).catch(() => {})
     }
@@ -736,7 +737,7 @@ onMounted(async () => {
             }
           }
           if (match) {
-            console.log('[SelfTest] ✅ IPC vector read/write roundtrip OK')
+            debugLog('[SelfTest] ✅ IPC vector read/write roundtrip OK')
           } else {
             console.warn('[SelfTest] ❌ IPC vector roundtrip mismatch', testVec, readBack)
             debugStore.emitEvent('warn', 'system', '向量存储自检：读写数据不一致，请检查IPC通道')

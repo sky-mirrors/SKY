@@ -5,6 +5,7 @@ import { computeInputFingerprint, findCachedExecution, getTierConfig, saveExecut
 import type { BenchmarkStats, BenchmarkReport } from './statsTracker'
 import { createStatsTracker } from './statsTracker'
 import { getTestCases, type TestCase } from './testCases'
+import { debugLog } from '@/services/debugLog'
 
 export interface BenchmarkProgress {
   phase: 'idle' | 'baseline' | 'optimized' | 'report' | 'done' | 'error'
@@ -74,7 +75,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
     const l0Plan = await tryL0Skill(input)
     if (l0Plan) {
       tracker.recordCacheHit('l0')
-      console.log(`[Benchmark:Optimized] L0 hit: ${l0Plan.intent}`)
+      debugLog(`[Benchmark:Optimized] L0 hit: ${l0Plan.intent}`)
       return `[L0_HIT] ${l0Plan.intent}`
     }
 
@@ -86,7 +87,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         const prompt = m.execution.directCall.promptTemplate.replace('{{input}}', input)
         const result = await directLlmCall(prompt, 'nano', tracker)
         tracker.recordCacheHit('l05')
-        console.log(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (nano tier)`)
+        debugLog(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (nano tier)`)
         return result
       }
       if (m.execution.dagPlan && m.execution.dagPlan.steps.length === 1) {
@@ -95,7 +96,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         const prompt = String(step.params.prompt || input)
         const result = await directLlmCall(prompt, tier, tracker)
         tracker.recordCacheHit('l05')
-        console.log(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (${tier} tier)`)
+        debugLog(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (${tier} tier)`)
         return result
       }
 
@@ -104,13 +105,13 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         const cached = findCachedExecution(m.identity.id, inputFingerprint)
         if (cached) {
           tracker.recordCacheHit('fingerprint')
-          console.log(`[Benchmark:Optimized] Fingerprint cache hit: ${m.identity.id}`)
+          debugLog(`[Benchmark:Optimized] Fingerprint cache hit: ${m.identity.id}`)
           const steps = m.execution.dagPlan.steps
           const lastStep = steps[steps.length - 1]
           return cached.results[lastStep.step] || '[CACHED]'
         }
 
-        console.log(`[Benchmark:Optimized] L0.5 multi-step manifest: ${m.identity.id}, executing...`)
+        debugLog(`[Benchmark:Optimized] L0.5 multi-step manifest: ${m.identity.id}, executing...`)
         let lastResult = ''
         for (const step of m.execution.dagPlan.steps) {
           const tier = step.modelTier || 'standard'
@@ -132,12 +133,12 @@ export function createBenchmarkRunner(): BenchmarkRunner {
     const l1Check = checkL1Capability(input)
     if (l1Check.canHandle && l1Check.confidence >= 0.6) {
       tracker.recordCacheHit('l05')
-      console.log(`[Benchmark:Optimized] L1 hit: ${l1Check.nodeName}`)
+      debugLog(`[Benchmark:Optimized] L1 hit: ${l1Check.nodeName}`)
       const result = await directLlmCall(input, 'mini', tracker)
       return result
     }
 
-    console.log(`[Benchmark:Optimized] RaaP path for: ${input.substring(0, 40)}`)
+    debugLog(`[Benchmark:Optimized] RaaP path for: ${input.substring(0, 40)}`)
     return directLlmCall(input, 'standard', tracker)
   }
 
@@ -188,11 +189,11 @@ export function createBenchmarkRunner(): BenchmarkRunner {
       progress.phase = 'baseline'
       progress.currentCase = 0
       progress.currentLabel = '准备基线测试...'
-      console.log('[Benchmark] Starting Baseline run...')
+      debugLog('[Benchmark] Starting Baseline run...')
 
       await runPhase(true, baselineTracker, sleepMs)
       progress.baselineStats = { ...baselineTracker.stats }
-      console.log(`[Benchmark] Baseline done: ${baselineTracker.stats.llmCalls} LLM calls, ${baselineTracker.stats.totalInputTokens + baselineTracker.stats.totalOutputTokens} tokens, ¥${baselineTracker.stats.totalCostCNY.toFixed(4)}`)
+      debugLog(`[Benchmark] Baseline done: ${baselineTracker.stats.llmCalls} LLM calls, ${baselineTracker.stats.totalInputTokens + baselineTracker.stats.totalOutputTokens} tokens, ¥${baselineTracker.stats.totalCostCNY.toFixed(4)}`)
 
       if (cancelled) {
         progress.phase = 'error'
@@ -203,11 +204,11 @@ export function createBenchmarkRunner(): BenchmarkRunner {
       progress.phase = 'optimized'
       progress.currentCase = 0
       progress.currentLabel = '准备优化测试...'
-      console.log('[Benchmark] Starting Optimized run...')
+      debugLog('[Benchmark] Starting Optimized run...')
 
       await runPhase(false, optimizedTracker, sleepMs)
       progress.optimizedStats = { ...optimizedTracker.stats }
-      console.log(`[Benchmark] Optimized done: ${optimizedTracker.stats.llmCalls} LLM calls, ${optimizedTracker.stats.totalInputTokens + optimizedTracker.stats.totalOutputTokens} tokens, ¥${optimizedTracker.stats.totalCostCNY.toFixed(4)}`)
+      debugLog(`[Benchmark] Optimized done: ${optimizedTracker.stats.llmCalls} LLM calls, ${optimizedTracker.stats.totalInputTokens + optimizedTracker.stats.totalOutputTokens} tokens, ¥${optimizedTracker.stats.totalCostCNY.toFixed(4)}`)
 
       if (cancelled) {
         progress.phase = 'error'
@@ -222,7 +223,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         progress.optimizedStats,
         model
       )
-      console.log('[Benchmark] Report generated:', JSON.stringify(progress.report.improvement, null, 2))
+      debugLog('[Benchmark] Report generated:', JSON.stringify(progress.report.improvement, null, 2))
 
       progress.phase = 'done'
     } catch (err) {
@@ -245,7 +246,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
       const filePath = `${home}\\Desktop\\HoloStarmap\\benchmark-result.json`
       const result = await window.electronAPI?.fileWrite({ filePath, content: json })
       if (result?.success) {
-        console.log(`[Benchmark] Report saved to ${filePath}`)
+        debugLog(`[Benchmark] Report saved to ${filePath}`)
         return filePath
       }
       console.warn(`[Benchmark] fileWrite failed: ${result?.error}`)

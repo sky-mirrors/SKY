@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ApiConfig, ModelInfo, CircuitBreakerState, ProviderConfig, ModelGatewayAdapter } from '@/models'
 import { storeGet, storeSet } from '@/services/secureStore'
-import { useDebugStore } from './debugStore'
+import { debugLog } from '@/services/debugLog'
 
 export const useApiStore = defineStore('api', () => {
   const config = ref<ApiConfig>({
@@ -314,7 +314,7 @@ export const useApiStore = defineStore('api', () => {
           throw new Error(result.error || 'IPC chatCompletion failed')
         }
         recordSuccess()
-        console.log(`[chatCompletion:ipc] usage: prompt=${result.usage?.promptTokens ?? 0}, completion=${result.usage?.completionTokens ?? 0}, total=${result.usage?.totalTokens ?? 0}`)
+        debugLog(`[chatCompletion:ipc] usage: prompt=${result.usage?.promptTokens ?? 0}, completion=${result.usage?.completionTokens ?? 0}, total=${result.usage?.totalTokens ?? 0}`)
         return {
           content: result.content ?? '',
           toolCalls: result.toolCalls ?? [],
@@ -375,7 +375,7 @@ export const useApiStore = defineStore('api', () => {
     try {
       const hasTools = !!(body as Record<string, unknown>).tools
       const toolCount = hasTools ? ((body as Record<string, unknown>).tools as unknown[]).length : 0
-      console.log(`[chatCompletion:direct] model=${config.value.activeModel}, msgs=${messages.length}, tools=${toolCount}, format=${chatFormat}`)
+      debugLog(`[chatCompletion:direct] model=${config.value.activeModel}, msgs=${messages.length}, tools=${toolCount}, format=${chatFormat}`)
       const maxTok = maxTokens || ((body as Record<string, unknown>).max_tokens as number) || 16384
       const llmTierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
       const llmAbsoluteCap = 180000
@@ -406,7 +406,7 @@ export const useApiStore = defineStore('api', () => {
         const text = (data as Record<string, unknown>)?.content?.[0]?.text
         const pt = ((data as Record<string, unknown>)?.usage as Record<string, number>)?.input_tokens || 0
         const ct = ((data as Record<string, unknown>)?.usage as Record<string, number>)?.output_tokens || 0
-        console.log(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
+        debugLog(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
         return { content: text ? String(text) : '', toolCalls: [] }
       }
 
@@ -423,12 +423,12 @@ export const useApiStore = defineStore('api', () => {
         }
       }
       const finishReason = choice?.finish_reason || ''
-      console.log(`[chatCompletion:direct] response: contentLen=${content.length}, toolCalls=${toolCalls.length}, finish_reason=${finishReason}`)
+      debugLog(`[chatCompletion:direct] response: contentLen=${content.length}, toolCalls=${toolCalls.length}, finish_reason=${finishReason}`)
       if (toolCalls.length > 0) {
-        console.log(`[chatCompletion:direct] toolCalls:`, toolCalls.map(tc => tc.name).join(', '))
+        debugLog(`[chatCompletion:direct] toolCalls:`, toolCalls.map(tc => tc.name).join(', '))
       }
       const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
-      console.log(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
+      debugLog(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       return { content, toolCalls, usage }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)

@@ -18,7 +18,7 @@ describe('errorClassifier', () => {
   beforeEach(() => {
     mockChatCompletion.mockReset()
     mockChatCompletion.mockResolvedValue({
-      choices: [{ message: { content: '{"category":"network","action":"retry","fixHint":"重试"}' } }]
+      content: '{"category":"network","action":"retry","fixHint":"重试"}'
     })
   })
 
@@ -109,19 +109,16 @@ describe('errorClassifier', () => {
   })
 
   describe('走 LLM fallback 的分类 (syntax/logic/unknown/file_format)', () => {
-    it('SyntaxError → 走LLM → 返回LLM分类结果', async () => {
-      mockChatCompletion.mockResolvedValueOnce({
-        choices: [{ message: { content: '{"category":"syntax","action":"retry_with_fix","fixHint":"修复脚本"}' } }]
-      })
+    it('SyntaxError → 关键词快速分类syntax → retry_with_fix', async () => {
       const r = await classifyError('SyntaxError: Unexpected token }', 'shell_exec', '运行脚本')
       expect(r.category).toBe('syntax')
       expect(r.action).toBe('retry_with_fix')
-      expect(mockChatCompletion).toHaveBeenCalled()
+      expect(mockChatCompletion).not.toHaveBeenCalled()
     })
 
     it('FactGuard → logic → 走LLM → 返回logic分类', async () => {
       mockChatCompletion.mockResolvedValueOnce({
-        choices: [{ message: { content: '{"category":"logic","action":"abort","fixHint":"人工确认"}' } }]
+        content: '{"category":"logic","action":"abort","fixHint":"人工确认"}'
       })
       const r = await classifyError('FactGuard: 金额不一致 100 vs 200', 'llm_generate', '提取数据')
       expect(r.category).toBe('logic')
@@ -130,7 +127,7 @@ describe('errorClassifier', () => {
 
     it('未知错误 → 走LLM → 返回LLM分类', async () => {
       mockChatCompletion.mockResolvedValueOnce({
-        choices: [{ message: { content: '{"category":"unknown","action":"retry","fixHint":"未知错误"}' } }]
+        content: '{"category":"unknown","action":"retry","fixHint":"未知错误"}'
       })
       const r = await classifyError('Something went horribly wrong', 'shell_exec', '未知操作')
       expect(r.category).toBe('unknown')
@@ -138,9 +135,9 @@ describe('errorClassifier', () => {
 
     it('file_format → 走LLM', async () => {
       mockChatCompletion.mockResolvedValueOnce({
-        choices: [{ message: { content: '{"category":"file_format","action":"switch_tool","fixHint":"换工具"}' } }]
+        content: '{"category":"file_format","action":"switch_tool","fixHint":"换工具"}'
       })
-      const r = await classifyError('Unexpected token in JSON at position 5', 'read_file', '解析配置')
+      const r = await classifyError('xlsx file has invalid format', 'read_file', '解析配置')
       expect(r.category).toBe('file_format')
       expect(r.action).toBe('switch_tool')
     })
@@ -154,7 +151,7 @@ describe('errorClassifier', () => {
 
     it('LLM返回无法解析 → 回退到关键词快速分类', async () => {
       mockChatCompletion.mockResolvedValueOnce({
-        choices: [{ message: { content: '无法理解这个错误' } }]
+        content: '无法理解这个错误'
       })
       const r = await classifyError('SyntaxError: bad code', 'shell_exec', '执行')
       expect(r.category).toBe('syntax')

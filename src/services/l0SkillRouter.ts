@@ -1,5 +1,6 @@
 import type { L2ToolManifest } from '@/models'
 import { useApiStore } from '@/stores/apiStore'
+import { debugLog } from '@/services/debugLog'
 
 interface L0SkillRule {
   name: string
@@ -92,7 +93,7 @@ async function refineFileNameWithLLM(rawName: string): Promise<string> {
     if (result && result !== 'DEFAULT' && result.length >= 2 && result.length <= 30 && !/^\s*$/.test(result)) {
       return sanitizeFileName(result.replace(/["「」『』""'']/g, '').replace(/\.\w{1,5}$/, ''))
     }
-    console.log(`[L0 FileName] LLM返回DEFAULT或无效: "${result}"，使用默认名`)
+    debugLog(`[L0 FileName] LLM返回DEFAULT或无效: "${result}"，使用默认名`)
   } catch (e) {
     console.warn('[L0 FileName] LLM兜底失败:', e instanceof Error ? e.message : String(e))
   }
@@ -407,7 +408,7 @@ export async function tryL0Skill(input: string): Promise<L0DirectPlan | null> {
     if (forbidden) continue
     const plan = await rule.buildPlan(input)
     if (plan) {
-      console.log(`[L0 Skill] 命中规则：${rule.name}（${rule.domain}域），跳过RaaP`)
+      debugLog(`[L0 Skill] 命中规则：${rule.name}（${rule.domain}域），跳过RaaP`)
       return plan
     }
   }
@@ -452,7 +453,7 @@ export function tryL05QuickMatch(
     || (top.manifest.execution.dagPlan && top.manifest.execution.dagPlan.steps.length === 1)
 
   if (!isSingleStep) {
-    console.log(`[L0.5] 最佳命中${top.manifest.identity.name}，但为多步(${top.manifest.execution.mode})，交给RaaP`)
+    debugLog(`[L0.5] 最佳命中${top.manifest.identity.name}，但为多步(${top.manifest.execution.mode})，交给RaaP`)
     return null
   }
 
@@ -461,12 +462,12 @@ export function tryL05QuickMatch(
     : 0
 
   if (confidence >= 0.8) {
-    console.log(`[L0.5] 快速匹配命中：${top.manifest.identity.name}（关键词${top.matchedKws.join(',')}，置信${(confidence * 100).toFixed(0)}%）`)
+    debugLog(`[L0.5] 快速匹配命中：${top.manifest.identity.name}（关键词${top.matchedKws.join(',')}，置信${(confidence * 100).toFixed(0)}%）`)
     return { manifest: top.manifest, confidence, matchedKeywords: top.matchedKws }
   }
 
   if (top.hitRatio >= 0.3) {
-    console.log(`[L0.5] 候选${top.manifest.identity.name}置信不足(${(confidence * 100).toFixed(0)}%)，交给RaaP`)
+    debugLog(`[L0.5] 候选${top.manifest.identity.name}置信不足(${(confidence * 100).toFixed(0)}%)，交给RaaP`)
   }
 
   return null
@@ -500,7 +501,7 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     const confidence = Math.min(matchedKwCount / rule.keywords.length * 2, 0.9)
 
     if (confidence >= 0.6) {
-      console.log(`[L1 Check] 命中：${rule.nodeName}（置信${(confidence * 100).toFixed(0)}%）`)
+      debugLog(`[L1 Check] 命中：${rule.nodeName}（置信${(confidence * 100).toFixed(0)}%）`)
       return {
         canHandle: true,
         nodeId: rule.nodeId,
@@ -528,12 +529,12 @@ export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
   if (filePath || targetFormat || sourceExt) {
     const skillPlan = await skillRules[0].buildPlan(input)
     if (skillPlan) {
-      console.log(`[Explore] 文件操作探索模式：${skillPlan.intent}`)
+      debugLog(`[Explore] 文件操作探索模式：${skillPlan.intent}`)
       return skillPlan
     }
   }
 
-  console.log(`[Explore] 通用探索模式，L1直调`)
+  debugLog(`[Explore] 通用探索模式，L1直调`)
   return {
     intent: input.substring(0, 60),
     steps: [

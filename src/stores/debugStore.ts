@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory } from '@/models'
+import { debugLog } from '@/services/debugLog'
 
 const MAX_PROBES = 200
 const FREEZE_HARD_LIMIT = 500
@@ -284,7 +285,7 @@ export const useDebugStore = defineStore('debug', () => {
         const ts = new Date().toISOString().replace(/[:.]/g, '-')
         const fileName = `holo-debug-${ts}.json`
         const result = await window.electronAPI.shellExec({
-          command: `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.DEBUG_FILE);fs.writeFileSync(fp,Buffer.from(process.env.DEBUG_DATA,'base64'));console.log('SAVED:'+fp)"`,
+          command: `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.DEBUG_FILE);fs.writeFileSync(fp,Buffer.from(process.env.DEBUG_DATA,'base64'));debugLog('SAVED:'+fp)"`,
           timeout: 10000,
           env: {
             DEBUG_FILE: fileName,

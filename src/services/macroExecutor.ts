@@ -21,6 +21,7 @@ import {
 import { runRuleEngine, buildRuleContext } from './ruleEngine'
 import type { RuleEngineResult } from './ruleEngine'
 import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } from './dagCheckpoint'
+import { debugLog } from '@/services/debugLog'
 
 const STEP_TIMEOUT_MS: Record<string, number> = {
   nano: 8000,
@@ -188,7 +189,7 @@ export async function callToolDirectWithTier(
       const desktopFileMatch = cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\\\([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\/([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\([^'"]+)/)
       if (desktopFileMatch) {
         const expectedFileName = desktopFileMatch[1].replace(/['"]/g, '')
-        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');console.log(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
+        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');debugLog(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
         try {
           const checkResult = await window.electronAPI.shellExec({
             command: checkCmd,
@@ -290,7 +291,7 @@ export async function callToolDirectWithTier(
         }
         const nextTier = TIER_DOWNGRADE[currentTier]
         if (nextTier && nextTier !== 'rule') {
-          console.log(`[macroExecutor] tier降级: ${currentTier} → ${nextTier}`)
+          debugLog(`[macroExecutor] tier降级: ${currentTier} → ${nextTier}`)
           currentTier = nextTier
         } else {
           break
@@ -522,7 +523,7 @@ export async function executeStep(
     if (step.tool === 'llm_generate' && groundTruthEntities.length > 0) {
       const outputEntities = extractEntities(result.substring(0, 5000))
       const factResult = runFactGuard(groundTruthEntities, outputEntities, result)
-      console.log(`[FactGuard] step${step.step}: ${factResult.summary}`)
+      debugLog(`[FactGuard] step${step.step}: ${factResult.summary}`)
       if (factResult.severity === 'critical') {
         const errDetail = factResult.conflicts.filter(c => c.severity === 'critical').map(c => c.diff).join('；')
         probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${errDetail}`, resolvedArgs, result, Date.now() - stepStartTime)
@@ -530,7 +531,7 @@ export async function executeStep(
       }
       if (factResult.severity === 'minor' && factResult.correctedOutput) {
         result = factResult.correctedOutput
-        console.log(`[FactGuard] step${step.step}: 微小差异已自动修正`)
+        debugLog(`[FactGuard] step${step.step}: 微小差异已自动修正`)
       }
       if (factResult.hallucinatedEntities.length > 0) {
         const halluList = factResult.hallucinatedEntities.map(e => `${e.type}:${e.raw}`).join(', ')

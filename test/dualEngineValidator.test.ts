@@ -83,6 +83,14 @@ describe('dualEngineValidator', () => {
       expect(m.target_file).toBe('output.txt')
     })
 
+    it('node -e 转义双引号命令 → extractTargetFile 提取writeFileSync路径', () => {
+      const m = buildActionManifest('test', {
+        tool: 'shell_exec',
+        params: { command: 'node -e "require(\\"fs\\").writeFileSync(\\"C:\\\\Users\\\\test\\\\doc.txt\\",\\"x\\")"' }
+      }, '写文件')
+      expect(m.target_file).toBe('C:\\\\Users\\\\test\\\\doc.txt')
+    })
+
     it('mkdir 简单命令 → 目标(未知)', () => {
       const m = buildActionManifest('test', {
         tool: 'shell_exec',
@@ -99,7 +107,8 @@ describe('dualEngineValidator', () => {
         target_file: '/tmp/old',
         operation: 'rm -rf /tmp/old',
         expected_output: '删除目录',
-        intent: '删除临时目录'
+        intent: '删除临时目录',
+        isHighRisk: true
       }, '删除临时目录')
       expect(result.risk_level).toBe('high')
       expect(result.intent_match).toBe(true)
@@ -112,7 +121,8 @@ describe('dualEngineValidator', () => {
         target_file: '/tmp/file',
         operation: 'unlinkSync /tmp/file',
         expected_output: '删除文件',
-        intent: '删除文件'
+        intent: '删除文件',
+        isHighRisk: true
       }, '删除文件')
       expect(result.risk_level).toBe('high')
     })
@@ -124,7 +134,8 @@ describe('dualEngineValidator', () => {
         target_file: '/tmp/old',
         operation: 'rm -rf /tmp/old',
         expected_output: '删除',
-        intent: '删除'
+        intent: '删除',
+        isHighRisk: true
       }, '删除')
       const cached = lookupValidationCache(key)
       expect(cached).not.toBeNull()
@@ -154,7 +165,7 @@ describe('dualEngineValidator', () => {
       const { useApiStore } = await import('@/stores/apiStore')
       const store = useApiStore()
       ;(store.chatCompletion as any).mockResolvedValueOnce({
-        choices: [{ message: { content: '{"intent_match":true,"parameter_sane":true,"risk_level":"low"}' } }]
+        content: '{"intent_match":true,"parameter_sane":true,"risk_level":"low"}'
       })
       const result = await dualEngineValidate({
         skill_id: 'fresh-skill',
@@ -172,7 +183,7 @@ describe('dualEngineValidator', () => {
       const { useApiStore } = await import('@/stores/apiStore')
       const store = useApiStore()
       ;(store.chatCompletion as any).mockResolvedValueOnce({
-        choices: [{ message: { content: '{"intent_match":false,"parameter_sane":true,"risk_level":"medium","reason":"意图不匹配"}' } }]
+        content: '{"intent_match":false,"parameter_sane":true,"risk_level":"medium","reason":"意图不匹配"}'
       })
       const result = await dualEngineValidate({
         skill_id: 'intent-mismatch-skill',
@@ -189,7 +200,7 @@ describe('dualEngineValidator', () => {
       const { useApiStore } = await import('@/stores/apiStore')
       const store = useApiStore()
       ;(store.chatCompletion as any).mockResolvedValueOnce({
-        choices: [{ message: { content: '{"intent_match":true,"parameter_sane":true,"risk_level":"high","reason":"目标为系统目录"}' } }]
+        content: '{"intent_match":true,"parameter_sane":true,"risk_level":"high","reason":"目标为系统目录"}'
       })
       const result = await dualEngineValidate({
         skill_id: 'high-risk-skill',
@@ -205,7 +216,7 @@ describe('dualEngineValidator', () => {
       const { useApiStore } = await import('@/stores/apiStore')
       const store = useApiStore()
       ;(store.chatCompletion as any).mockResolvedValueOnce({
-        choices: [{ message: { content: '审核结果：看起来安全' } }]
+        content: '审核结果：看起来安全'
       })
       const result = await dualEngineValidate({
         skill_id: 'unparseable-skill',

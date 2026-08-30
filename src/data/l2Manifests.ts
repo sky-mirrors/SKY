@@ -1,3 +1,4 @@
+import { debugLog } from '@/services/debugLog'
 import { L2ToolManifest } from '@/models'
 
 const l2Manifests: L2ToolManifest[] = [
@@ -404,7 +405,7 @@ const l2Manifests: L2ToolManifest[] = [
       mode: 'macro',
       dagPlan: {
         steps: [
-            { step: 1, description: '创建docx文件并保存到桌面', tool: 'shell_exec', depends_on: [], params: { command: 'node -e "const{Document,Packer,Paragraph,TextRun}=require(\'docx\');const fs=require(\'fs\');const raw=(process.env.USER_INPUT||\'\').trim();console.log(\'DEBUG_USER_INPUT:\'+raw);let content=raw.replace(/^(帮我|请|麻烦)?(写|创建|生成|新建)(一个|一份)?/,\'\').trim()||raw;console.log(\'DEBUG_CONTENT:\'+content);const doc=new Document({sections:[{children:content.split(String.fromCharCode(10)).map(line=>new Paragraph({children:[new TextRun(line)]}))}]});Packer.toBuffer(doc).then(buf=>{fs.writeFileSync((process.env.USERPROFILE||\'C:\\\\Users\\\\Administrator\')+\'\\\\Desktop\\\\新建文档.docx\',buf);console.log(\'文件已保存: 新建文档.docx\')})"' }, expectedOutput: '桌面docx文件' }
+            { step: 1, description: '创建docx文件并保存到桌面', tool: 'shell_exec', depends_on: [], params: { command: 'node -e "const{Document,Packer,Paragraph,TextRun}=require(\'docx\');const fs=require(\'fs\');const raw=(process.env.USER_INPUT||\'\').trim();debugLog(\'DEBUG_USER_INPUT:\'+raw);let content=raw.replace(/^(帮我|请|麻烦)?(写|创建|生成|新建)(一个|一份)?/,\'\').trim()||raw;debugLog(\'DEBUG_CONTENT:\'+content);const doc=new Document({sections:[{children:content.split(String.fromCharCode(10)).map(line=>new Paragraph({children:[new TextRun(line)]}))}]});Packer.toBuffer(doc).then(buf=>{fs.writeFileSync((process.env.USERPROFILE||\'C:\\\\Users\\\\Administrator\')+\'\\\\Desktop\\\\新建文档.docx\',buf);debugLog(\'文件已保存: 新建文档.docx\')})"' }, expectedOutput: '桌面docx文件' }
         ],
         fallbackStrategy: 'retry',
         maxRetries: 1

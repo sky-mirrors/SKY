@@ -25,11 +25,11 @@ function isHighRiskCommand(command: string): boolean {
 }
 
 function extractTargetFile(command: string): string {
-  const writeFileSyncMatch = command.match(/writeFileSync\s*\(\s*['"]([^'"]+)['"]/)
+  const writeFileSyncMatch = command.match(/writeFileSync\s*\(\s*(?:['"]|\\")([^'"]+?)(?:['"]|\\")/)
   if (writeFileSyncMatch) return writeFileSyncMatch[1]
-  const writeFileMatch = command.match(/writeFile\s*\(\s*['"]([^'"]+)['"]/)
+  const writeFileMatch = command.match(/writeFile\s*\(\s*(?:['"]|\\")([^'"]+?)(?:['"]|\\")/)
   if (writeFileMatch) return writeFileMatch[1]
-  const pathMatch = command.match(/['"]((?:[A-Za-z]:[\\\/]|\/)[^'"]+\.\w+)['"]/)
+  const pathMatch = command.match(/(?:['"]|\\")((?:[A-Za-z]:[\\\/]|\/)[^'"]+\.\w+)(?:['"]|\\")/)
   if (pathMatch) return pathMatch[1]
   return '(未知)'
 }

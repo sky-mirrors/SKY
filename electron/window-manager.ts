@@ -1,3 +1,4 @@
+const DEBUG = process.env.HOLO_DEBUG === '1'
 import { BrowserWindow, shell, globalShortcut } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
@@ -55,7 +56,7 @@ export function createWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.on('did-finish-load', () => {
-    console.log('[MainWindow] Renderer finished loading')
+    DEBUG && console.log('[MainWindow] Renderer finished loading')
   })
 
   mainWindow.webContents.on('did-fail-load', (event, code, desc) => {

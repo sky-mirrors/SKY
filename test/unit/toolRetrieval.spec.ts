@@ -16,16 +16,19 @@ import {
   clearRouteCache
 } from '@/services/toolRetrieval'
 import type { MatchableItem } from '@/services/toolRetrieval'
-import { cosineSimilarity } from '@/services/knowledgeBase'
+import { cosineSimilarity } from '@/services/embedder'
 import type { L2ToolManifest } from '@/models'
 
-vi.mock('@/services/knowledgeBase', () => ({
+vi.mock('@/services/embedder', () => ({
   generateVector: vi.fn(() => Promise.resolve(new Array(384).fill(0.1))),
   cosineSimilarity: vi.fn((a: number[], b: number[]) => {
     let dot = 0, na = 0, nb = 0
     for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i] }
     return na === 0 || nb === 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb))
   })
+}))
+vi.mock('@/services/fileContext', () => ({
+  getFileBoostForItem: vi.fn(() => 0)
 }))
 vi.mock('@/stores/feedbackStore', () => ({
   useFeedbackStore: vi.fn(() => ({ getWeightModifier: vi.fn(() => 0) }))

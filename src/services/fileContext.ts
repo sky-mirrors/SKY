@@ -1,3 +1,4 @@
+import { debugLog } from '@/services/debugLog'
 interface FileContext {
   activeFileExt: string | null
   activeFileName: string | null
@@ -67,7 +68,7 @@ export function setActiveFile(fileName: string | null): void {
       boostKeywords: boost.keywords,
       boostWeight: boost.weight
     }
-    console.log(`[FileContext] 激活: ${fileName} → boost +${boost.weight} for [${boost.keywords.join(', ')}]`)
+    debugLog(`[FileContext] 激活: ${fileName} → boost +${boost.weight} for [${boost.keywords.join(', ')}]`)
   } else {
     _currentFile = { activeFileExt: ext, activeFileName: fileName, boostKeywords: [], boostWeight: 0 }
   }
@@ -90,7 +91,7 @@ export async function initFileContextWatch(): Promise<void> {
   try {
     const dir = await window.electronAPI.watchfsGetDir?.()
     if (dir) {
-      console.log(`[FileContext] 监听目录: ${dir}`)
+      debugLog(`[FileContext] 监听目录: ${dir}`)
     }
   } catch {
     // watchfsGetDir may not be available
