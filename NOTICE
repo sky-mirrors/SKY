@@ -1,0 +1,21 @@
+HoloStarmap
+Copyright 2026 sky-mirrors
+
+This product includes software developed at
+https://github.com/sky-mirrors/HoloStarmap
+
+---
+
+This product includes software developed by third parties:
+
+- Vue.js (MIT License) - https://vuejs.org
+- Pinia (MIT License) - https://pinia.vuejs.org
+- Three.js (MIT License) - https://threejs.org
+- Electron (MIT License) - https://www.electronjs.org
+- @xenova/transformers (Apache-2.0 License) - https://huggingface.co/docs/transformers.js
+- DOMPurify (Apache-2.0 OR BSD-3-Clause) - https://github.com/cure53/DOMPurify
+- Vitest (MIT License) - https://vitest.dev
+- docx (MIT License) - https://github.com/dolanmiu/docx
+- mammoth (BSD-2-Clause) - https://github.com/mwilliamson/mammoth.js
+- pdf-parse (MIT License) - https://github.com/modesty/pdf-parse
+- xlsx (Apache-2.0 License) - https://github.com/SheetJS/sheetjs

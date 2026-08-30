@@ -2,7 +2,7 @@
 
 **全息星图企业级智能工具集成控制台 — 125节点太空拓扑交互界面**
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/sky-mirrors/HoloStarmap) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-442%2F442-brightgreen.svg)](TEST_REPORT.md)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/sky-mirrors/HoloStarmap) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-442%2F442-brightgreen.svg)](TEST_REPORT.md)
 
 <!-- 截图待补充 -->
 <!-- ![HoloStarmap 3D Star Map](docs/screenshot.png) -->

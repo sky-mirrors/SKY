@@ -4,7 +4,7 @@
   "description": "全息星图集成工具控制台 - 125节点太空拓扑交互界面",
   "main": "./out/main/index.js",
   "author": "sky-mirrors",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
