@@ -69,7 +69,7 @@ export function startMcpProcess(
         return (a.match(/^[A-Za-z]:/) || a.startsWith('/') || a.startsWith('\\')) && !a.startsWith('@')
       })
       if (!hasDir) {
-        const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Administrator'
+        const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
         const dirs = [join(home, 'Desktop'), join(home, 'Documents'), home]
         for (const drive of ['D:\\', 'E:\\']) {
           try {

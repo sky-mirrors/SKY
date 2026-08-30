@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, createBenchmarkWindow, getBenchmarkWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 
 let pendingPipelineNodes: { toolId: string; toolName: string; toolLevel: string }[] = []
@@ -114,6 +114,21 @@ app.whenReady().then(async () => {
     if (dw) {
       dw.setAlwaysOnTop(isFloat)
     }
+  })
+
+  ipcMain.on('open:benchmark-window', () => {
+    createBenchmarkWindow()
+  })
+
+  ipcMain.on('benchmark:window:minimize', () => { getBenchmarkWindow()?.minimize() })
+  ipcMain.on('benchmark:window:maximize', () => {
+    const bw = getBenchmarkWindow()
+    if (bw) { bw.isMaximized() ? bw.unmaximize() : bw.maximize() }
+  })
+  ipcMain.on('benchmark:window:close', () => { getBenchmarkWindow()?.close() })
+
+  ipcMain.on('benchmark:ready', () => {
+    console.log('[BenchmarkWindow] Ready')
   })
 
   registerGlobalShortcuts()

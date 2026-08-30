@@ -33,7 +33,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'index.html'),
           pipeline: resolve(__dirname, 'pipeline.html'),
-          debug: resolve(__dirname, 'debug.html')
+          debug: resolve(__dirname, 'debug.html'),
+          benchmark: resolve(__dirname, 'benchmark.html')
         }
       }
     },

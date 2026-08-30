@@ -5,6 +5,7 @@ import { is } from '@electron-toolkit/utils'
 let mainWindow: BrowserWindow | null = null
 let pipelineWindow: BrowserWindow | null = null
 let debugWindow: BrowserWindow | null = null
+let benchmarkWindow: BrowserWindow | null = null
 let onPipelineWindowReady: (() => void) | null = null
 
 export function setOnPipelineWindowReady(cb: () => void) {
@@ -158,6 +159,48 @@ export function createDebugWindow(): BrowserWindow {
     onDebugWindowClosed?.()
   })
   return debugWindow
+}
+
+export function getBenchmarkWindow(): BrowserWindow | null {
+  return benchmarkWindow && !benchmarkWindow.isDestroyed() ? benchmarkWindow : null
+}
+
+export function createBenchmarkWindow(): BrowserWindow {
+  if (benchmarkWindow && !benchmarkWindow.isDestroyed()) {
+    benchmarkWindow.focus()
+    return benchmarkWindow
+  }
+
+  benchmarkWindow = new BrowserWindow({
+    width: 1000,
+    height: 700,
+    minWidth: 600,
+    minHeight: 400,
+    show: true,
+    frame: false,
+    backgroundColor: '#050510',
+    title: 'HoloStarmap - Token优化压测台',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  benchmarkWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    benchmarkWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/benchmark.html`)
+  } else {
+    benchmarkWindow.loadFile(join(__dirname, '../renderer/benchmark.html'))
+  }
+
+  benchmarkWindow.on('closed', () => { benchmarkWindow = null })
+  return benchmarkWindow
 }
 
 export function registerGlobalShortcuts() {

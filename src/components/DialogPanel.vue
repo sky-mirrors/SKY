@@ -979,7 +979,7 @@ function escapeHtml(text: string): string {
 
 async function exportAs(msg: DialogMessage, format: 'docx' | 'html') {
   const content = msg.content
-  const home = await window.electronAPI?.resolvePath('%USERPROFILE%') || 'C:\\Users\\Administrator'
+  const home = await window.electronAPI?.resolvePath('%USERPROFILE%') || 'C:\\Users\\Default'
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   if (format === 'html') {
     const html = renderToEmailHtml(content)

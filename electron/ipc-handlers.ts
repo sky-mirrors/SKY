@@ -711,7 +711,9 @@ export function setupIpc(win: BrowserWindow | null) {
         usage: {
           promptTokens: usage?.prompt_tokens || 0,
           completionTokens: usage?.completion_tokens || 0,
-          totalTokens: usage?.total_tokens || 0
+          totalTokens: usage?.total_tokens || 0,
+          cacheHitTokens: usage?.prompt_cache_hit_tokens || 0,
+          cacheMissTokens: usage?.prompt_cache_miss_tokens || 0
         },
         chatFormat: 'openai'
       }
@@ -851,8 +853,8 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.handle('env:resolvePath', (_event, template: string) => {
     return template
-      .replace('%USERPROFILE%', process.env.USERPROFILE || 'C:\\Users\\Administrator')
-      .replace('%HOME%', process.env.HOME || process.env.USERPROFILE || 'C:\\Users\\Administrator')
+      .replace('%USERPROFILE%', process.env.USERPROFILE || 'C:\\Users\\Default')
+      .replace('%HOME%', process.env.HOME || process.env.USERPROFILE || 'C:\\Users\\Default')
   })
 
   ipcMain.handle('shell:openPath', async (_event, filePath: string) => {

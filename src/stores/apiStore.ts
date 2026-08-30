@@ -285,7 +285,7 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal
-  ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+  ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     if (!config.value.isReachable || !config.value.activeModel) {
       throw new Error('API not ready')
     }
@@ -318,7 +318,7 @@ export const useApiStore = defineStore('api', () => {
         return {
           content: result.content ?? '',
           toolCalls: result.toolCalls ?? [],
-          usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+          usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -427,8 +427,8 @@ export const useApiStore = defineStore('api', () => {
       if (toolCalls.length > 0) {
         console.log(`[chatCompletion:direct] toolCalls:`, toolCalls.map(tc => tc.name).join(', '))
       }
-      const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
-      console.log(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}`)
+      const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
+      console.log(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       return { content, toolCalls, usage }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)

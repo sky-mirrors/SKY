@@ -107,7 +107,7 @@ export async function callToolDirectWithTier(
   userInput?: { inputText?: string }
 ): Promise<string> {
   const isWin = window.electronAPI?.platform === 'win32'
-  const defaultHome = isWin ? 'C:\\Users\\Administrator' : '/home/user'
+  const defaultHome = isWin ? 'C:\\Users\\Default' : '/home/user'
 
   async function resolveFilePath(p: string): Promise<string> {
     if (p.includes('%USERPROFILE%')) {
@@ -194,7 +194,7 @@ export async function callToolDirectWithTier(
             command: checkCmd,
             timeout: 5000,
             env: {
-              HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Administrator' : '/home/user',
+              HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Default' : '/home/user',
               EXPECTED_FILE: expectedFileName
             }
           })

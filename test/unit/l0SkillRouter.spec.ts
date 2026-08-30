@@ -175,5 +175,30 @@ describe('l0SkillRouter', () => {
       const plan = buildExplorePlan('转换为xlsx格式')
       expect(plan.isExploration).toBe(true)
     })
+
+    it('简单查询 - 几号', () => {
+      const plan = tryL0Skill('今天几号？')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('llm_generate')
+      expect(plan!.steps[0].params.modelTier).toBe('nano')
+    })
+
+    it('简单查询 - 几点几分', () => {
+      const plan = tryL0Skill('现在是几点几分？')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('llm_generate')
+      expect(plan!.steps[0].params.modelTier).toBe('nano')
+    })
+
+    it('文件创建 - 摘要说明不命中(应走L0.5)', () => {
+      const plan = tryL0Skill('生成一份文档摘要说明')
+      expect(plan).toBeNull()
+    })
+
+    it('创建文件夹 - 名为xxx', () => {
+      const plan = tryL0Skill('创建一个名为项目归档的文件夹')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('create_directory')
+    })
   })
 })

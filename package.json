@@ -33,5 +33,10 @@
     "win": {
       "target": "portable"
     }
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "electron-vite": "^5.0.0",
+    "tsx": "^4.23.12"
   }
 }

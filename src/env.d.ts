@@ -68,7 +68,7 @@ interface ElectronAPI {
     success: boolean
     content?: string
     toolCalls?: Array<{ id: string; name: string; arguments: string }>
-    usage?: { promptTokens: number; completionTokens: number; totalTokens: number }
+    usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number }
     chatFormat?: string
     error?: string
   }>

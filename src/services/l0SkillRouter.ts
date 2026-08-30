@@ -269,7 +269,7 @@ const skillRules: L0SkillRule[] = [
       /^(创建|新建)(一个|一份)?\s*(docx|word|txt|文档|文件)/i
     ],
     forbiddenPatterns: [
-      /(审查|合规|条款|风险|法律|合同|分析|报告|周报|总结|竞品|财报|KPI|预算)/
+      /(审查|合规|条款|风险|法律|合同|分析|报告|周报|总结|竞品|财报|KPI|预算|摘要|说明|简介)/
     ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
       const ext = resolveExt(input)
@@ -302,7 +302,8 @@ const skillRules: L0SkillRule[] = [
     triggerPatterns: [
       /(创建|新建|建)(一个)?\s*(文件夹|目录|folder)/i,
       /在(桌面|电脑上|本地)(创建|新建|建).{0,15}?(文件夹|目录)/i,
-      /^(创建|新建)(一个)?\s*(空)?\s*(文件夹|目录)/i
+      /^(创建|新建)(一个)?\s*(空)?\s*(文件夹|目录)/i,
+      /(创建|新建|建)(一个)?\s*.{0,5}?(名为|叫|命名)\s*.{1,20}?(文件夹|目录|folder)/i
     ],
     forbiddenPatterns: [
       /(文档|docx|txt|pdf|xlsx|审查|分析|写|生成|保存)/
@@ -310,6 +311,7 @@ const skillRules: L0SkillRule[] = [
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
       const nameMatch = input.match(/(?:名为|叫|命名)\s*["「『""']?([^"」』""'\s]{1,30})/i)
         || input.match(/(?:创建|新建|建)(一个)?\s*(空)?\s*(文件夹|目录)?\s*(.{2,20}?)(?:在|到|$)/i)
+        || input.match(/(?:名为|叫)\s*(.{2,20}?)(?:的|文件夹|目录|folder|$)/i)
       let folderName = '新建文件夹'
       if (nameMatch) {
         const candidate = nameMatch[1] || nameMatch[4]
@@ -331,9 +333,10 @@ const skillRules: L0SkillRule[] = [
     name: '简单查询',
     domain: 'query',
     triggerPatterns: [
-      /^(几点|什么时间|今天是|现在几|天气|计算|算一下|等于多少)/i,
+      /^(几点|什么时间|今天是|现在几|天气|计算|算一下|等于多少|几号)/i,
       /^(what time|what day|calculate|compute)\b/i,
-      /^(今天|现在|当前).{0,5}?(日期|时间|星期)/i
+      /^(今天|现在|当前).{0,5}?(日期|时间|星期|几号)/i,
+      /^(现在|当前).{0,5}?(几点|几分)/i
     ],
     forbiddenPatterns: [
       /(分析|报告|审查|对比|文档|文件|转换)/

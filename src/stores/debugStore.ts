@@ -289,7 +289,7 @@ export const useDebugStore = defineStore('debug', () => {
           env: {
             DEBUG_FILE: fileName,
             DEBUG_DATA: Buffer.from(data).toString('base64'),
-            HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Administrator' : '/home/user'
+            HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Default' : '/home/user'
           }
         })
         if (result.success) return `Desktop/${fileName}`

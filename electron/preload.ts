@@ -182,6 +182,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   debugWindowClose: () => ipcRenderer.send('debug:window:close'),
   debugToggleFloat: (isFloat: boolean) => ipcRenderer.send('debug:toggleFloat', isFloat),
 
+  openBenchmarkWindow: () => ipcRenderer.send('open:benchmark-window'),
+  benchmarkWindowMinimize: () => ipcRenderer.send('benchmark:window:minimize'),
+  benchmarkWindowMaximize: () => ipcRenderer.send('benchmark:window:maximize'),
+  benchmarkWindowClose: () => ipcRenderer.send('benchmark:window:close'),
+
   storeSyncToDebug: (data: { storeId: string; state: Record<string, unknown> }) =>
     ipcRenderer.send('store:syncToDebug', data),
 

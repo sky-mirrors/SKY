@@ -5,8 +5,8 @@ import { execSync } from 'child_process'
 
 const PROJECT_ROOT = join(__dirname, '..', '..')
 const OUT_MAIN = join(PROJECT_ROOT, 'out', 'main', 'index.js')
-const DEEPSEEK_API_KEY = '***REMOVED-SECRET***'
-const DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || ''
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com'
 
 function ensureBuild(): void {
   if (!existsSync(OUT_MAIN)) {

@@ -4,6 +4,7 @@
       <div class="titlebar-left">
         <span class="titlebar-text">HoloStarmap</span>
         <span class="debug-ring" :class="{ frozen: debugStore.frozen }" @click="onOpenDebugWindow" :title="debugStore.frozen ? '探针已冻结 - 点击打开调试窗口' : `探针 ${debugStore.activeProbes.length} - 点击打开调试窗口`">🔍{{ debugStore.activeProbes.length }}<span v-if="debugStore.frozen"> ❄️</span></span>
+        <span class="benchmark-btn" @click="onOpenBenchmarkWindow" title="Token优化压测台">📊</span>
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换浅色模式' : configStore.theme === 'light' ? '切换护眼模式' : '切换深色模式'">{{ configStore.theme === 'dark' ? '☀️' : configStore.theme === 'light' ? '🌿' : '🌙' }}</span>
         <span class="view-toggle" @click="toggleViewMode" :title="viewMode === 'starmap' ? '切换到结果预览' : '切换到星图'">{{ viewMode === 'starmap' ? '📊' : '🌌' }}</span>
       </div>
@@ -219,6 +220,10 @@ function minimizeWindow() {
 
 function onOpenDebugWindow() {
   window.electronAPI?.openDebugWindow()
+}
+
+function onOpenBenchmarkWindow() {
+  window.electronAPI?.openBenchmarkWindow()
 }
 
 function maximizeWindow() {
@@ -1047,6 +1052,26 @@ html, body, #app {
   background: rgba(255, 30, 30, 0.5);
   color: #ff2222;
 }
+.benchmark-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 200, 50, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  user-select: none;
+  background: rgba(255, 200, 50, 0.1);
+  transition: all 0.2s;
+}
+.benchmark-btn:hover {
+  background: rgba(255, 200, 50, 0.25);
+  border-color: rgba(255, 200, 50, 0.8);
+}
+
 @keyframes debug-pulse {
   0%, 100% { box-shadow: 0 0 8px rgba(255, 30, 30, 0.3); }
   50% { box-shadow: 0 0 20px rgba(255, 30, 30, 0.6); }
