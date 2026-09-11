@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory } from '@/models'
+import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord } from '@/models'
 import { debugLog } from '@/services/debugLog'
+import { recordLlmCost, getBudgetStatus as getBudgetStatusFromService, initBudgetSystem, getCostBreakdownByTier, getCostBreakdownByCategory } from '@/services/tokenBudget'
+import { calculateCost } from '@/services/tokenPricing'
 
 const MAX_PROBES = 200
 const FREEZE_HARD_LIMIT = 500
@@ -46,6 +48,9 @@ export const useDebugStore = defineStore('debug', () => {
   const consoleFilterCategory = ref<ConsoleCategory | ''>('')
   const totalTokenUsage = ref({ promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCostCny: 0 })
   const stepCosts = ref<Record<number, { durationMs: number; promptTokens: number; completionTokens: number; estimatedCostCny: number }>>({})
+  const budgetStatus = ref<BudgetStatus | null>(null)
+  const costByTier = ref<Record<string, { cost: number; callCount: number; totalTokens: number }>>({})
+  const costByCategory = ref<Record<string, { cost: number; callCount: number }>>({})
 
   const CATEGORY_ICONS: Record<ConsoleCategory, string> = {
     system: '⚙️', raap: '🎯', llm: '🤖', shell: '💻', cache: '♻️',
@@ -87,25 +92,27 @@ export const useDebugStore = defineStore('debug', () => {
   }
 
   function recordStepCost(stepNum: number, durationMs: number, promptTokens: number, completionTokens: number) {
-    const costPerToken = 0.0000014
+    const cost = calculateCost(promptTokens, completionTokens, 0)
     stepCosts.value[stepNum] = {
       durationMs,
       promptTokens,
       completionTokens,
-      estimatedCostCny: (promptTokens + completionTokens) * costPerToken
+      estimatedCostCny: cost.totalCost
     }
   }
 
   let _skipNextCapture = false
 
-  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number) {
+  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number, category?: string) {
     _skipNextCapture = true
     totalTokenUsage.value.promptTokens += promptTokens
     totalTokenUsage.value.completionTokens += completionTokens
     totalTokenUsage.value.totalTokens += totalTokens
-    const costPerToken = 0.0000014
-    totalTokenUsage.value.estimatedCostCny += totalTokens * costPerToken
-    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}`)
+    const cost = calculateCost(promptTokens, completionTokens, 0)
+    totalTokenUsage.value.estimatedCostCny += cost.totalCost
+    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}, cost=${cost.totalCost.toFixed(4)}CNY`)
+    recordLlmCost('standard', promptTokens, completionTokens, 0, category || 'llm')
+    refreshBudgetStatus()
   }
 
   let _origConsole: Record<ConsoleLogLevel, (...args: unknown[]) => void> | null = null
@@ -116,8 +123,8 @@ export const useDebugStore = defineStore('debug', () => {
     _captureActive = true
     _origConsole = {
       log: console.log.bind(console),
-      warn: console.warn.bind(console),
-      error: console.error.bind(console),
+      warn: console.warn.bind(console), // unavoidable: dynamic console method capture
+      error: console.error.bind(console), // unavoidable: dynamic console method capture
       info: console.info.bind(console),
     }
     const levels: ConsoleLogLevel[] = ['log', 'warn', 'error', 'info']
@@ -145,8 +152,8 @@ export const useDebugStore = defineStore('debug', () => {
         totalTokenUsage.value.promptTokens += pt
         totalTokenUsage.value.completionTokens += ct
         totalTokenUsage.value.totalTokens += tt
-        const costPerToken = 0.0000014
-        totalTokenUsage.value.estimatedCostCny += tt * costPerToken
+        const cost = calculateCost(pt, ct, 0)
+        totalTokenUsage.value.estimatedCostCny += cost.totalCost
       }
     }
     for (const level of levels) {
@@ -281,18 +288,12 @@ export const useDebugStore = defineStore('debug', () => {
     if (!currentSession.value) return null
     const data = JSON.stringify(currentSession.value, null, 2)
     try {
-      if (window.electronAPI?.shellExec) {
+      if (window.electronAPI?.fileWrite) {
         const ts = new Date().toISOString().replace(/[:.]/g, '-')
         const fileName = `holo-debug-${ts}.json`
-        const result = await window.electronAPI.shellExec({
-          command: `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.DEBUG_FILE);fs.writeFileSync(fp,Buffer.from(process.env.DEBUG_DATA,'base64'));debugLog('SAVED:'+fp)"`,
-          timeout: 10000,
-          env: {
-            DEBUG_FILE: fileName,
-            DEBUG_DATA: Buffer.from(data).toString('base64'),
-            HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Default' : '/home/user'
-          }
-        })
+        const home = process.env?.USERPROFILE || process.env?.HOME || 'C:\\Users\\Default'
+        const filePath = `${home}/Desktop/${fileName}`
+        const result = await window.electronAPI.fileWrite({ filePath, content: data })
         if (result.success) return `Desktop/${fileName}`
       }
     } catch { /* fallback */ }
@@ -382,9 +383,18 @@ export const useDebugStore = defineStore('debug', () => {
     consoleLogs.value = []
   }
 
+  function refreshBudgetStatus() {
+    budgetStatus.value = getBudgetStatusFromService()
+    costByTier.value = getCostBreakdownByTier()
+    costByCategory.value = getCostBreakdownByCategory()
+  }
+
   captureConsole()
 
   emitEvent('info', 'system', '[DebugCenter] 调试中心已自动激活，将记录所有操作和token计数')
+
+  initBudgetSystem()
+  refreshBudgetStatus()
 
   return {
     enabled,
@@ -406,8 +416,12 @@ export const useDebugStore = defineStore('debug', () => {
     emitEvent,
     totalTokenUsage,
     stepCosts,
+    budgetStatus,
+    costByTier,
+    costByCategory,
     recordStepCost,
     recordTokenUsage,
+    refreshBudgetStatus,
     activate,
     deactivate,
     recordProbe,

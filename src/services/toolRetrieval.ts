@@ -2,6 +2,9 @@ import { generateVector as genVec, cosineSimilarity } from './embedder'
 import { L2ToolManifest } from '@/models'
 import { getFileBoostForItem } from './fileContext'
 import { debugLog } from '@/services/debugLog'
+import { contentHash } from './hash'
+import { globalBus } from '@/kernel/bus'
+import { vault } from '@/vault'
 
 const STOP_WORDS_SET = new Set(['的', '了', '在', '是', '我', '你', '他', '她', '它', '们', '这', '那', '有', '和', '与', '或', '帮', '给', '让', '把', '被', '从', '到', '用', '对', '为', '以', '及', '等', '着', '过', '一下', '一下下', '一个', '一些', '请', '要', '会', '能', '可以', '帮我', '帮我看看', '搞', '搞一下', '做', '做一下', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'it', 'this', 'that', 'me', 'my', 'your'])
 
@@ -115,26 +118,17 @@ function ruleEngineFallback(
 
 function loadToolIndex(): ToolIndex[] {
   try {
-    const raw = localStorage.getItem(TOOL_INDEX_KEY)
+    const raw = vault.readCache('tool', TOOL_INDEX_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function saveToolIndex(index: ToolIndex[]): void {
   try {
-    localStorage.setItem(TOOL_INDEX_KEY, JSON.stringify(index))
+    vault.writeThrough('tool', TOOL_INDEX_KEY, JSON.stringify(index))
   } catch {
-    console.warn('[RaaP] localStorage写入失败(可能超出配额)，索引仅存于内存')
+    debugLog('[RaaP] vault写入失败，索引仅存于内存')
   }
-}
-
-export function contentHash(str: string): string {
-  let h = 0x811c9dc5
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return (h >>> 0).toString(36)
 }
 
 export function manifestFingerprint(m: L2ToolManifest): string {
@@ -583,20 +577,18 @@ export async function universalMatch(
   if (isNegated) debugLog(`[Universal] 检测到否定词，关键词分数降权至0.3x`)
 
   try {
-    const { useFeedbackStore } = await import('@/stores/feedbackStore')
-    const feedbackStore = useFeedbackStore()
     for (const s of kwScores) {
-      const mod = feedbackStore.getWeightModifier(s.item.id)
+      const mod = globalBus.request<number>('feedback:get-weight', { id: s.item.id })
       if (mod !== 0) s.score = Math.max(0, Math.min(1, s.score + mod * 0.5))
     }
     for (const s of vectorScores) {
-      const mod = feedbackStore.getWeightModifier(s.item.id)
+      const mod = globalBus.request<number>('feedback:get-weight', { id: s.item.id })
       if (mod !== 0) s.score = Math.max(0, Math.min(1, s.score + mod * 0.5))
     }
     kwScores.sort((a, b) => b.score - a.score)
     vectorScores.sort((a, b) => b.score - a.score)
   } catch (e) {
-    console.warn('[Universal] feedbackStore加载失败，使用原始分数:', e instanceof Error ? e.message : String(e))
+    debugLog('[Universal] feedback加载失败，使用原始分数:', e instanceof Error ? e.message : String(e))
   }
 
   for (const s of kwScores) {
@@ -611,18 +603,16 @@ export async function universalMatch(
   vectorScores.sort((a, b) => b.score - a.score)
 
   if (filterOptions?.selectedRole) {
-    const { useNodeStore } = await import('@/stores/nodeStore')
     try {
-      const ns = useNodeStore()
       for (const s of kwScores) {
-        const manifest = ns.getL2Manifest(s.item.id)
-        if (manifest?.routing.targetRoles?.includes(filterOptions.selectedRole!)) {
+        const roles = globalBus.request<string[]>('node:get-roles', { id: s.item.id })
+        if (roles?.includes(filterOptions.selectedRole!)) {
           s.score = Math.min(1, s.score * 1.3)
         }
       }
       for (const s of vectorScores) {
-        const manifest = ns.getL2Manifest(s.item.id)
-        if (manifest?.routing.targetRoles?.includes(filterOptions.selectedRole!)) {
+        const roles = globalBus.request<string[]>('node:get-roles', { id: s.item.id })
+        if (roles?.includes(filterOptions.selectedRole!)) {
           s.score = Math.min(1, s.score * 1.3)
         }
       }
@@ -773,40 +763,6 @@ export function getTop3Candidates(
   }).filter((r): r is { manifest: L2ToolManifest; score: number; method: string } => r !== null)
 }
 
-export async function rewriteQuery(
-  userInput: string,
-  chatCompletionFn: (messages: { role: string; content: string }[]) => Promise<{ content: string }>
-): Promise<string> {
-  if (userInput.length <= 4) return userInput
-  if (/[a-zA-Z_]{3,}/.test(userInput) && userInput.length < 20) return userInput
-  if (!isOnline()) {
-    debugLog('[rewriteQuery] 离线模式，跳过查询改写')
-    return userInput
-  }
-
-  const prompt = `将以下用户输入改写为简洁的工具检索查询语句，保留核心意图，去除口语化表达。只输出改写结果，不要解释。
-
-用户输入: "${userInput}"
-改写结果:`
-
-  try {
-    const resp = await chatCompletionFn([
-      { role: 'system', content: '你是一个查询改写助手，将用户口语化输入转化为简洁的检索语句。只输出改写结果。' },
-      { role: 'user', content: prompt }
-    ])
-    const rewritten = resp.content.trim()
-    if (rewritten.length >= 2 && rewritten.length <= 100 && !rewritten.includes('\n')) {
-      debugLog(`[rewriteQuery] "${userInput}" → "${rewritten}"`)
-      return rewritten
-    }
-    debugLog(`[rewriteQuery] 改写结果无效，使用原始输入: "${rewritten.substring(0, 60)}"`)
-    return userInput
-  } catch (e) {
-    console.warn('[rewriteQuery] LLM调用失败:', e instanceof Error ? e.message : String(e))
-    return userInput
-  }
-}
-
 export async function llmFallback(
   userInput: string,
   candidates: { item: MatchableItem; score: number; method: string }[],
@@ -848,7 +804,7 @@ ${candidateLines}
     debugLog(`[llmFallback] LLM返回无法解析: "${text}"`)
     return null
   } catch (e) {
-    console.warn('[llmFallback] LLM调用失败:', e instanceof Error ? e.message : String(e))
+    debugLog('[llmFallback] LLM调用失败:', e instanceof Error ? e.message : String(e))
     return null
   }
 }
@@ -870,4 +826,8 @@ export function getTop3CandidatesUniversal(
 
   const rrfResults = computeRRFGeneric([], kwScores)
   return rrfResults.slice(0, 3).map(r => ({ item: r.item, score: r.rrfScore, method: r.method }))
+}
+
+export function rewriteQuery(query: string): string {
+  return query
 }

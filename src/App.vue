@@ -5,7 +5,10 @@
         <span class="titlebar-text">HoloStarmap</span>
         <span class="debug-ring" :class="{ frozen: debugStore.frozen }" @click="onOpenDebugWindow" :title="debugStore.frozen ? '探针已冻结 - 点击打开调试窗口' : `探针 ${debugStore.activeProbes.length} - 点击打开调试窗口`">🔍{{ debugStore.activeProbes.length }}<span v-if="debugStore.frozen"> ❄️</span></span>
         <span class="benchmark-btn" @click="onOpenBenchmarkWindow" title="Token优化压测台">📊</span>
+        <span class="rule-review-btn" @click="onOpenRuleReviewWindow" title="规则审核">⚖️</span>
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换浅色模式' : configStore.theme === 'light' ? '切换护眼模式' : '切换深色模式'">{{ configStore.theme === 'dark' ? '☀️' : configStore.theme === 'light' ? '🌿' : '🌙' }}</span>
+        <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心">🔔<span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
+        <span class="settings-btn" @click="settingsPageRef?.open()" title="设置">⚙️</span>
         <span class="view-toggle" @click="toggleViewMode" :title="viewMode === 'starmap' ? '切换到结果预览' : '切换到星图'">{{ viewMode === 'starmap' ? '📊' : '🌌' }}</span>
       </div>
       <div class="titlebar-controls">
@@ -26,7 +29,7 @@
     <ResultPreviewStage
       v-if="viewMode === 'preview'"
       :message="previewMessage"
-      @close="viewMode = 'starmap'"
+      @close="configStore.setViewMode('starmap')"
     />
     <DebugProbePanel />
     <div class="node-tooltip" v-if="tooltipInfo" :style="{ left: tooltipInfo.screenX + 12 + 'px', top: tooltipInfo.screenY - 28 + 'px' }">
@@ -45,6 +48,10 @@
     />
     <ApiSettings ref="apiSettingsRef" @saved="onApiSaved" />
     <Notification ref="notificationRef" />
+    <NotificationCenter ref="notificationCenterRef" />
+    <CommandPalette ref="commandPaletteRef" />
+    <SettingsPage ref="settingsPageRef" />
+    <OnboardingWizard ref="onboardingWizardRef" />
     <L0Modal ref="l0ModalRef" @skill-installed="onSkillInstalled" @mcp-connected="onMcpConnected" />
     <div class="kernel-status-orb" @click="showKernelDetail = !showKernelDetail">
       <span class="orb-dot" :class="memoryWarning ? 'warning' : kernelState"></span>
@@ -88,26 +95,45 @@ const StarMap = defineAsyncComponent({
 import NodeDetailPanel from './components/NodeDetailPanel.vue'
 import ApiSettings from './components/ApiSettings.vue'
 import Notification from './components/Notification.vue'
+import NotificationCenter from './components/NotificationCenter.vue'
+import CommandPalette from './components/CommandPalette.vue'
+import SettingsPage from './components/SettingsPage.vue'
+import OnboardingWizard from './components/OnboardingWizard.vue'
 import DialogPanel from './components/DialogPanel.vue'
 import L0Modal from './components/L0Modal.vue'
 import FilterBar from './components/FilterBar.vue'
-  import { useNodeStore } from '@/stores/nodeStore'
-import { useApiStore } from '@/stores/apiStore'
-import { useConfigStore } from '@/stores/configStore'
-import { useMemoryStore } from '@/stores/memoryStore'
-import { useKnowledgeStore } from '@/stores/knowledgeStore'
-import { useSkillStore } from '@/stores/skillStore'
-import { useMcpStore } from '@/stores/mcpStore'
-import { useDialogStore } from '@/stores/dialogStore'
-import { useWorkflowLogStore } from '@/stores/workflowLogStore'
-import { ToolNode, JobRole, HistoryEntry, L2ToolManifest, DialogMessage } from '@/models'
-import { executePipeline } from '@/services/pipelineExecutor'
-import { usePipelineStore, registerPipelineExecutor } from '@/stores/pipelineStore'
-import { useDebugStore } from '@/stores/debugStore'
+  import { useNodeStore } from '@/domains/node'
+import { useApiStore } from '@/domains/api'
+import { useConfigStore } from '@/domains/config'
+import { useMemoryStore } from '@/domains/memory'
+import { useKnowledgeStore } from '@/domains/knowledge'
+import { useSkillStore } from '@/domains/app'
+import { useMcpStore } from '@/domains/mcp'
+import { useDialogStore } from '@/domains/dialog'
+import { useNotificationStore } from '@/domains/app'
+import { useWorkflowLogStore } from '@/domains/app'
+import { ToolNode, JobRole, HistoryEntry, L2ToolManifest, DialogMessage, ChatMessage } from '@/models'
+import { executePipeline } from '@/domains/pipeline'
+import { usePipelineStore, registerPipelineExecutor } from '@/domains/pipeline'
+import { useDebugStore } from '@/domains/debug'
 import DebugProbePanel from '@/components/DebugProbePanel.vue'
 import ResultPreviewStage from '@/components/ResultPreviewStage.vue'
-import { initFileContextWatch } from '@/services/fileContext'
-import { debugLog } from '@/services/debugLog'
+import { initFileContextWatch } from '@/domains/node'
+import { debugLog } from '@/domains/debug'
+import { createKernel, globalBus } from '@/kernel'
+import { vault } from '@/vault'
+import { registerApiHandlers } from '@/domains/api/handlers'
+import { registerAppHandlers } from '@/domains/app/handlers'
+import { registerConfigHandlers } from '@/domains/config/handlers'
+import { registerDataHandlers } from '@/domains/data/handlers'
+import { registerDebugHandlers } from '@/domains/debug/handlers'
+import { registerDialogHandlers } from '@/domains/dialog/handlers'
+import { registerFeedbackHandlers } from '@/domains/feedback/handlers'
+import { registerKnowledgeHandlers } from '@/domains/knowledge/handlers'
+import { registerMcpHandlers } from '@/domains/mcp/handlers'
+import { registerMemoryHandlers } from '@/domains/memory/handlers'
+import { registerNodeHandlers } from '@/domains/node/handlers'
+import { registerPipelineHandlers } from '@/domains/pipeline/handlers'
 
 const nodeStore = useNodeStore()
 const apiStore = useApiStore()
@@ -120,13 +146,18 @@ const mcpStore = useMcpStore()
 const dialogStore = useDialogStore()
 const workflowLogStore = useWorkflowLogStore()
 const debugStore = useDebugStore()
+const notificationStore = useNotificationStore()
 
 const apiSettingsRef = ref()
 const notificationRef = ref()
+const commandPaletteRef = ref()
+const notificationCenterRef = ref()
+const settingsPageRef = ref()
+const onboardingWizardRef = ref()
 const starMapRef = ref()
 const showKernelDetail = ref(false)
-const dialogPanelWidth = ref(460)
-const viewMode = ref<'starmap' | 'preview'>('starmap')
+const dialogPanelWidth = ref(configStore.config.dialogPanelWidth ?? 460)
+const viewMode = computed(() => configStore.viewMode)
 const previewMessage = ref<DialogMessage | null>(null)
 
 const kernelState = ref<'loaded' | 'degraded' | 'loading'>('loading')
@@ -155,9 +186,8 @@ function checkMemoryPressure() {
 
 async function updateKernelStatus() {
   try {
-    const { useKnowledgeBase } = await import('@/services/knowledgeBase')
-    const kb = useKnowledgeBase()
-    if (kb.isModelLoaded) {
+    const { isEmbedderReady } = await import('@/domains/knowledge')
+    if (isEmbedderReady()) {
       kernelState.value = 'loaded'
       embedderStatus.value = '已加载'
       retrievalMode.value = '精确向量'
@@ -171,8 +201,8 @@ async function updateKernelStatus() {
     embedderStatus.value = '降级(伪向量)'
   }
   try {
-    const ms = useMemoryStore()
-    vectorIndexStatus.value = `${ms.allEmbeddings?.length || 0} 条目`
+    const { getKnowledgeEntries } = await import('@/services/knowledgeBase')
+    vectorIndexStatus.value = `${getKnowledgeEntries().length} 条目`
   } catch { /* ignore */ }
   try {
     const perf = performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }
@@ -227,6 +257,10 @@ function onOpenBenchmarkWindow() {
   window.electronAPI?.openBenchmarkWindow()
 }
 
+function onOpenRuleReviewWindow() {
+  window.electronAPI?.openRuleReviewWindow()
+}
+
 function maximizeWindow() {
   window.electronAPI?.windowMaximize()
 }
@@ -244,6 +278,7 @@ function onStarMapReady(api: any) {
   }
   if (configStore.isFirstLaunch) {
     api.startOnboarding()
+    onboardingWizardRef.value?.open()
   }
 }
 
@@ -398,7 +433,7 @@ function launchL2Tool(node: ToolNode) {
 
     pipelineStore.startPipeline(pipeline.id, (stepId, msg) => {
       advanceStepSelection()
-    }).then((results) => {
+    })?.then((results) => {
       const lastKey = `step${steps.length - 1}`
       if (results[lastKey]) {
         advanceStepSelection()
@@ -583,28 +618,46 @@ function onCameraReset() {
   if (starMapRef.value?.resetCamera) {
     starMapRef.value.resetCamera()
   }
-  nodeStore.deselectNode()
+  nodeStore.selectNode(null)
 }
 
 function onPanelWidthChanged(width: number) {
   dialogPanelWidth.value = width
+  configStore.setDialogPanelWidth(width)
 }
 
 function toggleViewMode() {
-  viewMode.value = viewMode.value === 'starmap' ? 'preview' : 'starmap'
+  configStore.setViewMode(viewMode.value === 'starmap' ? 'preview' : 'starmap')
 }
 
 function openPreview(msg: DialogMessage) {
   previewMessage.value = msg
-  viewMode.value = 'preview'
+  configStore.setViewMode('preview')
 }
 
 const tooltipInfo = ref<{ screenX: number; screenY: number; label: string } | null>(null)
 
 function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'p' && e.ctrlKey && !e.shiftKey) {
+    e.preventDefault()
+    commandPaletteRef.value?.open()
+    return
+  }
   if (e.key === 'Escape') {
+    if (commandPaletteRef.value?.visible) {
+      commandPaletteRef.value?.close()
+      return
+    }
+    if (settingsPageRef.value?.visible) {
+      settingsPageRef.value?.close()
+      return
+    }
+    if (notificationCenterRef.value?.visible) {
+      notificationCenterRef.value?.close()
+      return
+    }
     if (viewMode.value === 'preview') {
-      viewMode.value = 'starmap'
+      configStore.setViewMode('starmap')
       return
     }
     onCameraReset()
@@ -641,6 +694,18 @@ function onMcpConnected(mcpId: string) {
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
 
+  window.addEventListener('holo-open-settings', (() => {
+    settingsPageRef.value?.open()
+  }) as EventListener)
+
+  window.addEventListener('holo-toggle-mode', (() => {
+    toggleViewMode()
+  }) as EventListener)
+
+  window.addEventListener('holo-open-notifications', (() => {
+    notificationCenterRef.value?.open()
+  }) as EventListener)
+
   configStore.loadFromStorage()
   apiStore.loadFromStorage()
   pipelineStore.loadFromStorage()
@@ -654,11 +719,85 @@ onMounted(async () => {
   dialogStore.initSession()
   workflowLogStore.loadFromStorage()
 
+  const kernel = createKernel()
+  registerApiHandlers(globalBus)
+  registerAppHandlers(globalBus)
+  registerConfigHandlers(globalBus)
+  registerDataHandlers(globalBus)
+  registerDebugHandlers(globalBus)
+  registerDialogHandlers(globalBus)
+  registerFeedbackHandlers(globalBus)
+  registerKnowledgeHandlers(globalBus)
+  registerMcpHandlers(globalBus)
+  registerMemoryHandlers(globalBus)
+  registerNodeHandlers(globalBus)
+  registerPipelineHandlers(globalBus)
+  kernel.registerLLM({
+    chatCompletion: async (messages, options) => {
+      const chatMessages: ChatMessage[] = messages.map(m => ({ role: m.role as ChatMessage['role'], content: m.content, timestamp: Date.now() }))
+      const result = await apiStore.chatCompletion(chatMessages, true, undefined, options?.maxTokens, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId })
+      return {
+        content: result.content,
+        tier: options?.tier ?? 'standard',
+        promptTokens: result.usage?.promptTokens ?? 0,
+        completionTokens: result.usage?.completionTokens ?? 0,
+      }
+    },
+    chatCompletionStream: async (messages, options) => {
+      const chatMessages: ChatMessage[] = messages.map(m => ({ role: m.role as ChatMessage['role'], content: m.content, timestamp: Date.now() }))
+      const chunks: string[] = []
+      let resolveNext: (() => void) | null = null
+      let finished = false
+      let streamError: Error | null = null
+      await apiStore.chatCompletionStream(chatMessages, {
+        onChunk: (chunk) => {
+          if (chunk.delta) {
+            chunks.push(chunk.delta)
+            resolveNext?.()
+          }
+        },
+        onDone: () => {
+          finished = true
+          resolveNext?.()
+        },
+        onError: (err) => {
+          streamError = err
+          finished = true
+          resolveNext?.()
+        }
+      }, undefined, undefined, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId })
+      async function* stream(): AsyncGenerator<string> {
+        while (true) {
+          if (chunks.length > 0) {
+            yield chunks.shift()!
+            continue
+          }
+          if (finished) {
+            if (streamError) throw streamError
+            return
+          }
+          await new Promise<void>((resolve) => { resolveNext = resolve })
+        }
+      }
+      return stream()
+    },
+    listModels: async () => apiStore.config.models.map(m => ({ id: m.id, name: m.name }))
+  })
+  await vault.syncFromVault()
+
   window._holoStarMapDblClickCommand = (command: string) => {
     dialogStore.sendMessage(command)
   }
 
   debugStore.activate()
+  try {
+    const { initSemanticCache } = await import('@/kernel')
+    initSemanticCache()
+  } catch { /* non-critical */ }
+  try {
+    const { initSmartRouter } = await import('@/kernel')
+    initSmartRouter()
+  } catch { /* non-critical */ }
   debugStore.updateEnvironment({
     model: apiStore.config.activeModel || '',
     provider: apiStore.config.activeProviderId || '',
@@ -701,7 +840,7 @@ onMounted(async () => {
   // Pre-build L2 vector index in background (non-blocking)
   if (l2Manifests.length > 0) {
     const lazyBuild = () => {
-      import('@/services/toolRetrieval').then(({ buildL2Index }) => {
+      import('@/domains/node').then(({ buildL2Index }) => {
         buildL2Index(l2Manifests).then(() => {
           debugLog(`[App] L2向量索引预构建完成 (${l2Manifests.length}个清单)`)
         }).catch(() => {})
@@ -820,19 +959,16 @@ onMounted(async () => {
     }
   }, 100))
 
-  let proactiveCheckCount = 0
   const proactiveMod = await import('@/services/proactiveScheduler')
   proactiveMod.loadPersistedState()
   const scheduleMod = await import('@/services/scheduleOptimizer')
   scheduleMod.loadPersistedFingerprints().catch(() => {})
   const l2Mod = await import('@/data/l2Manifests')
   l2Mod.initCustomManifests()
-  const dialogStoreMod = await import('@/stores/dialogStore')
-  const debugStoreMod = await import('@/stores/debugStore')
 
   if (window.electronAPI?.onWatchfsChanged) {
-    window.electronAPI.onWatchfsChanged((path: string) => {
-      debugStore.emitEvent('info', 'system', `文件变更: ${path}`)
+    window.electronAPI.onWatchfsChanged((data: { event: string; filename: string; path: string }) => {
+      debugStore.emitEvent('info', 'system', `文件变更: ${data.path}`)
     })
   }
   if (window.electronAPI?.onGlobalQuickInput) {
@@ -841,36 +977,14 @@ onMounted(async () => {
       if (input) input.focus()
     })
   }
-  _appTimers.push(setInterval(() => {
-    proactiveCheckCount++
-    if (proactiveCheckCount % 3000 !== 0) return
-    try {
-      const triggered = proactiveMod.checkProactiveTriggers()
-      for (const t of triggered) {
-        const manifest = l2Manifests.find((m: L2ToolManifest) => m.identity.id === t.manifestId)
-        if (manifest) {
-          proactiveMod.preGenerateForManifest(manifest, t.triggerType === 'time' ? 'nano' : 'mini').then((result: string | null) => {
-            if (result) {
-              proactiveMod.addProactiveResult({ ...t, cachedResult: result })
-            }
-          }).catch(() => {})
-        }
-      }
-      const pending = proactiveMod.getPendingResults()
-      if (pending.length > 0) {
-        const ds = dialogStoreMod.useDialogStore()
-        const dbs = debugStoreMod.useDebugStore()
-        for (const p of pending) {
-          dbs.emitEvent('info', 'schedule', `主动预生成: ${p.manifestName} 已就绪（${p.triggerType === 'time' ? '定时触发' : '行为预测'}）`)
-        }
-      }
-    } catch { /* proactive scheduler non-critical */ }
-  }, 100))
 })
 
 onUnmounted(() => {
   for (const t of _appTimers) clearInterval(t)
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('holo-open-settings', (() => {}) as EventListener)
+  window.removeEventListener('holo-toggle-mode', (() => {}) as EventListener)
+  window.removeEventListener('holo-open-notifications', (() => {}) as EventListener)
 })</script>
 
 <style>
@@ -1072,6 +1186,25 @@ html, body, #app {
   background: rgba(255, 200, 50, 0.25);
   border-color: rgba(255, 200, 50, 0.8);
 }
+.rule-review-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 204, 255, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  user-select: none;
+  background: rgba(0, 204, 255, 0.1);
+  transition: all 0.2s;
+}
+.rule-review-btn:hover {
+  background: rgba(0, 204, 255, 0.25);
+  border-color: rgba(0, 204, 255, 0.8);
+}
 
 @keyframes debug-pulse {
   0%, 100% { box-shadow: 0 0 8px rgba(255, 30, 30, 0.3); }
@@ -1115,6 +1248,62 @@ html, body, #app {
 .view-toggle:hover {
   border-color: #44ccff;
   background: rgba(50, 180, 255, 0.25);
+}
+.notification-bell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 150, 50, 0.7);
+  cursor: pointer;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  user-select: none;
+  background: rgba(255, 150, 50, 0.1);
+  transition: all 0.2s;
+  position: relative;
+}
+.notification-bell:hover {
+  border-color: #ffaa44;
+  background: rgba(255, 150, 50, 0.25);
+}
+.bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: #ff4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
+}
+.settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(150, 150, 200, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+  user-select: none;
+  background: rgba(150, 150, 200, 0.08);
+  transition: all 0.2s;
+}
+.settings-btn:hover {
+  border-color: #aaaadd;
+  background: rgba(150, 150, 200, 0.2);
 }
 
 :root[data-theme="light"] .titlebar {

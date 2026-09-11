@@ -255,9 +255,9 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
-import { useSkillStore } from '@/stores/skillStore'
-import { useMcpStore } from '@/stores/mcpStore'
-import { useMemoryStore } from '@/stores/memoryStore'
+import { useSkillStore } from '@/domains/app'
+import { useMcpStore } from '@/domains/mcp'
+import { useMemoryStore } from '@/domains/memory'
 import { Skill, SkillCatalogItem, McpCatalogItem, McpToolPermission } from '@/models'
 
 const skillStore = useSkillStore()

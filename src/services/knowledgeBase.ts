@@ -2,6 +2,9 @@ import { KnowledgeEntry, SearchResult, KnowledgeAdapter } from '@/models'
 import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries } from './vectorStore'
 import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
 import { debugLog } from '@/services/debugLog'
+import { estimateTokens } from '@/services/tokenEstimate'
+import { globalBus } from '@/kernel/bus'
+import { vault } from '@/vault'
 
 const STORAGE_KEY = 'holo-knowledge-entries'
 const VECTOR_KEY = 'holo-kb-vectors'
@@ -25,7 +28,7 @@ export function isEmbedderReady(): boolean {
 
 export function getKnowledgeEntries(): KnowledgeEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = vault.readCache('knowledge', STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -33,7 +36,7 @@ export function getKnowledgeEntries(): KnowledgeEntry[] {
 }
 
 function saveEntries(entries: KnowledgeEntry[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+  vault.writeThrough('knowledge', STORAGE_KEY, JSON.stringify(entries))
 }
 
 interface ChunkRecord {
@@ -50,7 +53,7 @@ function getChunkStore(entryId: string): ChunkRecord[] {
 
 function getChunkStoreSync(entryId: string): ChunkRecord[] {
   try {
-    const raw = localStorage.getItem(`holo-kb-chunks-${entryId}`)
+    const raw = vault.readCache('knowledge', `holo-kb-chunks-${entryId}`)
     return raw ? JSON.parse(raw) : []
   } catch {
     return []
@@ -67,8 +70,8 @@ async function getChunkStoreAsync(entryId: string): Promise<ChunkRecord[]> {
 
 async function saveChunkStore(entryId: string, chunks: ChunkRecord[]) {
   try {
-    localStorage.setItem(`holo-kb-chunks-${entryId}`, JSON.stringify(chunks))
-  } catch { /* localStorage may be full */ }
+    vault.writeThrough('knowledge', `holo-kb-chunks-${entryId}`, JSON.stringify(chunks))
+  } catch { /* vault write may fail */ }
   await saveChunkStoreToFile(entryId, chunks)
 }
 
@@ -114,12 +117,6 @@ function chunkBySemantic(text: string, maxTokens: number = 512): string[] {
 
   if (current.trim()) chunks.push(current.trim())
   return chunks.filter(c => c.length > 0)
-}
-
-function estimateTokens(text: string): number {
-  const cjk = (text.match(/[\u4e00-\u9fff]/g) || []).length
-  const other = text.length - cjk
-  return Math.ceil(cjk * 1.5 + other * 0.25)
 }
 
 function bm25Score(query: string, doc: string, avgDl: number, df: Record<string, number>, totalDocs: number): number {
@@ -303,10 +300,8 @@ export async function hybridSearch(query: string, topK: number = 5, scope?: Sear
       }
     }
     if (scope.groupIds && scope.groupIds.length > 0) {
-      const knowledgeStore = await import('@/stores/knowledgeStore')
-      const store = knowledgeStore.useKnowledgeStore()
       for (const gid of scope.groupIds) {
-        const group = store.knowledgeGroups.find(g => g.id === gid)
+        const group = globalBus.request<{ id: string; sharedEntryIds: string[] } | null>('knowledge:get-group', { groupId: gid })
         if (group) {
           group.sharedEntryIds.forEach(eid => allowedIds.add(eid))
         }
@@ -385,7 +380,7 @@ export async function deleteKnowledgeEntry(entryId: string): Promise<boolean> {
   entries.splice(idx, 1)
   saveEntries(entries)
 
-  localStorage.removeItem(`holo-kb-chunks-${entryId}`)
+  await vault.delete('knowledge', `holo-kb-chunks-${entryId}`)
 
   try {
     if (window.electronAPI?.storeRead) {

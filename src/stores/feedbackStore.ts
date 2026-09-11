@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { FeedbackEntry, FeedbackAction, SkillWeightModifier, SideEffectManifest, DecisionContext } from '@/models'
-import { updateArm, computeMABReward } from '@/services/mabOptimizer'
+import { recordStrategyOutcome } from '@/services/strategySelector'
 import { debugLog } from '@/services/debugLog'
+import { vault } from '@/vault'
 
 const FEEDBACK_KEY = 'holo-feedback-entries'
 const WEIGHTS_KEY = 'holo-skill-weights'
@@ -25,17 +26,17 @@ export const useFeedbackStore = defineStore('feedback', () => {
   const sideEffects = ref<SideEffectManifest[]>([])
 
   async function loadFromStorage(): Promise<void> {
-    try {
-      const rawEntries = localStorage.getItem(FEEDBACK_KEY)
-      if (rawEntries) entries.value = JSON.parse(rawEntries)
-    } catch { /* ignore */ }
-    try {
-      const rawWeights = localStorage.getItem(WEIGHTS_KEY)
-      if (rawWeights) {
+    const rawEntries = vault.readCache('feedback', FEEDBACK_KEY)
+    if (rawEntries) {
+      try { entries.value = JSON.parse(rawEntries) } catch { /* ignore */ }
+    }
+    const rawWeights = vault.readCache('feedback', WEIGHTS_KEY)
+    if (rawWeights) {
+      try {
         const arr: SkillWeightModifier[] = JSON.parse(rawWeights)
         weights.value = new Map(arr.map(w => [w.skillId, w]))
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
     try {
       if (window.electronAPI?.storeRead) {
         const data: string | null = await window.electronAPI.storeRead(EFFECTS_KEY)
@@ -45,24 +46,20 @@ export const useFeedbackStore = defineStore('feedback', () => {
   }
 
   function saveEntries(): void {
-    try {
-      const trimmed = entries.value.slice(-200)
-      entries.value = trimmed
-      localStorage.setItem(FEEDBACK_KEY, JSON.stringify(trimmed))
-    } catch { /* ignore */ }
+    const trimmed = entries.value.slice(-200)
+    entries.value = trimmed
+    vault.writeThrough('feedback', FEEDBACK_KEY, JSON.stringify(trimmed))
   }
 
   function saveWeights(): void {
-    try {
-      const arr = Array.from(weights.value.values())
-      localStorage.setItem(WEIGHTS_KEY, JSON.stringify(arr))
-    } catch { /* ignore */ }
+    const arr = Array.from(weights.value.values())
+    vault.writeThrough('feedback', WEIGHTS_KEY, JSON.stringify(arr))
   }
 
-  function saveSideEffects(): void {
+  async function saveSideEffects(): Promise<void> {
     try {
       if (window.electronAPI?.storeWrite) {
-        window.electronAPI.storeWrite(EFFECTS_KEY, JSON.stringify(sideEffects.value.slice(-50)))
+        await window.electronAPI.storeWrite(EFFECTS_KEY, JSON.stringify(sideEffects.value.slice(-50)))
       }
     } catch { /* ignore */ }
   }
@@ -96,12 +93,22 @@ export const useFeedbackStore = defineStore('feedback', () => {
     adjustWeight(matchedSkillId, modifier)
 
     if (decisionContext) {
-      const reward = computeMABReward(action)
-      if (decisionContext.rewriteStrategy) {
-        updateArm('rewrite_strategy', decisionContext.rewriteStrategy, reward)
+      const outcome: 'success' | 'failure' = (action === 'thumbs_up') ? 'success' : 'failure'
+      if (decisionContext.rewriteStrategy && decisionContext.rewriteStrategy !== 'none') {
+        recordStrategyOutcome({
+          strategyType: 'rewrite',
+          strategy: decisionContext.rewriteStrategy,
+          outcome,
+          contextSnapshot: decisionContext.strategyContextSnapshot,
+        })
       }
       if (decisionContext.disambigStrategy) {
-        updateArm('disambig_strategy', decisionContext.disambigStrategy, reward)
+        recordStrategyOutcome({
+          strategyType: 'disambig',
+          strategy: decisionContext.disambigStrategy,
+          outcome,
+          contextSnapshot: decisionContext.strategyContextSnapshot,
+        })
       }
     }
   }

@@ -1,12 +1,18 @@
 const DEBUG = process.env.HOLO_DEBUG === '1'
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, createBenchmarkWindow, getBenchmarkWindow } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 
 let pendingPipelineNodes: { toolId: string; toolName: string; toolLevel: string }[] = []
 
+let isCrashing = false
+
 process.on('uncaughtException', (err) => {
   console.error('[Uncaught Exception]', err)
+  if (!isCrashing) {
+    isCrashing = true
+    setTimeout(() => { app.quit() }, 1000)
+  }
 })
 
 process.on('unhandledRejection', (reason) => {
@@ -130,6 +136,21 @@ app.whenReady().then(async () => {
 
   ipcMain.on('benchmark:ready', () => {
     DEBUG && console.log('[BenchmarkWindow] Ready')
+  })
+
+  ipcMain.on('open:rule-review-window', () => {
+    createRuleReviewWindow()
+  })
+
+  ipcMain.on('rule-review:window:minimize', () => { getRuleReviewWindow()?.minimize() })
+  ipcMain.on('rule-review:window:maximize', () => {
+    const rrw = getRuleReviewWindow()
+    if (rrw) { rrw.isMaximized() ? rrw.unmaximize() : rrw.maximize() }
+  })
+  ipcMain.on('rule-review:window:close', () => { getRuleReviewWindow()?.close() })
+
+  ipcMain.on('rule-review:ready', () => {
+    DEBUG && console.log('[RuleReviewWindow] Ready')
   })
 
   registerGlobalShortcuts()

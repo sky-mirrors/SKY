@@ -26,6 +26,7 @@
         <button class="qa-btn primary" title="会话" @click="showPanel = showPanel === 'session' ? '' : 'session'">💬</button>
         <button class="qa-btn primary" title="知识库" @click="showPanel = showPanel === 'kb' ? '' : 'kb'">📚</button>
         <button class="qa-btn primary" title="设置" @click="showPanel = showPanel === 'settings' ? '' : 'settings'">⚙️</button>
+        <ZolWidget />
         <div class="qa-more">
           <button class="qa-btn" @click="moreMenu = !moreMenu">⋯</button>
           <div class="qa-more-dropdown" v-if="moreMenu">
@@ -90,7 +91,7 @@
               </div>
             </details>
           </div>
-          <div v-else class="text-msg" v-html="renderContent(msg)"></div>
+          <div v-else class="text-msg" :class="{ 'streaming-cursor': msg.isTyping }" v-html="renderContent(msg)"></div>
           <div v-if="msg.lineage && msg.lineage.length > 0" class="lineage-panel">
             <div class="lineage-header">📊 调度血缘</div>
             <div class="lineage-steps">
@@ -407,6 +408,18 @@
                 <option value="legal">法务</option>
               </select>
             </div>
+            <div class="set-row">
+              <span class="set-label">预算</span>
+              <div class="budget-mode-btns">
+                <button class="budget-btn" :class="{ active: budgetMode === 'zero' }" @click="onSetBudgetMode('zero')">零预算</button>
+                <button class="budget-btn" :class="{ active: budgetMode === 'economy' }" @click="onSetBudgetMode('economy')">经济</button>
+                <button class="budget-btn" :class="{ active: budgetMode === 'standard' }" @click="onSetBudgetMode('standard')">标准</button>
+              </div>
+            </div>
+            <div class="set-row" v-if="budgetMode !== 'standard'">
+              <span class="set-label">本轮花费</span>
+              <span class="set-val">¥{{ sessionSpentDisplay }}</span>
+            </div>
           </div>
           <div class="mem-section">
             <div class="mem-section-title">偏好设置</div>
@@ -610,27 +623,28 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, reactive } from 'vue'
-import { useDialogStore } from '@/stores/dialogStore'
-import { useNodeStore } from '@/stores/nodeStore'
-import { useMcpStore } from '@/stores/mcpStore'
-import { useApiStore } from '@/stores/apiStore'
-import { useDebugStore } from '@/stores/debugStore'
-import { useFeedbackStore } from '@/stores/feedbackStore'
-import { computeQueryFingerprint } from '@/stores/feedbackStore'
-import { useSessionStore } from '@/stores/sessionStore'
-import { useMemoryStore } from '@/stores/memoryStore'
-import { useKnowledgeStore } from '@/stores/knowledgeStore'
-import { useSkillStore } from '@/stores/skillStore'
-import { useConfigStore } from '@/stores/configStore'
-import { DialogMessage, ThoughtStep, TaskPlan, L2ToolManifest, McpCatalogItem, JobRole } from '@/models'
-import { ingestFile, getKnowledgeEntries, deleteKnowledgeEntry, hybridSearch } from '@/services/knowledgeBase'
-import { renderToEmailHtml } from '@/services/resultBeautifier'
-import { usePipelineStore } from '@/stores/pipelineStore'
+import { useDialogStore } from '@/domains/dialog'
+import { renderToEmailHtml } from '@/domains/dialog'
+import { useNodeStore } from '@/domains/node'
+import { getRouteCacheStats, clearRouteCache } from '@/domains/node'
+import { getFileContext, setActiveFile } from '@/domains/node'
+import { useMcpStore } from '@/domains/mcp'
+import { useApiStore } from '@/domains/api'
+import { useDebugStore } from '@/domains/debug'
+import { useFeedbackStore, computeQueryFingerprint } from '@/domains/feedback'
+import { useSessionStore } from '@/domains/app'
+import { useMemoryStore } from '@/domains/memory'
+import { useKnowledgeStore } from '@/domains/knowledge'
+import { ingestFile, getKnowledgeEntries, deleteKnowledgeEntry, hybridSearch } from '@/domains/knowledge'
+import { useSkillStore } from '@/domains/app'
+import { useConfigStore } from '@/domains/config'
+import { DialogMessage, ThoughtStep, TaskPlan, L2ToolManifest, McpCatalogItem, JobRole, BudgetMode } from '@/models'
+import { usePipelineStore } from '@/domains/pipeline'
+import { getAllCheckpoints, removeCheckpoint, getCheckpoint } from '@/domains/pipeline'
 import { saveCustomManifest, loadCustomManifests, removeCustomManifest } from '@/data/l2Manifests'
-import { useWorkflowLogStore } from '@/stores/workflowLogStore'
-import { getRouteCacheStats, clearRouteCache } from '@/services/toolRetrieval'
-import { getFileContext, setActiveFile } from '@/services/fileContext'
-import { getAllCheckpoints, removeCheckpoint, getCheckpoint } from '@/services/dagCheckpoint'
+import { useWorkflowLogStore } from '@/domains/app'
+import { getBudgetMode, setBudgetMode as setBudgetModeFn, getSessionSpent } from '@/kernel'
+import ZolWidget from '@/components/ZolWidget.vue'
 
 const dialogStore = useDialogStore()
 const nodeStore = useNodeStore()
@@ -655,7 +669,7 @@ const shakingMsgId = ref('')
 const feedbackStates = ref<Record<string, 'thumbs_up' | 'thumbs_down'>>({})
 const riskConfirmText = ref('')
 const takeoverText = ref('')
-const panelWidth = ref(460)
+const panelWidth = ref(configStore.config.dialogPanelWidth ?? 460)
 const isResizing = ref(false)
 const showPanel = ref('')
 const moreMenu = ref(false)
@@ -701,6 +715,13 @@ const pipeBindSessionId = ref('')
 const pipeUploadTarget = ref(false)
 const pipeUploadDest = ref<'knowledge' | 'pipeline'>('knowledge')
 const settingsExpanded = reactive({ mcp: false, feedback: false, cache: false, timeline: false })
+const budgetMode = ref<BudgetMode>(getBudgetMode())
+const sessionSpentDisplay = computed(() => getSessionSpent().toFixed(4))
+
+function onSetBudgetMode(mode: BudgetMode) {
+  setBudgetModeFn(mode)
+  budgetMode.value = mode
+}
 
 const effectiveMinWidth = computed(() => showPanel.value ? 440 : 260)
 
@@ -795,6 +816,18 @@ const contextHint = computed(() => {
 })
 
 watch(() => dialogStore.messages.length, async () => {
+  await nextTick()
+  if (messagesRef.value) {
+    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+  }
+})
+
+watch(() => {
+  const streamId = dialogStore.streamingMessageId
+  if (!streamId) return null
+  const msg = dialogStore.messages.find(m => m.id === streamId)
+  return msg ? msg.content.length : null
+}, async () => {
   await nextTick()
   if (messagesRef.value) {
     messagesRef.value.scrollTop = messagesRef.value.scrollHeight
@@ -1948,6 +1981,17 @@ function onAssignGroup(projectId: string, groupId: string) {
   overflow-wrap: break-word;
 }
 
+.streaming-cursor::after {
+  content: '▊';
+  animation: blink 0.8s step-end infinite;
+  color: #6ab0ff;
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
 .msg-system {
   text-align: center;
 }
@@ -2792,6 +2836,11 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
 .set-label { font-size: 11px; color: #a0c0e8; }
 .set-theme-btn { padding: 2px 8px; background: rgba(100,180,255,0.1); border: 1px solid rgba(100,180,255,0.2); border-radius: 3px; color: #8ab4ff; font-size: 10px; cursor: pointer; }
 .set-theme-btn:hover { background: rgba(100,180,255,0.2); }
+.budget-mode-btns { display: flex; gap: 4px; }
+.budget-btn { padding: 2px 8px; background: rgba(100,180,255,0.1); border: 1px solid rgba(100,180,255,0.2); border-radius: 3px; color: #8ab4ff; font-size: 10px; cursor: pointer; }
+.budget-btn:hover { background: rgba(100,180,255,0.2); }
+.budget-btn.active { background: rgba(100,180,255,0.3); border-color: rgba(100,180,255,0.5); color: #fff; }
+.set-val { font-size: 10px; color: #a0c0e8; font-family: monospace; }
 .set-select { background: rgba(10,15,30,0.8); border: 1px solid rgba(100,180,255,0.2); border-radius: 3px; color: #c0d8ff; font-size: 10px; padding: 2px 4px; outline: none; }
 .set-select option { background: #0a0f1e; color: #c0d8ff; }
 .set-skill-item { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }

@@ -1,21 +1,22 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { KnowledgeGroup, ProjectMemory } from '@/models'
+import { vault } from '@/vault'
 
 const GROUPS_KEY = 'holo-knowledge-groups'
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
   const knowledgeGroups = ref<KnowledgeGroup[]>([])
-
+  const storageMode = ref<'local' | 'file'>('local')
   function saveGroupsToStorage() {
-    try { localStorage.setItem(GROUPS_KEY, JSON.stringify(knowledgeGroups.value)) } catch { /* ignore */ }
+    vault.writeThrough('knowledge', GROUPS_KEY, JSON.stringify(knowledgeGroups.value))
   }
 
   function loadFromStorage() {
-    try {
-      const raw = localStorage.getItem(GROUPS_KEY)
-      if (raw) knowledgeGroups.value = JSON.parse(raw) as KnowledgeGroup[]
-    } catch { /* ignore */ }
+    const raw = vault.readCache('knowledge', GROUPS_KEY)
+    if (raw) {
+      try { knowledgeGroups.value = JSON.parse(raw) as KnowledgeGroup[] } catch { /* ignore */ }
+    }
   }
 
   function createGroup(name: string): KnowledgeGroup | null {
@@ -71,6 +72,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   return {
     knowledgeGroups,
+    storageMode,
     createGroup,
     deleteGroup,
     renameGroup,

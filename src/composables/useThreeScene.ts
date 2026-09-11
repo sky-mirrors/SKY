@@ -315,7 +315,7 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     controls.dynamicDampingFactor = 0.15
     controls.target.set(0, 0, 0)
     controls.mouseButtons = {
-      LEFT: null as unknown as THREE.MOUSE,
+      LEFT: null as unknown as THREE.MOUSE, // Three.js pattern: disable left mouse button for orbit controls
       MIDDLE: THREE.MOUSE.ZOOM,
       RIGHT: THREE.MOUSE.ROTATE
     }

@@ -48,8 +48,9 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { DialogMessage } from '@/models'
-import { parseMarkdownAstWithRanges, renderToHtml, MarkdownNodeWithRange } from '@/services/resultBeautifier'
-import { useDialogStore } from '@/stores/dialogStore'
+import { parseMarkdownAstWithRanges, renderToHtml, MarkdownNodeWithRange } from '@/domains/dialog'
+import { useDialogStore } from '@/domains/dialog'
+import DOMPurify from 'dompurify'
 
 interface PreviewBlock {
   node: MarkdownNodeWithRange
@@ -120,7 +121,7 @@ function rebuildBlocks() {
   const blocks: PreviewBlock[] = []
   for (const node of doc.children) {
     const rawMd = lines.slice(node.startLine, node.endLine).join('\n')
-    const html = renderToHtml({ type: 'document', children: [node] })
+    const html = DOMPurify.sanitize(renderToHtml({ type: 'document', children: [node] }))
     blocks.push({
       node,
       originalMarkdown: rawMd,
@@ -157,7 +158,7 @@ function saveEdit(idx: number) {
     block.currentMarkdown = newMd
   }
   const updatedDoc = parseMarkdownAstWithRanges(newMd)
-  block.html = renderToHtml({ type: 'document', children: updatedDoc.children })
+  block.html = DOMPurify.sanitize(renderToHtml({ type: 'document', children: updatedDoc.children }))
   block.node = updatedDoc.children[0] || block.node
 
   const fullLines = props.message.content.split('\n')

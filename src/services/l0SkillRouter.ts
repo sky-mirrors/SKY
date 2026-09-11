@@ -1,5 +1,5 @@
 import type { L2ToolManifest } from '@/models'
-import { useApiStore } from '@/stores/apiStore'
+import { getLLM } from '@/kernel/plugins/llm'
 import { debugLog } from '@/services/debugLog'
 
 interface L0SkillRule {
@@ -78,16 +78,13 @@ function stripDirectiveWords(input: string): string {
 }
 
 async function refineFileNameWithLLM(rawName: string): Promise<string> {
-  const apiStore = useApiStore()
+  const llm = getLLM()
   const prompt = `判断以下文本是否适合作为文件名。如果适合，输出文件名（不含扩展名，2-20字）；如果不包含有效命名信息，只输出DEFAULT。\n只输出文件名或DEFAULT，不要解释。\n\n文本："${rawName}"`
 
   try {
-    const resp = await apiStore.chatCompletion(
+    const resp = await llm.chatCompletion(
       [{ role: 'user', content: prompt }],
-      false,
-      undefined,
-      32,
-      undefined
+      { taskType: 'classify', callerId: 'l0SkillRouter_filename', maxTokens: 32 }
     )
     const result = (resp.content || '').trim()
     if (result && result !== 'DEFAULT' && result.length >= 2 && result.length <= 30 && !/^\s*$/.test(result)) {
@@ -95,7 +92,7 @@ async function refineFileNameWithLLM(rawName: string): Promise<string> {
     }
     debugLog(`[L0 FileName] LLM返回DEFAULT或无效: "${result}"，使用默认名`)
   } catch (e) {
-    console.warn('[L0 FileName] LLM兜底失败:', e instanceof Error ? e.message : String(e))
+    debugLog('[L0 FileName] LLM兜底失败:', e instanceof Error ? e.message : String(e))
   }
   return ''
 }

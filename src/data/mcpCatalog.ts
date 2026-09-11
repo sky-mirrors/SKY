@@ -38,18 +38,6 @@ export const MCP_CATALOG: McpCatalogItem[] = [
     tags: ['推理', '思维链', '逻辑']
   },
   {
-    id: 'mcp-everything',
-    name: 'Everything',
-    description: 'MCP参考/测试服务器，包含prompts、resources和tools示例',
-    category: '开发',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-everything'],
-    envKeys: [],
-    homepage: 'https://github.com/modelcontextprotocol/servers/tree/main/src/everything',
-    source: 'official',
-    tags: ['测试', '示例', '调试']
-  },
-  {
     id: 'mcp-github',
     name: 'GitHub',
     description: 'GitHub API集成，仓库管理、Issue、PR操作、文件读写',
@@ -62,114 +50,6 @@ export const MCP_CATALOG: McpCatalogItem[] = [
     tags: ['GitHub', 'Issue', 'PR']
   },
   {
-    id: 'mcp-postgres',
-    name: 'PostgreSQL',
-    description: '只读数据库访问，支持Schema检查和SQL查询',
-    category: '数据库',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-postgres'],
-    envKeys: [],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/postgres',
-    source: 'official',
-    tags: ['SQL', '数据库', '查询']
-  },
-  {
-    id: 'mcp-brave-search',
-    name: 'Brave Search',
-    description: '使用Brave Search API进行网络和本地搜索',
-    category: '搜索',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-brave-search'],
-    envKeys: ['BRAVE_API_KEY'],
-    homepage: 'https://github.com/brave/brave-search-mcp-server',
-    source: 'official',
-    tags: ['搜索', '网络', 'Brave']
-  },
-  {
-    id: 'mcp-google-maps',
-    name: 'Google Maps',
-    description: 'Google地图服务，位置查询、路线规划、地点详情',
-    category: '地图',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-google-maps'],
-    envKeys: ['GOOGLE_MAPS_API_KEY'],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/google-maps',
-    source: 'official',
-    tags: ['地图', '导航', '位置']
-  },
-  {
-    id: 'mcp-puppeteer',
-    name: 'Puppeteer',
-    description: '浏览器自动化和网页抓取，支持截图、点击、表单填充',
-    category: '自动化',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-puppeteer'],
-    envKeys: [],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/puppeteer',
-    source: 'official',
-    tags: ['浏览器', '自动化', '截图']
-  },
-  {
-    id: 'mcp-gdrive',
-    name: 'Google Drive',
-    description: 'Google Drive文件访问和搜索',
-    category: '云存储',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-gdrive'],
-    envKeys: ['GDRIVE_OAUTH_TOKEN'],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gdrive',
-    source: 'official',
-    tags: ['Google', '云盘', '文件']
-  },
-  {
-    id: 'mcp-slack',
-    name: 'Slack',
-    description: 'Slack频道管理和消息发送能力',
-    category: '协作',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-slack'],
-    envKeys: ['SLACK_BOT_TOKEN'],
-    homepage: 'https://github.com/zencoderai/slack-mcp-server',
-    source: 'community',
-    tags: ['Slack', '消息', '协作']
-  },
-  {
-    id: 'mcp-gitlab',
-    name: 'GitLab',
-    description: 'GitLab API集成，项目管理、合并请求、Issue操作',
-    category: '开发',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-gitlab'],
-    envKeys: ['GITLAB_PERSONAL_ACCESS_TOKEN'],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/gitlab',
-    source: 'official',
-    tags: ['GitLab', 'CI/CD', '项目管理']
-  },
-  {
-    id: 'mcp-aws-kb-retrieval',
-    name: 'AWS KB Retrieval',
-    description: '通过Bedrock Agent Runtime从AWS知识库检索信息',
-    category: '云服务',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-aws-kb-retrieval'],
-    envKeys: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION'],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/aws-kb-retrieval-server',
-    source: 'official',
-    tags: ['AWS', '知识库', 'Bedrock']
-  },
-  {
-    id: 'mcp-everart',
-    name: 'EverArt',
-    description: 'AI图像生成工具，支持多种模型（DALL-E、Stable Diffusion等）',
-    category: '创意',
-    command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-everart'],
-    envKeys: ['EVERART_API_KEY'],
-    homepage: 'https://github.com/modelcontextprotocol/servers-archived/tree/main/src/everart',
-    source: 'official',
-    tags: ['图像', 'AI绘画', 'DALL-E']
-  },
-  {
     id: 'mcp-context7',
     name: 'Context7',
     description: '实时获取开源库最新文档和代码示例，无需手动粘贴',
@@ -180,41 +60,5 @@ export const MCP_CATALOG: McpCatalogItem[] = [
     homepage: 'https://github.com/upstash/context7',
     source: 'community',
     tags: ['文档', 'API', '开源']
-  },
-  {
-    id: 'mcp-playwright',
-    name: 'Playwright',
-    description: '微软Playwright浏览器自动化，支持Chromium/Firefox/WebKit',
-    category: '自动化',
-    command: 'npx',
-    args: ['-y', '@playwright/mcp@latest'],
-    envKeys: [],
-    homepage: 'https://github.com/anthropics/anthropic-quickstarts/tree/main/mcp-playwright',
-    source: 'community',
-    tags: ['浏览器', '自动化', '测试']
-  },
-  {
-    id: 'mcp-supabase',
-    name: 'Supabase',
-    description: 'Supabase数据库和存储管理，SQL查询、表操作、文件上传',
-    category: '数据库',
-    command: 'npx',
-    args: ['-y', '@supabase/mcp-server-supabase'],
-    envKeys: ['SUPABASE_ACCESS_TOKEN'],
-    homepage: 'https://github.com/supabase-community/supabase-mcp',
-    source: 'community',
-    tags: ['Supabase', 'PostgreSQL', 'BaaS']
-  },
-  {
-    id: 'mcp-notion',
-    name: 'Notion',
-    description: 'Notion工作空间访问，搜索/创建/更新页面和数据库',
-    category: '协作',
-    command: 'npx',
-    args: ['-y', '@notionhq/notion-mcp-server'],
-    envKeys: ['NOTION_API_KEY'],
-    homepage: 'https://github.com/makenotion/notion-mcp-server',
-    source: 'community',
-    tags: ['Notion', '笔记', '协作']
   }
 ]

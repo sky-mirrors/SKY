@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ToolNode, ToolLevel, AdjacencyMap, InteractionState, DegradedState, IngestProgress, L3DecayState, JobRole, CircuitBreakerState, SchemaField, ContextCache, HistoryEntry, ConnectionFlow, L2ToolManifest } from '@/models'
 import { generateAllNodes, buildAdjacencyMap, getJobRoleTemplates } from '@/data/topology'
+import { vault } from '@/vault'
 
 export const useNodeStore = defineStore('nodes', () => {
   const nodes = ref<ToolNode[]>(generateAllNodes())
@@ -307,48 +308,42 @@ export const useNodeStore = defineStore('nodes', () => {
     const node = nodes.value.find(n => n.id === cache.toolId)
     if (node) {
       node.contextCache = cache
-      try {
-        localStorage.setItem(`holo-context-${cache.toolId}`, JSON.stringify(cache))
-      } catch { /* ignore */ }
+      vault.writeThrough('node', `holo-context-${cache.toolId}`, JSON.stringify(cache))
     }
   }
 
   function loadContextCache(toolId: string): ContextCache | null {
     const node = nodes.value.find(n => n.id === toolId)
     if (node?.contextCache) return node.contextCache
-    try {
-      const saved = localStorage.getItem(`holo-context-${toolId}`)
-      if (saved) {
+    const saved = vault.readCache('node', `holo-context-${toolId}`)
+    if (saved) {
+      try {
         const cache = JSON.parse(saved) as ContextCache
         if (node) node.contextCache = cache
         return cache
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
     return null
   }
 
   function clearContextCache(toolId: string) {
     const node = nodes.value.find(n => n.id === toolId)
     if (node) node.contextCache = undefined
-    try {
-      localStorage.removeItem(`holo-context-${toolId}`)
-    } catch { /* ignore */ }
+    vault.delete('node', `holo-context-${toolId}`)
   }
 
   function addHistoryEntry(entry: Omit<HistoryEntry, 'id'>) {
     const full: HistoryEntry = { ...entry, id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` }
     history.value.unshift(full)
     if (history.value.length > 50) history.value = history.value.slice(0, 50)
-    try {
-      localStorage.setItem('holo-history', JSON.stringify(history.value))
-    } catch { /* ignore */ }
+    vault.writeThrough('node', 'holo-history', JSON.stringify(history.value))
   }
 
   function loadHistory() {
-    try {
-      const saved = localStorage.getItem('holo-history')
-      if (saved) history.value = JSON.parse(saved) as HistoryEntry[]
-    } catch { /* ignore */ }
+    const saved = vault.readCache('node', 'holo-history')
+    if (saved) {
+      try { history.value = JSON.parse(saved) as HistoryEntry[] } catch { /* ignore */ }
+    }
   }
 
   function addFlowPath(from: string, to: string) {

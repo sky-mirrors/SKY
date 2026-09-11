@@ -68,6 +68,11 @@
         </div>
 
         <div class="debug-right">
+          <div class="debug-right-tabs">
+            <button class="dbg-tab" :class="{ active: rightTab === 'console' }" @click="rightTab = 'console'">控制台</button>
+            <button class="dbg-tab" :class="{ active: rightTab === 'zol' }" @click="rightTab = 'zol'">ZOL</button>
+          </div>
+          <template v-if="rightTab === 'console'">
           <div class="panel-title">实时控制台</div>
           <div class="console-toolbar">
             <select class="console-cat-select" v-model="debugStore.consoleFilterCategory">
@@ -103,6 +108,38 @@
             </div>
             <pre class="detail-bar-content">{{ selectedDetail }}</pre>
           </div>
+          </template>
+          <template v-if="rightTab === 'zol'">
+            <div class="zol-debug-panel">
+              <div class="zol-learners">
+                <div class="zol-learner-card" v-for="l in zolLearners" :key="l.name">
+                  <div class="zlc-header">
+                    <span class="zlc-name">{{ l.name }}</span>
+                    <span class="zlc-rate" :class="zolRateClass(l.recentSuccessRate)">{{ (l.recentSuccessRate * 100).toFixed(1) }}%</span>
+                  </div>
+                  <div class="zlc-meta">决策{{ l.outcomeCount }}次 · 阈值偏移{{ l.thresholdDrift }}</div>
+                  <div class="zlc-thresholds">
+                    <div v-for="(val, key) in l.thresholds" :key="key" class="zlc-th-row">
+                      <span class="zlc-th-key">{{ key }}</span>
+                      <span class="zlc-th-val">{{ typeof val === 'number' ? val.toFixed(3) : val }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="zol-offsets-section">
+                <div class="panel-subtitle">领域偏移表</div>
+                <div v-for="(offsets, domain) in zolDomainOffsets" :key="domain" class="zol-offset-block">
+                  <span class="zol-ob-domain">{{ domain }}</span>
+                  <div class="zol-ob-items">
+                    <span v-for="(v, k) in offsets" :key="k" class="zol-ob-item">{{ k }}: {{ v > 0 ? '+' : '' }}{{ v }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="zol-actions-row">
+                <button class="dbg-btn" @click="onZolReset">重置全部ZOL</button>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -124,9 +161,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { useDebugStore } from '@/stores/debugStore'
+import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue'
+import { useDebugStore } from '@/domains/debug'
 import type { ProbeSource, ConsoleLogEntry, ConsoleCategory } from '@/models'
+import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/kernel'
+import { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS } from '@/kernel'
 
 const debugStore = useDebugStore()
 const inputExpanded = ref(false)
@@ -139,6 +178,54 @@ const consoleListEl = ref<HTMLElement | null>(null)
 const selectedDetail = ref<string | null>(null)
 const footerMsg = ref('')
 const timeTravelIdx = ref(-1)
+const rightTab = ref<'console' | 'zol'>('console')
+
+const zolLearners = computed(() => {
+  const rewrite = getZOLState().rewrite
+  const disambig = getZOLState().disambig
+  const routing = getRoutingZOLState()
+  return [
+    { name: '改写策略', outcomeCount: rewrite.outcomeCount, recentSuccessRate: rewrite.recentSuccessRate, thresholds: rewrite.thresholds, thresholdDrift: calcDrift(rewrite.thresholds) },
+    { name: '消歧策略', outcomeCount: disambig.outcomeCount, recentSuccessRate: disambig.recentSuccessRate, thresholds: disambig.thresholds, thresholdDrift: calcDrift(disambig.thresholds) },
+    { name: '路由策略', outcomeCount: routing.outcomeCount, recentSuccessRate: routing.recentSuccessRate, thresholds: routing.thresholds, thresholdDrift: calcDrift(routing.thresholds) },
+  ]
+})
+
+function calcDrift(t: Record<string, number>): string {
+  const vals = Object.values(t)
+  if (vals.length === 0) return '0%'
+  const range = Math.max(...vals) - Math.min(...vals)
+  return range < 1 ? `${(range * 100).toFixed(0)}%` : `${range.toFixed(1)}`
+}
+
+const zolDomainOffsets = computed(() => {
+  const merged: Record<string, Record<string, number>> = {}
+  for (const [domain, offsets] of Object.entries(DOMAIN_REWRITE_OFFSETS)) {
+    if (!merged[domain]) merged[domain] = {}
+    Object.assign(merged[domain], offsets)
+  }
+  for (const [domain, offsets] of Object.entries(DOMAIN_DISAMBIG_OFFSETS)) {
+    if (!merged[domain]) merged[domain] = {}
+    Object.assign(merged[domain], offsets)
+  }
+  for (const [domain, bias] of Object.entries(DOMAIN_ROUTING_TIER_BIAS)) {
+    if (!merged[domain]) merged[domain] = {}
+    merged[domain]['tierBias'] = bias
+  }
+  return merged
+})
+
+function zolRateClass(rate: number) {
+  if (rate >= 0.9) return 'rate-good'
+  if (rate >= 0.7) return 'rate-ok'
+  return 'rate-bad'
+}
+
+function onZolReset() {
+  resetZOL()
+  footerMsg.value = 'ZOL已重置'
+  setTimeout(() => { footerMsg.value = '' }, 3000)
+}
 
 watch(timeTravelIdx, (idx) => {
   if (idx >= 0 && idx < debugStore.activeProbes.length) {
@@ -415,6 +502,31 @@ async function onResetAutoCompile() {
 .detail-bar-content { padding: 6px 8px; font-size: 10px; color: #aaa; white-space: pre-wrap; word-break: break-all; font-family: monospace; margin: 0; }
 
 .empty-hint { color: #444; text-align: center; padding: 20px; font-size: 12px; }
+
+.debug-right-tabs { display: flex; gap: 2px; margin-bottom: 6px; }
+.dbg-tab { padding: 3px 10px; background: rgba(100,180,255,0.08); border: 1px solid rgba(100,180,255,0.15); border-radius: 3px 3px 0 0; color: #6a8caa; font-size: 11px; cursor: pointer; }
+.dbg-tab.active { background: rgba(100,180,255,0.2); color: #8ab4ff; border-bottom-color: transparent; }
+.zol-debug-panel { overflow-y: auto; max-height: calc(100% - 30px); }
+.zol-learners { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.zol-learner-card { background: rgba(10,15,30,0.5); border: 1px solid rgba(100,180,255,0.1); border-radius: 4px; padding: 6px 8px; }
+.zlc-header { display: flex; justify-content: space-between; align-items: center; }
+.zlc-name { color: #8ab4ff; font-size: 11px; font-weight: 600; }
+.zlc-rate { font-size: 12px; font-weight: 700; }
+.rate-good { color: #4caf50; }
+.rate-ok { color: #ff9800; }
+.rate-bad { color: #f44336; }
+.zlc-meta { color: #6a8caa; font-size: 9px; margin-bottom: 4px; }
+.zlc-thresholds { display: flex; flex-wrap: wrap; gap: 2px 8px; }
+.zlc-th-row { display: flex; gap: 4px; }
+.zlc-th-key { color: #6a8caa; font-size: 9px; }
+.zlc-th-val { color: #a0c0e8; font-size: 9px; font-family: monospace; }
+.zol-offsets-section { margin-bottom: 10px; }
+.panel-subtitle { color: #8ab4ff; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+.zol-offset-block { padding: 3px 0; border-bottom: 1px solid rgba(100,180,255,0.05); }
+.zol-ob-domain { color: #8ab4ff; font-size: 10px; font-weight: 600; }
+.zol-ob-items { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.zol-ob-item { color: #a0c0e8; font-size: 9px; font-family: monospace; }
+.zol-actions-row { text-align: right; padding-top: 4px; }
 
 .debug-footer {
   display: flex; align-items: center; gap: 6px; padding: 6px 12px;

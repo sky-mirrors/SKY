@@ -1,17 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { SessionMemory, ProjectMemory, GlobalMemory, PromptTemplate, DialogMessage, ChatMessage, MemoryAdapter } from '@/models'
+import { estimateTokens } from '@/services/tokenEstimate'
+import { vault } from '@/vault'
 
 const CONV_KEY = 'holo-conversations'
 const SUMMARY_KEY = 'holo-conversation-summaries'
 const TOKEN_BUDGET_DEFAULT = 4000
-
-function estimateTokens(text: string): number {
-  if (!text) return 0
-  const cjk = (text.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/g) || []).length
-  const other = text.length - cjk
-  return Math.ceil(cjk * 2 + other * 0.25)
-}
 
 interface ConversationMemory {
   id: string
@@ -22,29 +17,27 @@ interface ConversationMemory {
 }
 
 function loadConversations(): ConversationMemory[] {
-  try {
-    const raw = localStorage.getItem(CONV_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
+  const raw = vault.readCache('memory', CONV_KEY)
+  if (raw) {
+    try { return JSON.parse(raw) } catch { return [] }
   }
+  return []
 }
 
 function saveConversations(convs: ConversationMemory[]) {
-  localStorage.setItem(CONV_KEY, JSON.stringify(convs))
+  vault.writeThrough('memory', CONV_KEY, JSON.stringify(convs))
 }
 
 function loadSummaries(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(SUMMARY_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
+  const raw = vault.readCache('memory', SUMMARY_KEY)
+  if (raw) {
+    try { return JSON.parse(raw) } catch { return {} }
   }
+  return {}
 }
 
 function saveSummaries(summaries: Record<string, string>) {
-  localStorage.setItem(SUMMARY_KEY, JSON.stringify(summaries))
+  vault.writeThrough('memory', SUMMARY_KEY, JSON.stringify(summaries))
 }
 
 function compressOldMessages(convs: ConversationMemory[], conv: ConversationMemory): void {
@@ -113,12 +106,12 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function archiveSession() {
+    const raw = vault.readCache('memory', 'holo-session-archive') || '[]'
     try {
-      const archive = localStorage.getItem('holo-session-archive') || '[]'
-      const arr = JSON.parse(archive) as SessionMemory[]
+      const arr = JSON.parse(raw) as SessionMemory[]
       arr.push({ ...sessionMemory.value })
       if (arr.length > 20) arr.splice(0, arr.length - 20)
-      localStorage.setItem('holo-session-archive', JSON.stringify(arr))
+      vault.writeThrough('memory', 'holo-session-archive', JSON.stringify(arr))
     } catch { /* ignore */ }
     clearSession()
   }
@@ -313,46 +306,46 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function saveSessionToStorage() {
-    try { localStorage.setItem('holo-session', JSON.stringify(sessionMemory.value)) } catch { /* ignore */ }
+    vault.writeThrough('memory', 'holo-session', JSON.stringify(sessionMemory.value))
   }
 
   function saveProjectsToStorage() {
-    try { localStorage.setItem('holo-projects', JSON.stringify(projectMemories.value)) } catch { /* ignore */ }
+    vault.writeThrough('memory', 'holo-projects', JSON.stringify(projectMemories.value))
   }
 
   function saveGlobalToStorage() {
-    try { localStorage.setItem('holo-global-memory', JSON.stringify(globalMemory.value)) } catch { /* ignore */ }
+    vault.writeThrough('memory', 'holo-global-memory', JSON.stringify(globalMemory.value))
   }
 
   function saveMcpLogsToStorage() {
-    try { localStorage.setItem('holo-mcp-logs', JSON.stringify(mcpRequestLogs.value)) } catch { /* ignore */ }
+    vault.writeThrough('memory', 'holo-mcp-logs', JSON.stringify(mcpRequestLogs.value))
   }
 
   function saveAuditLogsToStorage() {
-    try { localStorage.setItem('holo-audit-logs', JSON.stringify(auditLogs.value)) } catch { /* ignore */ }
+    vault.writeThrough('memory', 'holo-audit-logs', JSON.stringify(auditLogs.value))
   }
 
   function loadFromStorage() {
-    try {
-      const s = localStorage.getItem('holo-session')
-      if (s) sessionMemory.value = JSON.parse(s) as SessionMemory
-    } catch { /* ignore */ }
-    try {
-      const p = localStorage.getItem('holo-projects')
-      if (p) projectMemories.value = JSON.parse(p) as ProjectMemory[]
-    } catch { /* ignore */ }
-    try {
-      const g = localStorage.getItem('holo-global-memory')
-      if (g) globalMemory.value = JSON.parse(g) as GlobalMemory
-    } catch { /* ignore */ }
-    try {
-      const ml = localStorage.getItem('holo-mcp-logs')
-      if (ml) mcpRequestLogs.value = JSON.parse(ml) as typeof mcpRequestLogs.value
-    } catch { /* ignore */ }
-    try {
-      const al = localStorage.getItem('holo-audit-logs')
-      if (al) auditLogs.value = JSON.parse(al) as typeof auditLogs.value
-    } catch { /* ignore */ }
+    const s = vault.readCache('memory', 'holo-session')
+    if (s) {
+      try { sessionMemory.value = JSON.parse(s) as SessionMemory } catch { /* ignore */ }
+    }
+    const p = vault.readCache('memory', 'holo-projects')
+    if (p) {
+      try { projectMemories.value = JSON.parse(p) as ProjectMemory[] } catch { /* ignore */ }
+    }
+    const g = vault.readCache('memory', 'holo-global-memory')
+    if (g) {
+      try { globalMemory.value = JSON.parse(g) as GlobalMemory } catch { /* ignore */ }
+    }
+    const ml = vault.readCache('memory', 'holo-mcp-logs')
+    if (ml) {
+      try { mcpRequestLogs.value = JSON.parse(ml) as typeof mcpRequestLogs.value } catch { /* ignore */ }
+    }
+    const al = vault.readCache('memory', 'holo-audit-logs')
+    if (al) {
+      try { auditLogs.value = JSON.parse(al) as typeof auditLogs.value } catch { /* ignore */ }
+    }
     conversations.value = loadConversations()
   }
 

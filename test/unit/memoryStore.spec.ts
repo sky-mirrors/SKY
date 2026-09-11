@@ -1,0 +1,190 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { useMemoryStore } from '@/stores/memoryStore'
+
+function mockLocalStorage() {
+  const store: Record<string, string> = {}
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, val: string) => { store[key] = val },
+    removeItem: (key: string) => { delete store[key] },
+    clear: () => { Object.keys(store).forEach(k => delete store[k]) },
+    get length() { return Object.keys(store).length },
+    key: (i: number) => Object.keys(store)[i] ?? null
+  })
+  return store
+}
+
+describe('memoryStore', () => {
+  beforeEach(() => {
+    mockLocalStorage()
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('has correct initial state', () => {
+    const store = useMemoryStore()
+    expect(store.projectMemories).toEqual([])
+    expect(store.activeProjectId).toBeNull()
+    expect(store.mcpRequestLogs).toEqual([])
+    expect(store.auditLogs).toEqual([])
+  })
+
+  it('addProjectMemory creates a new project', () => {
+    const store = useMemoryStore()
+    const project = store.addProjectMemory('Test Project')
+    expect(project).not.toBeNull()
+    expect(project!.name).toBe('Test Project')
+    expect(store.projectMemories.length).toBe(1)
+  })
+
+  it('setActiveProject and getActiveProject work', () => {
+    const store = useMemoryStore()
+    const project = store.addProjectMemory('Active Test')
+    store.setActiveProject(project!.id)
+    expect(store.activeProjectId).toBe(project!.id)
+    const active = store.getActiveProject()
+    expect(active).not.toBeNull()
+    expect(active!.id).toBe(project!.id)
+    store.setActiveProject(null)
+    expect(store.activeProjectId).toBeNull()
+  })
+
+  it('addFileFingerprint adds fingerprint to project', () => {
+    const store = useMemoryStore()
+    const project = store.addProjectMemory('FP Test')
+    store.addFileFingerprint(project!.id, 'fp-abc123')
+    expect(store.projectMemories[0].fileFingerprints).toContain('fp-abc123')
+  })
+
+  it('addKnowledgeEntry adds entry to project', () => {
+    const store = useMemoryStore()
+    const project = store.addProjectMemory('KE Test')
+    store.addKnowledgeEntry(project!.id, 'entry-1')
+    expect(store.projectMemories[0].knowledgeEntryIds).toContain('entry-1')
+  })
+
+  it('setPreference stores global preference', () => {
+    const store = useMemoryStore()
+    store.setPreference('language', 'zh-CN')
+    expect(store.globalMemory.preferences['language']).toBe('zh-CN')
+  })
+
+  it('addFrequentTerm adds term', () => {
+    const store = useMemoryStore()
+    store.addFrequentTerm('合同')
+    expect(store.globalMemory.frequentTerms).toContain('合同')
+  })
+
+  it('addPromptTemplate adds template', () => {
+    const store = useMemoryStore()
+    store.addPromptTemplate({ name: 'Test Template', content: 'Hello {{name}}' })
+    expect(store.globalMemory.promptTemplates.length).toBe(1)
+    expect(store.globalMemory.promptTemplates[0].name).toBe('Test Template')
+  })
+
+  it('removePromptTemplate removes by id', () => {
+    const store = useMemoryStore()
+    store.addPromptTemplate({ name: 'ToRemove', content: 'test' })
+    const id = store.globalMemory.promptTemplates[0].id
+    store.removePromptTemplate(id)
+    expect(store.globalMemory.promptTemplates.length).toBe(0)
+  })
+
+  it('addMcpRequestLog stores log entry', () => {
+    const store = useMemoryStore()
+    store.addMcpRequestLog({
+      mcpId: 'mcp-1',
+      toolName: 'test_tool',
+      request: 'test request',
+      response: 'test response',
+      success: true
+    })
+    expect(store.mcpRequestLogs.length).toBe(1)
+    expect(store.mcpRequestLogs[0].mcpId).toBe('mcp-1')
+  })
+
+  it('addAuditLog stores audit entry', () => {
+    const store = useMemoryStore()
+    store.addAuditLog({
+      userId: 'user-1',
+      action: 'execute',
+      toolId: 'tool-1',
+      details: 'test action'
+    })
+    expect(store.auditLogs.length).toBe(1)
+    expect(store.auditLogs[0].action).toBe('execute')
+  })
+
+  it('exportAuditCsv returns string', () => {
+    const store = useMemoryStore()
+    store.addAuditLog({
+      userId: 'user-1',
+      action: 'execute',
+      toolId: 'tool-1',
+      details: 'test'
+    })
+    const csv = store.exportAuditCsv()
+    expect(typeof csv).toBe('string')
+    expect(csv.length).toBeGreaterThan(0)
+  })
+
+  it('getOrCreateConversation creates new if not exists', () => {
+    const store = useMemoryStore()
+    const conv = store.getOrCreateConversation('project-1')
+    expect(conv).toBeDefined()
+    expect(conv.projectId).toBe('project-1')
+  })
+
+  it('getOrCreateConversation returns existing conversation', () => {
+    const store = useMemoryStore()
+    const conv1 = store.getOrCreateConversation('project-1')
+    const conv2 = store.getOrCreateConversation('project-1')
+    expect(conv1.id).toBe(conv2.id)
+  })
+
+  it('addConvMessage adds message to conversation', () => {
+    const store = useMemoryStore()
+    store.getOrCreateConversation('project-1')
+    store.addConvMessage('project-1', { role: 'user', content: 'hello', timestamp: Date.now() })
+    const recent = store.getRecentMessages('project-1')
+    expect(recent.length).toBe(1)
+    expect(recent[0].content).toBe('hello')
+  })
+
+  it('getRecentMessages returns limited messages', () => {
+    const store = useMemoryStore()
+    store.getOrCreateConversation('project-1')
+    for (let i = 0; i < 10; i++) {
+      store.addConvMessage('project-1', { role: 'user', content: `msg-${i}`, timestamp: Date.now() + i })
+    }
+    const recent = store.getRecentMessages('project-1', 3)
+    expect(recent.length).toBe(3)
+  })
+
+  it('addConvFileFingerprint adds fingerprint to conversation', () => {
+    const store = useMemoryStore()
+    store.getOrCreateConversation('project-1')
+    store.addConvFileFingerprint('project-1', 'fp-test')
+    const conv = store.conversations.find(c => c.projectId === 'project-1')
+    expect(conv!.fileFingerprints).toContain('fp-test')
+  })
+
+  it('clearSession resets sessionMemory', () => {
+    const store = useMemoryStore()
+    store.clearSession()
+    expect(store.sessionMemory.id).toBeDefined()
+  })
+
+  it('setProjectGroup assigns group to project', () => {
+    const store = useMemoryStore()
+    const project = store.addProjectMemory('Group Test')
+    store.setProjectGroup(project!.id, 'group-1')
+    expect(store.projectMemories[0].parentGroupId).toBe('group-1')
+    store.setProjectGroup(project!.id, undefined)
+    expect(store.projectMemories[0].parentGroupId).toBeUndefined()
+  })
+})

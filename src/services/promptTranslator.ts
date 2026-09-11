@@ -1,8 +1,9 @@
-import { useApiStore } from '@/stores/apiStore'
+import { getLLM } from '@/kernel/plugins/llm'
 import { ChatMessage, PromptChainResult, PromptChainStep, TaskPlan, TaskCase } from '@/models'
 import type { L2ToolManifest } from '@/models'
 import { cosineSimilarity, generatePseudoVector, VECTOR_DIM } from './embedder'
 import { debugLog } from '@/services/debugLog'
+import { vault } from '@/vault'
 
 const SEED_CASES: TaskCase[] = [
   {
@@ -63,7 +64,7 @@ const CASES_KEY = 'holo-task-cases'
 
 function loadCases(): TaskCase[] {
   try {
-    const saved = localStorage.getItem(CASES_KEY)
+    const saved = vault.readCache('task', CASES_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as TaskCase[]
       const normalized = parsed.map(c => {
@@ -98,7 +99,7 @@ export function searchTaskCases(input: string, topK: number = 3): TaskCase[] {
 export function saveTaskCase(taskCase: TaskCase): void {
   const saved: TaskCase[] = (() => {
     try {
-      const raw = localStorage.getItem(CASES_KEY)
+      const raw = vault.readCache('task', CASES_KEY)
       return raw ? JSON.parse(raw) as TaskCase[] : []
     } catch { return [] }
   })()
@@ -107,7 +108,7 @@ export function saveTaskCase(taskCase: TaskCase): void {
   }
   saved.push(taskCase)
   if (saved.length > 50) saved.splice(0, saved.length - 50)
-  try { localStorage.setItem(CASES_KEY, JSON.stringify(saved)) } catch { /* ignore */ }
+  try { vault.writeThrough('task', CASES_KEY, JSON.stringify(saved)) } catch { /* ignore */ }
 }
 
 const DISAMBIG_CACHE = new Map<string, { choice: number; ts: number }>()
@@ -139,15 +140,12 @@ export async function disambiguateChoice(
 ${candList}${contextLine}
 请只输出数字（1-${Math.min(candidates.length, 4)}），不要解释。`
 
-  const apiStore = useApiStore()
+  const llm = getLLM()
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 1500)
-    const response = await apiStore.chatCompletion(
+    const response = await llm.chatCompletion(
       [{ role: 'user', content: prompt }],
-      false, undefined, 16, controller.signal
+      { taskType: 'classify', callerId: 'promptTranslator_lang', maxTokens: 16 }
     )
-    clearTimeout(timer)
     const text = (response.content || '').trim()
     const num = parseInt(text.replace(/[^0-9]/g, ''), 10)
     if (num >= 1 && num <= candidates.length) {
@@ -181,15 +179,12 @@ ${slotDesc}${contextLine}
 请翻译为明确的意图和参数。只输出JSON：{"intent":"明确意图描述","params":{"参数名":"提取值"}}
 若无参数则params为空对象。不要解释。`
 
-  const apiStore = useApiStore()
+  const llm = getLLM()
   try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 2000)
-    const response = await apiStore.chatCompletion(
+    const response = await llm.chatCompletion(
       [{ role: 'user', content: prompt }],
-      false, undefined, 128, controller.signal
+      { taskType: 'classify', callerId: 'promptTranslator_intent', maxTokens: 128 }
     )
-    clearTimeout(timer)
     const text = (response.content || '').trim()
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const parsed = JSON.parse(cleaned)
@@ -204,7 +199,7 @@ ${slotDesc}${contextLine}
 }
 
 export async function planTask(userInput: string, mcpToolNames: string[] = [], recentUserMsg: string = ''): Promise<TaskPlan> {
-  const apiStore = useApiStore()
+  const llm = getLLM()
   const cases = searchTaskCases(userInput, 2)
 
   const caseLines = cases.map((c, i) =>
@@ -263,10 +258,10 @@ ${contextLine}
 注意：step从1开始编号；depends_on是数组，填前置步骤的step号（无依赖填空数组[]）；params填该步骤需要的参数。`
 
   try {
-    const response = await apiStore.chatCompletion([
+    const response = await llm.chatCompletion([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
-    ], false, undefined, 768)
+    ], { taskType: 'classify', callerId: 'promptTranslator_dag', maxTokens: 768 })
     const rawContent = response.content || ''
     const cleaned = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const parsed = JSON.parse(cleaned)
@@ -350,7 +345,7 @@ export async function replan(
   remainingSteps: TaskPlan['steps'],
   completedResults: Record<number, string>
 ): Promise<TaskPlan['steps']> {
-  const apiStore = useApiStore()
+  const llm = getLLM()
 
   const completedInfo = Object.entries(completedResults)
     .map(([step, result]) => `步骤${step}已完成，结果摘要：${result.substring(0, 200)}`)
@@ -371,10 +366,10 @@ ${remainingInfo}
 请修改剩余步骤（可替换工具、调整参数或依赖关系），使其绕开错误。只输出修改后的剩余步骤JSON数组，格式同上。不要重复已完成步骤。`
 
   try {
-    const response = await apiStore.chatCompletion([
+    const response = await llm.chatCompletion([
       { role: 'system', content: '你是重规划器。只修改失败步骤之后的剩余计划，不全量重来。只输出JSON。' },
       { role: 'user', content: prompt }
-    ], false, undefined, 512)
+    ], { taskType: 'classify', callerId: 'promptTranslator_replan', maxTokens: 512 })
     const rawContent = response.content || ''
     const cleaned = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const parsed = JSON.parse(cleaned)
@@ -436,7 +431,7 @@ const OUTPUT_SCHEMA = {
 }
 
 export async function compileToChain(userInput: string, context?: string): Promise<PromptChainResult> {
-  const apiStore = useApiStore()
+  const llm = getLLM()
 
   const systemPrompt = `你是一个企业办公提示词编译器。用户输入大白话描述任务需求，你需要将其编译为结构化的工具调用步骤。
 
@@ -457,12 +452,12 @@ ${JSON.stringify(OUTPUT_SCHEMA)}
     ? `上下文：${context}\n\n用户需求：${userInput}`
     : `用户需求：${userInput}`
 
-  const response = await apiStore.chatCompletion([
+  const response = await llm.chatCompletion([
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt }
-  ])
+  ], { stream: true, taskType: 'chat', callerId: 'promptTranslator_chat' })
 
-  const rawContent = typeof response === 'string' ? response : (response as { content: string }).content || ''
+  const rawContent = response.content || ''
 
   try {
     const parsed = JSON.parse(rawContent)

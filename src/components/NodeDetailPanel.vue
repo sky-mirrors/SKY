@@ -126,8 +126,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ToolNode } from '@/models'
-import { useNodeStore } from '@/stores/nodeStore'
-import { useDialogStore } from '@/stores/dialogStore'
+import { useNodeStore } from '@/domains/node'
+import { useDialogStore } from '@/domains/dialog'
 
 function timeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp

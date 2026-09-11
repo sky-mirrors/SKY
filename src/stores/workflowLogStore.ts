@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { WorkflowLog } from '@/models'
+import { vault } from '@/vault'
 
 export const useWorkflowLogStore = defineStore('workflowLog', () => {
   const logs = ref<WorkflowLog[]>([])
@@ -68,17 +69,15 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
   }
 
   function saveToStorage() {
-    try {
-      const toSave = logs.value.slice(0, 50)
-      localStorage.setItem('holo-workflow-logs', JSON.stringify(toSave))
-    } catch { /* ignore */ }
+    const toSave = logs.value.slice(0, 50)
+    vault.writeThrough('workflow', 'holo-workflow-logs', JSON.stringify(toSave))
   }
 
   function loadFromStorage() {
-    try {
-      const saved = localStorage.getItem('holo-workflow-logs')
-      if (saved) logs.value = JSON.parse(saved) as WorkflowLog[]
-    } catch { /* ignore */ }
+    const saved = vault.readCache('workflow', 'holo-workflow-logs')
+    if (saved) {
+      try { logs.value = JSON.parse(saved) as WorkflowLog[] } catch { /* ignore */ }
+    }
   }
 
   return {

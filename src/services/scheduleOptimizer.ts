@@ -1,4 +1,7 @@
 import { L2ToolManifest, L2DagStep, ValidationResult, ValidationCacheEntry } from '@/models'
+import { contentHash } from './hash'
+
+export { contentHash }
 
 interface CompiledPrompt {
   template: string
@@ -8,18 +11,6 @@ interface CompiledPrompt {
 }
 
 const promptCache = new Map<string, CompiledPrompt>()
-
-function simpleHash(str: string): string {
-  let h = 0
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h + str.charCodeAt(i)) | 0
-  }
-  return Math.abs(h).toString(36)
-}
-
-export function contentHash(content: string): string {
-  return simpleHash(content)
-}
 
 export function truncateForLog(content: string, maxLen: number = 200): string {
   if (content.length <= maxLen) return content
@@ -40,7 +31,7 @@ export function compilePrompt(template: string): CompiledPrompt {
   const compiled: CompiledPrompt = {
     template,
     variableSlots,
-    hash: simpleHash(template),
+    hash: contentHash(template),
     createdAt: Date.now()
   }
   promptCache.set(template, compiled)
@@ -124,7 +115,7 @@ export async function loadPersistedFingerprints(): Promise<void> {
 }
 
 function structHash(data: string): string {
-  return simpleHash(data)
+  return contentHash(data)
 }
 
 export function computeInputFingerprint(input: { filePath?: string; inputText?: string; context?: string }): string {
@@ -184,16 +175,6 @@ export function isManifestAutoCompiled(manifestId: string): boolean {
 
 export function getManifestStats(manifestId: string): ManifestExecutionStats | null {
   return manifestStats.get(manifestId) || null
-}
-
-export function resetManifestStats(): void {
-  for (const stats of manifestStats.values()) {
-    stats.successCount = 0
-    stats.cacheHitCount = 0
-    stats.lastExecutedAt = 0
-    stats.autoCompiled = false
-  }
-  setTimeout(persistToStore, 500)
 }
 
 export interface DataflowIssue {

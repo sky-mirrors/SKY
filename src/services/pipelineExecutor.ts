@@ -1,9 +1,9 @@
-import { useApiStore } from '@/stores/apiStore'
 import { Pipeline, PipelineStep, NodeHandler, NodeHandlerContext, ModelGatewayAdapter, MemoryAdapter, KnowledgeAdapter, ProbeSource } from '@/models'
 import { hybridSearch, knowledgeAdapter } from './knowledgeBase'
 import { memoryAdapter, getContextWindow, addMessage } from './memory'
 import { compileToChain } from './promptTranslator'
-import { useDebugStore } from '@/stores/debugStore'
+import { debugLog } from '@/services/debugLog'
+import { globalBus } from '@/kernel/bus'
 import { beautify } from './resultBeautifier'
 
 const handlerRegistry: Map<string, NodeHandler> = new Map()
@@ -206,7 +206,7 @@ function loadCheckpoint(pipelineId: string): PipelineCheckpoint | null {
     const all: PipelineCheckpoint[] = JSON.parse(localStorage.getItem(CHECKPOINT_KEY) || '[]')
     return all.find(c => c.pipelineId === pipelineId) ?? null
   } catch (err) {
-    console.warn(`[pipelineExecutor] 加载检查点失败: ${String(err).substring(0, 100)}`)
+    debugLog(`[pipelineExecutor] 加载检查点失败: ${String(err).substring(0, 100)}`)
     return null
   }
 }
@@ -224,12 +224,10 @@ export async function executePipeline(
   onProgress?: (stepId: string, msg: string) => void,
   resumeFromCheckpoint: boolean = false
 ): Promise<Record<string, string>> {
-  const apiStore = useApiStore()
-  const gateway = apiStore.gatewayAdapter
+  const gateway = globalBus.request<ModelGatewayAdapter>('llm:get-gateway', {})
 
   const pipelineAbortController = new AbortController()
-  const debugStore = useDebugStore()
-  debugStore.registerAbortController(pipelineAbortController)
+  globalBus.emit('debug:register-abort', pipelineAbortController)
 
   const stepMap = new Map(pipeline.steps.map((s, i) => [`step-${i}`, s]))
   const dagNodes: DagNode[] = pipeline.steps.map((step, i) => ({
@@ -320,9 +318,8 @@ export async function executePipeline(
       })
 
       try {
-        const debugStore = useDebugStore()
         const source: ProbeSource = step.toolId === 'l1-model-gateway' ? 'llm' : step.toolId === 'l1-workspace-memory' ? 'knowledge' : 'mcp'
-        debugStore.recordProbe({
+        globalBus.emit('debug:log-probe', {
           id: `probe-pipe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           stepNum: stepIndex,
           manifestId: `pipeline-${pipeline.id}`,
@@ -339,8 +336,7 @@ export async function executePipeline(
       onProgress?.(stepId, `✓ ${step.toolId}`)
     } catch (err) {
       try {
-        const debugStore = useDebugStore()
-        debugStore.recordProbe({
+        globalBus.emit('debug:log-probe', {
           id: `probe-pipe-err-${Date.now()}`,
           stepNum: stepIndex,
           manifestId: `pipeline-${pipeline.id}`,
@@ -363,6 +359,6 @@ export async function executePipeline(
     clearCheckpoint(pipeline.id)
     return stringResults
   } finally {
-    debugStore.clearAbortController()
+    globalBus.emit('debug:clear-abort', {})
   }
 }

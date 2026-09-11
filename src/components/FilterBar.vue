@@ -23,8 +23,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useNodeStore } from '@/stores/nodeStore'
-import { useDialogStore } from '@/stores/dialogStore'
+import { useNodeStore } from '@/domains/node'
+import { useDialogStore } from '@/domains/dialog'
 
 const nodeStore = useNodeStore()
 const dialogStore = useDialogStore()

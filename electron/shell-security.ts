@@ -9,13 +9,8 @@ const SHELL_ALLOWED_COMMANDS = [
   'mkdir ',
   'copy ',
   'cp ',
-  'move ',
-  'mv ',
-  'del ',
-  'rm ',
   'cd ',
   'pwd',
-  'whoami',
   'pip install'
 ]
 
@@ -67,6 +62,7 @@ const NODE_E_DANGEROUS_PATTERNS = [
   /curl\s+/,
   /wget\s+/,
   /new\s+buffer\s*\(/i,
+  /buffer\.from\s*\(/i,
   /atob\s*\(/,
   /string\.fromcharcode/i,
   /\\x[0-9a-f]{2}/,
@@ -85,10 +81,9 @@ const NODE_E_TRUSTED_SIGNATURES = [
   /require\s*\(\s*['"]marked['"]\s*\)/,
 ]
 
-const NODE_E_ALLOWED_WRITE_PATHS = [
-  /process\.env\.(userprofile|home)/i,
-  /['"]Desktop['"]/i,
-  /['"]Documents['"]/i,
+const NODE_E_ALLOWED_WRITE_PATTERNS = [
+  /writeFileSync\s*\(\s*['"](?:[^'"]*[/\\])?(Desktop|Documents|Downloads)[/\\]/i,
+  /writeFileSync\s*\(\s*process\.env\.(?:USERPROFILE|HOME|userprofile|home)/i,
 ]
 
 function isNodeTrustedTemplate(codeContent: string): boolean {
@@ -107,7 +102,7 @@ function isNodeTrustedTemplate(codeContent: string): boolean {
   for (const hit of dangerHits) {
     const isWriteFile = hit.source.startsWith('\\.writefile') || hit.source.startsWith('\\.createwritestream')
     if (isWriteFile) {
-      if (!NODE_E_ALLOWED_WRITE_PATHS.some(p => p.test(codeContent))) return false
+      if (!NODE_E_ALLOWED_WRITE_PATTERNS.some(p => p.test(codeContent))) return false
       continue
     }
     const isProcessEnv = hit.source.includes('process\\.env')
@@ -116,6 +111,28 @@ function isNodeTrustedTemplate(codeContent: string): boolean {
   }
 
   return true
+}
+
+const MCP_ALLOWED_COMMANDS = [
+  'npx',
+  'node',
+  'python3',
+  'python',
+  'uvx',
+]
+
+export function isMcpCommandAllowed(command: string): { allowed: boolean; reason?: string } {
+  const firstWord = command.trim().split(/\s+/)[0].toLowerCase()
+  if (!MCP_ALLOWED_COMMANDS.includes(firstWord)) {
+    return { allowed: false, reason: `MCP命令不在白名单中: ${firstWord}` }
+  }
+  if (firstWord === 'npx') {
+    const rest = command.trim().substring(4).trim()
+    if (!rest.startsWith('@modelcontextprotocol/') && !rest.startsWith('@anthropic/')) {
+      return { allowed: false, reason: `npx仅允许@modelcontextprotocol/或@anthropic/包: ${rest.substring(0, 50)}` }
+    }
+  }
+  return { allowed: true }
 }
 
 export function isShellCommandAllowed(command: string): { allowed: boolean; reason?: string } {
@@ -137,7 +154,7 @@ export function isShellCommandAllowed(command: string): { allowed: boolean; reas
   if (trimmed.startsWith('npm install ') || trimmed.startsWith('npm i ')) {
     const pkgPart = trimmed.replace(/^npm\s+(install|i)\s+/, '').trim()
     const pkgs = pkgPart.split(/\s+/)
-    const validPkgRe = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+    const validPkgRe = /^(@[a-z0-9][-a-z0-9]*[a-z0-9]\/)?[a-z0-9][-a-z0-9._]*[a-z0-9]$/
     for (const pkg of pkgs) {
       if (pkg.startsWith('--')) continue
       if (!validPkgRe.test(pkg)) {
@@ -148,11 +165,11 @@ export function isShellCommandAllowed(command: string): { allowed: boolean; reas
   }
 
   if (trimmed.startsWith('npx ')) {
-    return { allowed: true }
+    return { allowed: false, reason: 'npx命令仅允许通过MCP spawn执行，被安全策略拒绝' }
   }
 
   if (trimmed.startsWith('node ') && !trimmed.startsWith('node -e')) {
-    return { allowed: true }
+    return { allowed: false, reason: 'node脚本执行仅允许通过MCP spawn或node -e受限模式，被安全策略拒绝' }
   }
 
   const firstCmd = trimmed.split(/\s+/)[0] + ' '
@@ -165,8 +182,8 @@ export function isShellCommandAllowed(command: string): { allowed: boolean; reas
   return { allowed: false, reason: `命令不在白名单中: ${trimmed.substring(0, 50)}` }
 }
 
-const QUICK_COMMANDS = ['ls', 'dir', 'cat', 'type', 'echo', 'pwd', 'cd', 'whoami', 'hostname', 'date', 'wc', 'head', 'tail', 'find', 'where', 'which', 'grep', 'sort', 'uniq', 'mkdir']
-const HEAVY_COMMANDS = ['npm run build', 'npm install', 'npm ci', 'npx electron-vite build', 'pip install', 'yarn install', 'pnpm install']
+const QUICK_COMMANDS = ['ls', 'dir', 'cat', 'type', 'echo', 'pwd', 'cd', 'hostname', 'date', 'wc', 'head', 'tail', 'find', 'where', 'which', 'grep', 'sort', 'uniq', 'mkdir']
+const HEAVY_COMMANDS = ['npm run build', 'npm install', 'npm ci', 'pip install', 'yarn install', 'pnpm install']
 const QUICK_TIMEOUT = 10000
 const STANDARD_TIMEOUT = 60000
 const HEAVY_TIMEOUT = 120000

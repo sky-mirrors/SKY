@@ -47,7 +47,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useNodeStore } from '@/stores/nodeStore'
+import { useNodeStore } from '@/domains/node'
 import { ToolNode } from '@/models'
 
 const emit = defineEmits<{

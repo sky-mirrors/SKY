@@ -10,11 +10,11 @@ export interface ErrorClassification {
 }
 
 const ERROR_KEYWORDS: Record<ErrorCategory, string[]> = {
-  syntax: ['SyntaxError', 'TypeError', 'ReferenceError', 'unexpected', 'is not defined', 'Cannot read propert', 'is not a function'],
-  network: ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'fetch failed', 'network', 'socket hang up', 'DNS', 'EAI_AGAIN'],
+  syntax: ['SyntaxError', 'TypeError', 'ReferenceError', 'unexpected', 'is not defined', 'Cannot read propert', 'is not a function', 'exit code'],
+  network: ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'fetch failed', 'fetchfailed', 'network', 'socket hang up', 'DNS', 'EAI_AGAIN'],
   permission: ['EACCES', 'EPERM', 'permission denied', 'access denied', 'not authorized', 'forbidden'],
   timeout: ['timeout', 'timed out', 'deadline exceeded', 'SIGKILL', '超时'],
-  resource_missing: ['ENOENT', 'MODULE_NOT_FOUND', 'not found', 'no such file', 'does not exist', 'cannot find module'],
+  resource_missing: ['ENOENT', 'MODULE_NOT_FOUND', 'not found', 'no such file', 'does not exist', 'cannot find module', '找不到'],
   file_format: ['xlsx', 'csv', 'parse error', 'invalid format', 'malformed', 'encoding', 'decode', 'not a valid'],
   logic: ['FactGuard', 'intent_match', 'parameter_sane', '不一致', '冲突', 'mismatch'],
   unknown: []
@@ -91,7 +91,9 @@ export async function classifyError(
       [{ role: 'user' as const, content: prompt }],
       true,
       undefined,
-      5000
+      5000,
+      undefined,
+      { taskType: 'classify', callerId: 'errorClassifier' }
     )
 
     const content = response.content || ''
@@ -110,4 +112,22 @@ export async function classifyError(
   } catch {
     return quickResult
   }
+}
+
+const CATEGORY_USER_LABEL: Record<ErrorCategory, string> = {
+  network: '网络错误',
+  timeout: '超时',
+  syntax: '内部错误',
+  permission: '权限不足',
+  resource_missing: '资源不存在',
+  file_format: '文件格式错误',
+  logic: '逻辑冲突',
+  unknown: '执行异常'
+}
+
+export function classifyErrorForUser(err: string): string {
+  const exitMatch = err.match(/exit code (\d+)/i)
+  if (exitMatch) return `退出码${exitMatch[1]}`
+  const category = classifyByKeywords(err)
+  return CATEGORY_USER_LABEL[category]
 }

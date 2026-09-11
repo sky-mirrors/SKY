@@ -52,7 +52,9 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         [{ role: 'user', content: input }],
         true,
         undefined,
-        tierConfig.maxTokens
+        tierConfig.maxTokens,
+        undefined,
+        { taskType: 'benchmark', callerId: `benchmark_${tier}` }
       )
       const inTokens = resp.usage?.promptTokens || 0
       const outTokens = resp.usage?.completionTokens || 0
@@ -63,7 +65,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
       return resp.content || ''
     } catch (err) {
       tracker.recordError()
-      console.warn(`[Benchmark] LLM call failed: ${err instanceof Error ? err.message : String(err)}`)
+      debugLog(`[Benchmark] LLM call failed: ${err instanceof Error ? err.message : String(err)}`)
       throw err
     }
   }
@@ -162,7 +164,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
           await routeOptimized(tc.input, tracker)
         }
       } catch (err) {
-        console.warn(`[Benchmark] Error on ${tc.label}: ${err instanceof Error ? err.message : String(err)}`)
+        debugLog(`[Benchmark] Error on ${tc.label}: ${err instanceof Error ? err.message : String(err)}`)
         tracker.recordError()
       }
 
@@ -229,7 +231,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
     } catch (err) {
       progress.phase = 'error'
       progress.errorMessage = err instanceof Error ? err.message : String(err)
-      console.error('[Benchmark] Fatal error:', err)
+      debugLog('[Benchmark] Fatal error:', err)
     }
   }
 
@@ -249,9 +251,9 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         debugLog(`[Benchmark] Report saved to ${filePath}`)
         return filePath
       }
-      console.warn(`[Benchmark] fileWrite failed: ${result?.error}`)
+      debugLog(`[Benchmark] fileWrite failed: ${result?.error}`)
     } catch (err) {
-      console.warn(`[Benchmark] Export failed: ${err instanceof Error ? err.message : String(err)}`)
+      debugLog(`[Benchmark] Export failed: ${err instanceof Error ? err.message : String(err)}`)
     }
     return null
   }

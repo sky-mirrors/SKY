@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { McpConnection, McpTool, McpCatalogItem, McpToolPermission } from '@/models'
-import { useMemoryStore } from './memoryStore'
+import { globalBus } from '@/kernel/bus'
 import { MCP_CATALOG } from '@/data/mcpCatalog'
+import { vault } from '@/vault'
 
 export const useMcpStore = defineStore('mcp', () => {
   const connections = ref<McpConnection[]>([])
@@ -20,7 +21,7 @@ export const useMcpStore = defineStore('mcp', () => {
       isConnected: false,
       tools: [],
       lastTestedAt: 0,
-      isWhitelisted: true
+      isWhitelisted: false
     }
     connections.value.push(conn)
     saveToStorage()
@@ -50,7 +51,7 @@ export const useMcpStore = defineStore('mcp', () => {
       isConnected: false,
       tools: [],
       lastTestedAt: 0,
-      isWhitelisted: true,
+      isWhitelisted: false,
       catalogId: item.id,
       catalogCommand: item.command,
       catalogArgs: [...item.args],
@@ -96,7 +97,7 @@ export const useMcpStore = defineStore('mcp', () => {
             name: t.name,
             description: t.description,
             inputSchema: t.inputSchema,
-            isAutoAllowed: true
+            isAutoAllowed: false
           }))
         }
         rebuildMcpNodes()
@@ -143,7 +144,7 @@ export const useMcpStore = defineStore('mcp', () => {
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
-          isAutoAllowed: true
+          isAutoAllowed: false
         }))
         rebuildMcpNodes()
         saveToStorage()
@@ -163,8 +164,6 @@ export const useMcpStore = defineStore('mcp', () => {
       return startMcpFromCatalog(id)
     }
 
-    const memoryStore = useMemoryStore()
-
     try {
       const resp = await fetch(`${conn.url}/tools/list`, {
         method: 'POST',
@@ -180,14 +179,14 @@ export const useMcpStore = defineStore('mcp', () => {
         name: t.name as string,
         description: (t.description ?? '') as string,
         inputSchema: (t.inputSchema ?? {}) as Record<string, unknown>,
-        isAutoAllowed: true
+        isAutoAllowed: false
       }))
 
       conn.tools = tools
       conn.isConnected = true
       conn.lastTestedAt = Date.now()
 
-      memoryStore.addMcpRequestLog({
+      globalBus.emit('memory:add-mcp-log', {
         mcpId: conn.id,
         toolName: 'tools/list',
         request: JSON.stringify({ method: 'tools/list' }),
@@ -202,7 +201,7 @@ export const useMcpStore = defineStore('mcp', () => {
       conn.isConnected = false
       conn.lastTestedAt = Date.now()
 
-      memoryStore.addMcpRequestLog({
+      globalBus.emit('memory:add-mcp-log', {
         mcpId: conn.id,
         toolName: 'tools/list',
         request: JSON.stringify({ method: 'tools/list' }),
@@ -223,7 +222,7 @@ export const useMcpStore = defineStore('mcp', () => {
     if (!tool) throw new Error(`Tool ${toolName} not found`)
 
     if (!tool.isAutoAllowed && !conn.isWhitelisted) {
-      throw new Error('Tool is not auto-allowed - manual trigger only')
+      throw new Error(`Tool "${toolName}" requires authorization — enable auto-allow or whitelist the connection first`)
     }
 
     const perm = tool.permission || 'execute'
@@ -235,8 +234,6 @@ export const useMcpStore = defineStore('mcp', () => {
     if (perm === 'readwrite' && isExecOperation) {
       throw new Error(`Tool ${toolName} is read-write — execute operations not permitted (needs 'execute' permission)`)
     }
-
-    const memoryStore = useMemoryStore()
 
     if (conn.catalogCommand && window.electronAPI) {
       try {
@@ -269,7 +266,7 @@ export const useMcpStore = defineStore('mcp', () => {
           resultStr = String(raw ?? '')
         }
 
-        memoryStore.addMcpRequestLog({
+        globalBus.emit('memory:add-mcp-log', {
           mcpId: conn.id,
           toolName,
           request: JSON.stringify({ method: 'tools/call', name: toolName, arguments: args }),
@@ -277,7 +274,7 @@ export const useMcpStore = defineStore('mcp', () => {
           success: true
         })
 
-        memoryStore.addAuditLog({
+        globalBus.emit('memory:add-audit-log', {
           userId: 'local',
           action: 'mcp_tool_call',
           toolId: toolName,
@@ -287,7 +284,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
         return resultStr
       } catch (err) {
-        memoryStore.addMcpRequestLog({
+        globalBus.emit('memory:add-mcp-log', {
           mcpId: conn.id,
           toolName,
           request: JSON.stringify({ method: 'tools/call', name: toolName }),
@@ -316,7 +313,7 @@ export const useMcpStore = defineStore('mcp', () => {
       const data = await resp.json()
       const resultStr = JSON.stringify(data.result ?? data)
 
-      memoryStore.addMcpRequestLog({
+      globalBus.emit('memory:add-mcp-log', {
         mcpId: conn.id,
         toolName,
         request: JSON.stringify(requestPayload),
@@ -324,7 +321,7 @@ export const useMcpStore = defineStore('mcp', () => {
         success: resp.ok
       })
 
-      memoryStore.addAuditLog({
+      globalBus.emit('memory:add-audit-log', {
         userId: 'local',
         action: 'mcp_tool_call',
         toolId: toolName,
@@ -334,7 +331,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
       return resultStr
     } catch (err) {
-      memoryStore.addMcpRequestLog({
+      globalBus.emit('memory:add-mcp-log', {
         mcpId: conn.id,
         toolName,
         request: JSON.stringify(requestPayload),
@@ -377,13 +374,13 @@ export const useMcpStore = defineStore('mcp', () => {
   }
 
   function saveToStorage() {
-    try { localStorage.setItem('holo-mcp-connections', JSON.stringify(connections.value)) } catch { /* ignore */ }
+    vault.writeThrough('mcp', 'holo-mcp-connections', JSON.stringify(connections.value))
   }
 
   async function loadFromStorage() {
-    try {
-      const saved = localStorage.getItem('holo-mcp-connections')
-      if (saved) {
+    const saved = vault.readCache('mcp', 'holo-mcp-connections')
+    if (saved) {
+      try {
         connections.value = JSON.parse(saved) as McpConnection[]
         for (const conn of connections.value) {
           conn.isConnected = false
@@ -392,8 +389,8 @@ export const useMcpStore = defineStore('mcp', () => {
           }
         }
         rebuildMcpNodes()
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
   }
 
   async function autoRestartCatalogMcp() {

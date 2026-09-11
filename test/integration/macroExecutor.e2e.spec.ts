@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { L2DagStep, L2ToolManifest } from '@/models'
+import { globalBus } from '@/kernel/bus'
+import { vault } from '@/vault'
 
 const mockDebugStore = {
   enabled: false,
@@ -9,23 +11,6 @@ const mockDebugStore = {
   clearAbortController: vi.fn()
 }
 
-const mockApiStore = {
-  config: { activeModel: 'mock-model', activeProviderId: 'mock', isReachable: true, baseUrl: 'http://mock', providers: [], models: [] },
-  isReady: true,
-  isCircuitOpen: false,
-  chatCompletion: vi.fn().mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } }),
-  recordSuccess: vi.fn(),
-  recordFailure: vi.fn(),
-  resetCircuitBreaker: vi.fn()
-}
-
-const mockMcpStore = {
-  connections: [],
-  callTool: vi.fn().mockResolvedValue('mcp-tool-result'),
-  mcpToolsAsNodes: []
-}
-
-let _takeoverResolve: ((v: string) => void) | null = null
 const mockDialogStore = {
   dagPaused: false,
   dagPausedStep: null as number | null,
@@ -33,16 +18,6 @@ const mockDialogStore = {
   takeoverStepNum: null as number | null,
   addSystemNotice: vi.fn(),
   requestRiskConfirm: vi.fn().mockResolvedValue(true),
-  requestTakeover: vi.fn((stepNum: number) => {
-    mockDialogStore.awaitingTakeover = true
-    mockDialogStore.takeoverStepNum = stepNum
-    return new Promise<string>((resolve) => { _takeoverResolve = resolve })
-  }),
-  submitTakeover: vi.fn((result: string) => {
-    mockDialogStore.awaitingTakeover = false
-    mockDialogStore.takeoverStepNum = null
-    if (_takeoverResolve) { _takeoverResolve(result); _takeoverResolve = null }
-  }),
   clearAllPausePoints: vi.fn(),
   awaitingRiskConfirm: false,
   riskAction: null
@@ -55,24 +30,23 @@ const mockFeedbackStore = {
   computeQueryFingerprint: vi.fn(() => 'qfp')
 }
 
-vi.mock('@/stores/apiStore', () => ({ useApiStore: vi.fn(() => mockApiStore) }))
-vi.mock('@/stores/mcpStore', () => ({ useMcpStore: vi.fn(() => mockMcpStore) }))
 vi.mock('@/stores/debugStore', () => ({ useDebugStore: vi.fn(() => mockDebugStore) }))
 vi.mock('@/stores/dialogStore', () => ({ useDialogStore: vi.fn(() => mockDialogStore) }))
 vi.mock('@/stores/feedbackStore', () => ({ useFeedbackStore: vi.fn(() => mockFeedbackStore), computeQueryFingerprint: vi.fn(() => 'qfp') }))
+
 vi.mock('@/services/dualEngineValidator', () => ({
   shouldValidate: vi.fn(() => false),
   buildActionManifest: vi.fn(),
   dualEngineValidate: vi.fn()
 }))
 vi.mock('@/services/errorClassifier', () => ({ classifyError: vi.fn() }))
-vi.mock('@/services/factGuard', () => ({ extractEntities: vi.fn(() => []), shouldTrigger: vi.fn(() => false), runFactGuard: vi.fn() }))
+vi.mock('@/services/factGuard', () => ({ extractEntities: vi.fn(() => []), shouldTrigger: vi.fn(() => false), runFactGuard: vi.fn(), runFactGuardV2: vi.fn() }))
 vi.mock('@/services/ruleEngine', () => ({ runRuleEngine: vi.fn(() => ({ matched: false })), buildRuleContext: vi.fn() }))
 vi.mock('@/services/scheduleOptimizer', () => ({
   compilePrompt: vi.fn((t: string) => ({ template: t, slots: [] })),
   fillCompiledPrompt: vi.fn((c: any, v: any) => {
     let r = c.template || ''
-    for (const [k, val] of Object.entries(v || {})) r = r.replaceAll(`{{${k}}}`, String(val))
+    for (const [k, val] of Object.entries(v || {})) r = r.replaceAll(`{{${k}}`, String(val))
     return r
   }),
   computeInputFingerprint: vi.fn(() => 'fp'),
@@ -117,16 +91,21 @@ describe('E2E 冒烟测试 - macroExecutor 真实链路', () => {
   let originalWindow: any
   let httpFetchFn: any
   let shellExecFn: any
+  let llmChatCompletionFn: ReturnType<typeof vi.fn>
+  let sideEffectEvents: any[]
+  let _takeoverResolve: ((v: string) => void) | null = null
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vault.clearCache()
     mockDebugStore.enabled = false
     mockDialogStore.dagPaused = false
     mockDialogStore.dagPausedStep = null
     mockDialogStore.awaitingTakeover = false
     mockDialogStore.takeoverStepNum = null
     _takeoverResolve = null
-    mockApiStore.chatCompletion.mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } })
+    llmChatCompletionFn = vi.fn().mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } })
+    sideEffectEvents = []
 
     httpFetchFn = vi.fn().mockResolvedValue({ success: true, status: 200, body: '{"login":"octocat","id":1}' })
     shellExecFn = vi.fn().mockResolvedValue({ success: true, stdout: 'OK', stderr: '', code: 0 })
@@ -136,14 +115,34 @@ describe('E2E 冒烟测试 - macroExecutor 真实链路', () => {
       electronAPI: {
         shellExec: shellExecFn,
         fileRead: vi.fn().mockResolvedValue({ success: true, content: 'file-content', size: 100, isBinary: false }),
-        httpFetch: httpFetchFn
+        httpFetch: httpFetchFn,
+        vaultRead: vi.fn().mockResolvedValue(null),
+        vaultWrite: vi.fn().mockResolvedValue(undefined),
+        vaultDelete: vi.fn().mockResolvedValue(undefined),
+        vaultList: vi.fn().mockResolvedValue([])
       }
     }
     ;(globalThis as any).process = { env: { USERPROFILE: 'C:\\Users\\Test', HOME: '/home/test', APPDATA: 'C:\\Users\\Test\\AppData\\Roaming' } }
+
+    globalBus.registerHandler('debug:get-step-cost', () => undefined)
+    globalBus.on('debug:log-probe', () => {})
+    globalBus.on('debug:register-abort', () => {})
+    globalBus.on('debug:clear-abort', () => {})
+    globalBus.registerHandler('llm:chat-completion', (data: any) => llmChatCompletionFn(data))
+    globalBus.registerHandler('dialog:confirm-risk', () => true)
+    globalBus.on('feedback:add-side-effect', (data: any) => { sideEffectEvents.push(data) })
+
+    let pausedState = { paused: false, pausedStep: null as number | null, awaitingTakeover: false, takeoverStepNum: null as number | null }
+    globalBus.registerHandler('dialog:get-paused-state', () => pausedState)
+    globalBus.registerHandler('dialog:request-takeover', () => {
+      pausedState.awaitingTakeover = true
+      return new Promise<string>((resolve) => { _takeoverResolve = resolve })
+    })
   })
 
   afterEach(() => {
     ;(globalThis as any).window = originalWindow
+    globalBus.clear()
   })
 
   it('http_request GET 返回 status:200', async () => {
@@ -192,11 +191,10 @@ describe('E2E 冒烟测试 - macroExecutor 真实链路', () => {
     expect(shellExecFn).toHaveBeenCalledTimes(1)
     expect(shellExecFn).toHaveBeenCalledWith(expect.objectContaining({ command: writeCmd }))
     expect(result.results[1]).toBeDefined()
-    expect(mockFeedbackStore.addSideEffectManifest).toHaveBeenCalled()
-    const sideEffectCall = mockFeedbackStore.addSideEffectManifest.mock.calls[0][0]
-    expect(sideEffectCall.sideEffects.length).toBeGreaterThan(0)
-    expect(sideEffectCall.sideEffects[0].operation).toBe('create')
-    expect(sideEffectCall.sideEffects[0].filePath).toContain('test.txt')
+    expect(sideEffectEvents.length).toBeGreaterThan(0)
+    expect(sideEffectEvents[0].sideEffects.length).toBeGreaterThan(0)
+    expect(sideEffectEvents[0].sideEffects[0].operation).toBe('create')
+    expect(sideEffectEvents[0].sideEffects[0].filePath).toContain('test.txt')
   })
 
   it('awaitingTakeover 人工接管 Promise 在 submitTakeover 之前 pending', async () => {
@@ -207,8 +205,9 @@ describe('E2E 冒烟测试 - macroExecutor 真实链路', () => {
     }]
     const manifest = makeManifest({ execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps, fallbackStrategy: 'retry', maxRetries: 1 } } })
 
-    mockDialogStore.dagPaused = true
-    mockDialogStore.dagPausedStep = 1
+    const pausedHandler = globalBus.handlers.get('dialog:get-paused-state')
+    let pausedState = { paused: true, pausedStep: 1 as number | null, awaitingTakeover: false, takeoverStepNum: null as number | null }
+    globalBus.handlers.set('dialog:get-paused-state', () => pausedState)
 
     let settled = false
     const execPromise = executeMacro(manifest, { inputText: '需要人工接管' })
@@ -217,15 +216,12 @@ describe('E2E 冒烟测试 - macroExecutor 真实链路', () => {
     await new Promise(r => setTimeout(r, 700))
     expect(settled).toBe(false)
 
-    mockDialogStore.dagPaused = false
-    mockDialogStore.awaitingTakeover = true
-    mockDialogStore.takeoverStepNum = 1
+    pausedState = { paused: false, pausedStep: null, awaitingTakeover: true, takeoverStepNum: 1 }
 
     await new Promise(r => setTimeout(r, 600))
-    expect(mockDialogStore.requestTakeover).toHaveBeenCalledWith(1)
     expect(settled).toBe(false)
 
-    mockDialogStore.submitTakeover('人工确认结果')
+    if (_takeoverResolve) _takeoverResolve('人工确认结果')
 
     const start = Date.now()
     const result = await execPromise

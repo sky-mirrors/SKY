@@ -88,7 +88,7 @@ export function parseMarkdownAstWithRanges(markdown: string): MarkdownDocumentWi
   return { type: 'document', children }
 }
 
-export function parseMarkdownAst(markdown: string): MarkdownDocument {
+function parseMarkdownAst(markdown: string): MarkdownDocument {
   const lines = markdown.split('\n')
   const children: MarkdownNode[] = []
   let i = 0
@@ -201,7 +201,13 @@ function inlineFormat(text: string): string {
   result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   result = result.replace(/\*([^*]+)\*/g, '<em>$1</em>')
   result = result.replace(/`([^`]+)`/g, '<code>$1</code>')
-  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, linkText: string, href: string) => {
+    const safeHref = href.replace(/&amp;/g, '&')
+    if (/^javascript:/i.test(safeHref) || /^data:/i.test(safeHref) || /^vbscript:/i.test(safeHref)) {
+      return `<span class="unsafe-link">${linkText}</span>`
+    }
+    return `<a href="${href}" rel="noopener noreferrer" target="_blank">${linkText}</a>`
+  })
   return result
 }
 
@@ -228,7 +234,7 @@ a { color: #3498db; }
 </html>`
 }
 
-export function renderToDocxXml(markdown: string): string {
+function renderToDocxXml(markdown: string): string {
   const ast = parseMarkdownAst(markdown)
   const paragraphs: string[] = []
 
@@ -265,7 +271,7 @@ export function renderToDocxXml(markdown: string): string {
 </w:document>`
 }
 
-export function renderToPptxOutline(markdown: string): { title: string; slides: { title: string; bullets: string[] }[] } {
+function renderToPptxOutline(markdown: string): { title: string; slides: { title: string; bullets: string[] }[] } {
   const ast = parseMarkdownAst(markdown)
   const slides: { title: string; bullets: string[] }[] = []
   let currentSlide: { title: string; bullets: string[] } | null = null

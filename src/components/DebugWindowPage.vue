@@ -132,7 +132,7 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { useDebugStore } from '@/stores/debugStore'
+import { useDebugStore } from '@/domains/debug'
 import type { ProbeSource, ConsoleLogEntry, ConsoleCategory } from '@/models'
 
 const debugStore = useDebugStore()

@@ -138,10 +138,10 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
-import { useApiStore } from '@/stores/apiStore'
+import { useApiStore } from '@/domains/api'
 import { createBenchmarkRunner, type BenchmarkProgress } from '@/benchmark/benchmarkRunner'
 import { getTestCases } from '@/benchmark/testCases'
-import { debugLog } from '@/services/debugLog'
+import { debugLog } from '@/domains/debug'
 import type { BenchmarkStats } from '@/benchmark/statsTracker'
 
 const apiStore = useApiStore()

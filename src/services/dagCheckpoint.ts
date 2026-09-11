@@ -1,4 +1,5 @@
 import type { DagCheckpoint } from '@/models'
+import { vault } from '@/vault'
 
 const CHECKPOINT_STORE_KEY = 'dag-checkpoints'
 const MAX_CHECKPOINTS = 20
@@ -9,13 +10,8 @@ let cache: DagCheckpoint[] | null = null
 async function loadAll(): Promise<DagCheckpoint[]> {
   if (cache) return cache
   try {
-    if (window.electronAPI?.storeRead) {
-      const data = await window.electronAPI.storeRead(CHECKPOINT_STORE_KEY) as DagCheckpoint[] | null
-      cache = Array.isArray(data) ? data : []
-    } else {
-      const raw = localStorage.getItem(CHECKPOINT_STORE_KEY)
-      cache = raw ? JSON.parse(raw) : []
-    }
+    const raw = await vault.read('dag', CHECKPOINT_STORE_KEY)
+    cache = raw ? JSON.parse(raw) : []
   } catch {
     cache = []
   }
@@ -25,11 +21,7 @@ async function loadAll(): Promise<DagCheckpoint[]> {
 async function saveAll(checkpoints: DagCheckpoint[]): Promise<void> {
   cache = checkpoints
   try {
-    if (window.electronAPI?.storeWrite) {
-      await window.electronAPI.storeWrite(CHECKPOINT_STORE_KEY, checkpoints)
-    } else {
-      localStorage.setItem(CHECKPOINT_STORE_KEY, JSON.stringify(checkpoints))
-    }
+    await vault.write('dag', CHECKPOINT_STORE_KEY, JSON.stringify(checkpoints))
   } catch { /* non-critical */ }
 }
 

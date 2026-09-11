@@ -72,7 +72,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useDagEngine } from '@/composables/useDagEngine'
-import { usePipelineStore } from '@/stores/pipelineStore'
+import { usePipelineStore } from '@/domains/pipeline'
 import { DagNode, DagEdge, L2ToolManifest, L2DagStep, L2ToolIdentity, L2ToolVisual, L2ToolRouting, L2ToolExecution, L2ToolCacheMeta } from '@/models'
 import ToolSelector from '@/components/ToolSelector.vue'
 

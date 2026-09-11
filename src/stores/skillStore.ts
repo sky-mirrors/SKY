@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { Skill, SkillNode, SkillEdge, SkillCatalogItem } from '@/models'
 import { SKILL_CATALOG } from '@/data/skillCatalog'
+import { vault } from '@/vault'
 
 export const useSkillStore = defineStore('skills', () => {
   const installedSkills = ref<Skill[]>([])
@@ -99,14 +100,14 @@ export const useSkillStore = defineStore('skills', () => {
   }
 
   function saveToStorage() {
-    try { localStorage.setItem('holo-skills', JSON.stringify(installedSkills.value)) } catch { /* ignore */ }
+    vault.writeThrough('skill', 'holo-skills', JSON.stringify(installedSkills.value))
   }
 
   function loadFromStorage() {
-    try {
-      const saved = localStorage.getItem('holo-skills')
-      if (saved) installedSkills.value = JSON.parse(saved) as Skill[]
-    } catch { /* ignore */ }
+    const saved = vault.readCache('skill', 'holo-skills')
+    if (saved) {
+      try { installedSkills.value = JSON.parse(saved) as Skill[] } catch { /* ignore */ }
+    }
   }
 
   return {

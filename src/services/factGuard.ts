@@ -1,116 +1,19 @@
-export type FactEntityType = 'amount' | 'date' | 'percentage' | 'contract_id' | 'person_name'
+import type {
+  FactEntityType,
+  ExtractedEntity,
+  FactConflict,
+  FactGuardResult,
+  ConstraintResult,
+  ConstraintCheckContext
+} from '@/models'
+import { extractEntities } from './nerExtractor'
+import { runConstraints } from './domainConstraints'
+import { processConstraintResults } from './constraintFeedback'
+import { runCrossDocValidation } from './crossDocValidator'
 
-export interface ExtractedEntity {
-  type: FactEntityType
-  raw: string
-  normalized: string
-  linePos: number
-}
-
-export interface FactConflict {
-  type: FactEntityType
-  sourceRaw: string
-  outputRaw: string
-  sourceNormalized: string
-  outputNormalized: string
-  severity: 'critical' | 'minor'
-  diff: string
-}
-
-export interface FactGuardResult {
-  ok: boolean
-  conflicts: FactConflict[]
-  hallucinatedEntities: ExtractedEntity[]
-  severity: 'critical' | 'minor' | 'ok'
-  correctedOutput: string | null
-  summary: string
-}
+export type { FactEntityType, ExtractedEntity, FactConflict, FactGuardResult }
 
 const TRIGGER_ROLES = new Set(['finance', 'legal', 'hr'])
-
-const AMOUNT_REGEX = /(￥|¥|\$|USD\s?|CNY\s?)?\d{1,3}(,\d{3})+(\.\d{1,2})?(元|美元|万元|万|块)?|(￥|¥|\$|USD\s?|CNY\s?)?\d+(\.\d{1,2})?(元|美元|万元|万|块)/g
-const DATE_REGEX = /\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}|\d{4}年\d{1,2}月(\d{1,2}日?)?/g
-const PERCENTAGE_REGEX = /\d+(\.\d+)?%/g
-const CONTRACT_ID_REGEX = /[A-Za-z]{1,4}[-–—]?\d{4}[-–—]?\d{3,}/g
-const PERSON_NAME_REGEX = /[\u4e00-\u9fa5]{2,4}(总|经理|先生|女士|主任|总监|主管|工程师|老师)/g
-
-const PERSON_SUFFIXES = ['总', '经理', '先生', '女士', '主任', '总监', '主管', '工程师', '老师']
-
-function normalizeAmount(raw: string): string {
-  const cleaned = raw.replace(/[￥¥$USD\sCNY元美元万元万块,，]/g, '')
-  const num = parseFloat(cleaned)
-  if (isNaN(num)) return ''
-  return num.toFixed(2)
-}
-
-function normalizeDate(raw: string): string {
-  const cnMatch = raw.match(/(\d{4})年(\d{1,2})月(\d{1,2})/)
-  if (cnMatch) {
-    const y = cnMatch[1]
-    const m = cnMatch[2].padStart(2, '0')
-    const d = cnMatch[3] ? cnMatch[3].padStart(2, '0') : '01'
-    return `${y}-${m}-${d}`
-  }
-  const slashMatch = raw.match(/(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})/)
-  if (slashMatch) {
-    return `${slashMatch[1]}-${slashMatch[2].padStart(2, '0')}-${slashMatch[3].padStart(2, '0')}`
-  }
-  return raw
-}
-
-function normalizePercentage(raw: string): string {
-  return parseFloat(raw.replace('%', '')).toFixed(2)
-}
-
-function normalizePersonName(raw: string): string {
-  let name = raw
-  for (const suffix of PERSON_SUFFIXES) {
-    name = name.replace(suffix, '')
-  }
-  return name
-}
-
-export function extractEntities(text: string): ExtractedEntity[] {
-  const entities: ExtractedEntity[] = []
-
-  AMOUNT_REGEX.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = AMOUNT_REGEX.exec(text)) !== null) {
-    const raw = match[0]
-    const normalized = normalizeAmount(raw)
-    if (normalized) entities.push({ type: 'amount', raw, normalized, linePos: match.index })
-  }
-
-  DATE_REGEX.lastIndex = 0
-  while ((match = DATE_REGEX.exec(text)) !== null) {
-    const raw = match[0]
-    const normalized = normalizeDate(raw)
-    entities.push({ type: 'date', raw, normalized, linePos: match.index })
-  }
-
-  PERCENTAGE_REGEX.lastIndex = 0
-  while ((match = PERCENTAGE_REGEX.exec(text)) !== null) {
-    const raw = match[0]
-    const normalized = normalizePercentage(raw)
-    entities.push({ type: 'percentage', raw, normalized, linePos: match.index })
-  }
-
-  CONTRACT_ID_REGEX.lastIndex = 0
-  while ((match = CONTRACT_ID_REGEX.exec(text)) !== null) {
-    entities.push({ type: 'contract_id', raw: match[0], normalized: match[0].replace(/[–—]/g, '-'), linePos: match.index })
-  }
-
-  PERSON_NAME_REGEX.lastIndex = 0
-  while ((match = PERSON_NAME_REGEX.exec(text)) !== null) {
-    const raw = match[0]
-    const normalized = normalizePersonName(raw)
-    if (normalized.length >= 2) {
-      entities.push({ type: 'person_name', raw, normalized, linePos: match.index })
-    }
-  }
-
-  return entities
-}
 
 function compareAmounts(a: string, b: string): { match: boolean; diff: number } {
   const fa = parseFloat(a)
@@ -139,6 +42,8 @@ function comparePercentages(a: string, b: string): { match: boolean; diff: numbe
   return { match: diff < 0.1, diff }
 }
 
+export { extractEntities }
+
 export function shouldTrigger(manifestRoles: string[], contextText: string): boolean {
   const hasTriggerRole = manifestRoles.some(r => TRIGGER_ROLES.has(r))
   if (!hasTriggerRole) return false
@@ -146,7 +51,7 @@ export function shouldTrigger(manifestRoles: string[], contextText: string): boo
   return entities.length > 0
 }
 
-export function runFactGuard(
+function runFactGuard(
   groundTruthEntities: ExtractedEntity[],
   outputEntities: ExtractedEntity[],
   llmOutput: string
@@ -198,7 +103,7 @@ export function runFactGuard(
             severity = cmp.diff > 1 ? 'critical' : 'minor'
             diff = `百分比差异: ${src.raw} vs ${out.raw} (差${cmp.diff.toFixed(2)}%)`
           }
-        } else if (type === 'contract_id') {
+        } else if (type === 'contract_id' || type === 'id_card' || type === 'bank_account') {
           isMatch = src.normalized === out.normalized
           if (!isMatch) {
             severity = 'critical'
@@ -209,6 +114,18 @@ export function runFactGuard(
           if (!isMatch) {
             severity = 'minor'
             diff = `姓名差异: ${src.raw} vs ${out.raw}`
+          }
+        } else if (type === 'company_name') {
+          isMatch = src.normalized === out.normalized || src.normalized.includes(out.normalized) || out.normalized.includes(src.normalized)
+          if (!isMatch) {
+            severity = 'minor'
+            diff = `公司名称差异: ${src.raw} vs ${out.raw}`
+          }
+        } else if (type === 'law_article') {
+          isMatch = src.normalized === out.normalized
+          if (!isMatch) {
+            severity = 'critical'
+            diff = `法条引用差异: ${src.raw} vs ${out.raw}`
           }
         }
 
@@ -257,10 +174,73 @@ export function runFactGuard(
 
   const ok = severity === 'ok'
   const summary = ok
-    ? '✅ 事实一致性校验通过'
+    ? '事实一致性校验通过'
     : severity === 'critical'
-      ? `🔴 严重事实冲突: ${criticalConflicts.map(c => c.diff).join('；')}`
-      : `🟡 微小差异已自动修正: ${minorConflicts.map(c => c.diff).join('；')}`
+      ? `严重事实冲突: ${criticalConflicts.map(c => c.diff).join('；')}`
+      : `微小差异已自动修正: ${minorConflicts.map(c => c.diff).join('；')}`
 
   return { ok, conflicts, hallucinatedEntities, severity, correctedOutput, summary }
+}
+
+export interface FactGuardV2Result extends FactGuardResult {
+  layer1Entities: ExtractedEntity[]
+  layer2ConstraintResults: ConstraintResult[]
+  layer3CrossDocResults: ConstraintResult[]
+  allConstraintResults: ConstraintResult[]
+}
+
+export function runFactGuardV2(
+  groundTruthEntities: ExtractedEntity[],
+  outputEntities: ExtractedEntity[],
+  llmOutput: string,
+  documents?: { docId: string; text: string }[]
+): FactGuardV2Result {
+  const layer1Result = runFactGuard(groundTruthEntities, outputEntities, llmOutput)
+
+  const constraintCtx: ConstraintCheckContext = {
+    entities: groundTruthEntities,
+    sourceText: llmOutput,
+    outputText: llmOutput,
+    stepResults: {},
+    manifestRoles: []
+  }
+  const layer2Results = runConstraints(constraintCtx)
+  processConstraintResults(layer2Results)
+
+  let layer3Results: ConstraintResult[] = []
+  if (documents && documents.length > 1) {
+    layer3Results = runCrossDocValidation(documents)
+    processConstraintResults(layer3Results)
+  }
+
+  const allConstraintResults = [...layer2Results, ...layer3Results]
+  const fullLevelResults = allConstraintResults.filter(r => !r.automationLevel || r.automationLevel === 'full')
+  const constraintErrors = fullLevelResults.filter(r => r.triggered && r.severity === 'error')
+  const constraintWarnings = fullLevelResults.filter(r => r.triggered && r.severity === 'warning')
+
+  let finalSeverity: 'critical' | 'minor' | 'ok' = layer1Result.severity
+  if (constraintErrors.length > 0) {
+    finalSeverity = 'critical'
+  } else if (constraintWarnings.length > 0 && finalSeverity === 'ok') {
+    finalSeverity = 'minor'
+  }
+
+  let finalSummary = layer1Result.summary
+  if (constraintErrors.length > 0) {
+    finalSummary += `；领域约束违规: ${constraintErrors.map(r => r.message).join('；')}`
+  }
+  if (constraintWarnings.length > 0) {
+    finalSummary += `；领域约束警告: ${constraintWarnings.map(r => r.message).join('；')}`
+  }
+
+  return {
+    ...layer1Result,
+    ok: finalSeverity === 'ok',
+    severity: finalSeverity,
+    summary: finalSummary,
+    layer1Entities: groundTruthEntities,
+    layer2ConstraintResults: layer2Results,
+    layer3CrossDocResults: layer3Results,
+    allConstraintResults: allConstraintResults
+  }
 }

@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { Pipeline, PipelineStep, DagNode, DagEdge } from '@/models'
+import { globalBus } from '@/kernel/bus'
+import { vault } from '@/vault'
 
 type ExecuteFn = (pipeline: Pipeline, onProgress?: (stepId: string, msg: string) => void) => Promise<Record<string, string>>
 
@@ -47,7 +49,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     saveToStorage()
   }
 
-  function startPipeline(id: string, onProgress?: (stepId: string, msg: string) => void): Promise<Record<string, string>> | undefined {
+  async function startPipeline(id: string, onProgress?: (stepId: string, msg: string) => void): Promise<Record<string, string>> | undefined {
     if (runningPipelineId.value) return undefined
     const pipeline = pipelines.value.find(p => p.id === id)
     if (!pipeline) return
@@ -59,19 +61,18 @@ export const usePipelineStore = defineStore('pipeline', () => {
     lastError.value = null
 
     if (executeFn) {
-      return executeFn(pipeline, onProgress)
-        .then(results => {
-          lastResults.value = results
-          runningPipelineId.value = null
-          currentStepIndex.value = 0
-          return results
-        })
-        .catch(err => {
-          lastError.value = String(err)
-          runningPipelineId.value = null
-          currentStepIndex.value = 0
-          throw err
-        })
+      try {
+        const results = await executeFn(pipeline, onProgress)
+        lastResults.value = results
+        runningPipelineId.value = null
+        currentStepIndex.value = 0
+        return results
+      } catch (err) {
+        lastError.value = String(err)
+        runningPipelineId.value = null
+        currentStepIndex.value = 0
+        throw err
+      }
     }
   }
 
@@ -85,16 +86,14 @@ export const usePipelineStore = defineStore('pipeline', () => {
   }
 
   function loadFromStorage() {
-    try {
-      const saved = localStorage.getItem('holo-pipelines')
-      if (saved) {
-        pipelines.value = migratePipelines(JSON.parse(saved) as Pipeline[])
-      }
-    } catch { /* ignore */ }
+    const saved = vault.readCache('pipeline', 'holo-pipelines')
+    if (saved) {
+      try { pipelines.value = migratePipelines(JSON.parse(saved) as Pipeline[]) } catch { /* ignore */ }
+    }
   }
 
   function saveToStorage() {
-    localStorage.setItem('holo-pipelines', JSON.stringify(pipelines.value))
+    vault.writeThrough('pipeline', 'holo-pipelines', JSON.stringify(pipelines.value))
   }
 
   function bindSession(pipelineId: string, sessionId: string): void {
@@ -110,9 +109,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
   async function createPipelineKB(pipelineId: string, name: string): Promise<void> {
     const p = pipelines.value.find(p => p.id === pipelineId)
     if (!p) return
-    const { useKnowledgeStore } = await import('@/stores/knowledgeStore')
-    const knowledgeStore = useKnowledgeStore()
-    const group = knowledgeStore.createGroup(name || `${p.name} 知识库`)
+    const group = globalBus.request<{ id: string }>('knowledge:create-group', { name: name || `${p.name} 知识库` })
     p.knowledgeGroupId = group.id
     saveToStorage()
   }

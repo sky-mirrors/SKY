@@ -71,13 +71,7 @@ export function startMcpProcess(
       })
       if (!hasDir) {
         const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
-        const dirs = [join(home, 'Desktop'), join(home, 'Documents'), home]
-        for (const drive of ['D:\\', 'E:\\']) {
-          try {
-            if (existsSync(drive)) dirs.push(drive)
-          } catch { /* ignore */ }
-        }
-        finalArgs.push(...dirs)
+        finalArgs.push(join(home, 'Desktop'), join(home, 'Documents'), home)
       }
     }
 
@@ -91,7 +85,7 @@ export function startMcpProcess(
     const child = spawn(finalCommand, finalArgs, {
       env: procEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: isWindows
+      shell: false
     })
 
     const entry: McpProcessEntry = {

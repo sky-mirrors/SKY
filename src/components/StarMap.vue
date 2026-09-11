@@ -5,8 +5,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useThreeScene } from '@/composables/useThreeScene'
-import { useNodeStore } from '@/stores/nodeStore'
-import { useConfigStore } from '@/stores/configStore'
+import { useNodeStore } from '@/domains/node'
+import { useConfigStore } from '@/domains/config'
 
 const props = defineProps<{
   panelWidth?: number

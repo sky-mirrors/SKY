@@ -6,15 +6,14 @@ import {
   getTop3Candidates,
   segmentChinese,
   generateNGrams,
-  contentHash,
   manifestFingerprint,
   extractKeywordsFromDescription,
   llmFallback,
-  rewriteQuery,
   isOnline,
   getRouteCacheStats,
   clearRouteCache
 } from '@/services/toolRetrieval'
+import { contentHash } from '@/services/hash'
 import type { MatchableItem } from '@/services/toolRetrieval'
 import { cosineSimilarity } from '@/services/embedder'
 import type { L2ToolManifest } from '@/models'
@@ -446,58 +445,6 @@ describe('llmFallback', () => {
     const mockChat = vi.fn(() => Promise.reject(new Error('API error')))
     const result = await llmFallback('测试', candidates, mockChat)
     expect(result).toBeNull()
-  })
-})
-
-describe('rewriteQuery', () => {
-  it('短输入不触发改写', async () => {
-    const mockChat = vi.fn()
-    const result = await rewriteQuery('帮我', mockChat)
-    expect(result).toBe('帮我')
-    expect(mockChat).not.toHaveBeenCalled()
-  })
-
-  it('纯英文短命令不触发改写', async () => {
-    const mockChat = vi.fn()
-    const result = await rewriteQuery('read_file', mockChat)
-    expect(result).toBe('read_file')
-    expect(mockChat).not.toHaveBeenCalled()
-  })
-
-  it('LLM改写成功', async () => {
-    const mockChat = vi.fn(() => Promise.resolve({ content: '生成周报文档' }))
-    const result = await rewriteQuery('帮我搞一下那个周报的东西', mockChat)
-    expect(result).toBe('生成周报文档')
-    expect(mockChat).toHaveBeenCalledTimes(1)
-  })
-
-  it('LLM返回过长结果使用原始输入', async () => {
-    const longResult = 'a'.repeat(120)
-    const mockChat = vi.fn(() => Promise.resolve({ content: longResult }))
-    const result = await rewriteQuery('帮我生成报告', mockChat)
-    expect(result).toBe('帮我生成报告')
-  })
-
-  it('LLM返回多行结果使用原始输入', async () => {
-    const mockChat = vi.fn(() => Promise.resolve({ content: '生成报告\n第二步' }))
-    const result = await rewriteQuery('帮我生成报告', mockChat)
-    expect(result).toBe('帮我生成报告')
-  })
-
-  it('LLM调用失败返回原始输入', async () => {
-    const mockChat = vi.fn(() => Promise.reject(new Error('API error')))
-    const result = await rewriteQuery('帮我生成报告', mockChat)
-    expect(result).toBe('帮我生成报告')
-  })
-
-  it('离线模式跳过改写', async () => {
-    const originalOnLine = navigator.onLine
-    Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
-    const mockChat = vi.fn()
-    const result = await rewriteQuery('帮我搞一下那个周报的东西', mockChat)
-    expect(result).toBe('帮我搞一下那个周报的东西')
-    expect(mockChat).not.toHaveBeenCalled()
-    Object.defineProperty(navigator, 'onLine', { value: originalOnLine, configurable: true })
   })
 })
 

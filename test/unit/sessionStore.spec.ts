@@ -2,20 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useSessionStore } from '@/stores/sessionStore'
 import type { DialogMessage } from '@/models'
-
-const localStorageMock = (() => {
-  let store: Record<string, string> = {}
-  return {
-    getItem: (key: string) => store[key] ?? null,
-    setItem: (key: string, value: string) => { store[key] = value },
-    removeItem: (key: string) => { delete store[key] },
-    clear: () => { store = {} },
-    get length() { return Object.keys(store).length },
-    key: (i: number) => Object.keys(store)[i] ?? null
-  }
-})()
-
-Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true })
+import { vault } from '@/vault'
 
 function makeMessage(role: 'user' | 'assistant' | 'system', content: string): DialogMessage {
   return {
@@ -29,8 +16,20 @@ function makeMessage(role: 'user' | 'assistant' | 'system', content: string): Di
 
 describe('sessionStore', () => {
   beforeEach(() => {
-    localStorageMock.clear()
+    vault.clearCache()
+    vi.stubGlobal('window', {
+      electronAPI: {
+        vaultRead: vi.fn().mockResolvedValue(null),
+        vaultWrite: vi.fn().mockResolvedValue(undefined),
+        vaultDelete: vi.fn().mockResolvedValue(undefined),
+        vaultList: vi.fn().mockResolvedValue([]),
+      }
+    })
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('initOrLoad创建默认会话', () => {

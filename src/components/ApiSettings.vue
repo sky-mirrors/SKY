@@ -94,7 +94,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useApiStore } from '@/stores/apiStore'
+import { useApiStore } from '@/domains/api'
 import { ProviderConfig } from '@/models'
 
 const apiStore = useApiStore()

@@ -72,6 +72,20 @@ interface ElectronAPI {
     chatFormat?: string
     error?: string
   }>
+  llmChatCompletionStream: (
+    opts: {
+      providerId: string
+      model: string
+      messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
+      tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+      maxTokens?: number
+    },
+    callbacks: {
+      onChunk: (chunk: { content: string; delta: string; done: boolean }) => void
+      onDone: (final: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }) => void
+      onError: (err: string) => void
+    }
+  ) => () => void
   llmListModels: (opts: { providerId: string }) => Promise<{
     success: boolean
     models?: Array<{ id: string; name: string; providerId?: string }>
@@ -82,7 +96,12 @@ interface ElectronAPI {
   knowledgeListEntries: () => Promise<{ success: boolean; entries?: unknown[]; error?: string }>
   resolvePath: (template: string) => Promise<string>
   openFilePath: (filePath: string) => Promise<{ success: boolean; error?: string }>
+  dataExportZip: (opts: { data: string; defaultName: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>
+  dataImportZip: () => Promise<{ success: boolean; content?: string; filePath?: string; error?: string }>
+  getUserDataPath: () => Promise<string>
   openDebugWindow: () => void
+  openBenchmarkWindow: () => void
+  openRuleReviewWindow: () => void
   debugWindowMinimize: () => void
   debugWindowMaximize: () => void
   debugWindowClose: () => void

@@ -1,8 +1,7 @@
 import { L2ToolManifest, L2DagStep, ProbeSnapshot, ProbeSource, DagCheckpoint } from '@/models'
-import { useApiStore } from '@/stores/apiStore'
-import { useMcpStore } from '@/stores/mcpStore'
-import { useDebugStore } from '@/stores/debugStore'
-import { extractEntities, shouldTrigger, runFactGuard, type FactGuardResult } from './factGuard'
+import { globalBus } from '@/kernel/bus'
+import { extractEntities, shouldTrigger, runFactGuardV2, type FactGuardV2Result } from './factGuard'
+import { route as smartRoute, getHistoricalTokenAvg } from '@/services/smartRouter'
 import {
   compilePrompt,
   fillCompiledPrompt,
@@ -51,15 +50,14 @@ function probeStep(
   extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>
 ) {
   try {
-    const debugStore = useDebugStore()
-    const stepCost = debugStore.stepCosts[stepNum]
+    const stepCost = globalBus.request<{ promptTokens: number; completionTokens: number; estimatedCostCny: number } | undefined>('debug:get-step-cost', { stepNum })
     const tokenUsage = stepCost ? {
       promptTokens: stepCost.promptTokens,
       completionTokens: stepCost.completionTokens,
       totalTokens: stepCost.promptTokens + stepCost.completionTokens,
       estimatedCostCny: stepCost.estimatedCostCny
     } : undefined
-    debugStore.recordProbe({
+    globalBus.emit('debug:log-probe', {
       id: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       stepNum,
       manifestId,
@@ -98,7 +96,6 @@ function getCompiledPrompt(template: string) {
 }
 
 export async function callToolDirectWithTier(
-  mcpStore: ReturnType<typeof useMcpStore>,
   fullName: string,
   args: Record<string, unknown>,
   modelTier?: string,
@@ -180,12 +177,10 @@ export async function callToolDirectWithTier(
     })
     if (result.success) {
       const cmd = String(args.command || '')
-      try {
-        const { useDebugStore } = await import('@/stores/debugStore')
-        const ds = useDebugStore()
-        ds.emitEvent('info', 'shell', `[shell_exec] 成功 exit=0 | stdout=${(result.stdout || '').substring(0, 200)}`, result.stdout)
-        if (result.stderr) ds.emitEvent('warn', 'shell', `[shell_exec] stderr: ${result.stderr.substring(0, 200)}`, result.stderr)
-      } catch { /* ignore */ }
+        try {
+          globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[shell_exec] 成功 exit=0 | stdout=${(result.stdout || '').substring(0, 200)}`, data: result.stdout })
+          if (result.stderr) globalBus.emit('debug:log-event', { level: 'warn', tag: 'shell', message: `[shell_exec] stderr: ${result.stderr.substring(0, 200)}`, data: result.stderr })
+        } catch { /* ignore */ }
       const desktopFileMatch = cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\\\([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\/([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\([^'"]+)/)
       if (desktopFileMatch) {
         const expectedFileName = desktopFileMatch[1].replace(/['"]/g, '')
@@ -210,8 +205,7 @@ export async function callToolDirectWithTier(
       return result.stdout || '(命令执行成功，无输出)'
     }
     try {
-      const { useDebugStore } = await import('@/stores/debugStore')
-      useDebugStore().emitEvent('error', 'shell', `[shell_exec] 失败 exit=${result.code}`, result.stderr)
+      globalBus.emit('debug:log-event', { level: 'error', tag: 'shell', message: `[shell_exec] 失败 exit=${result.code}`, data: result.stderr })
     } catch { /* ignore */ }
     return `命令执行失败(exit code ${result.code}): ${result.stderr || result.stdout || '未知错误'}`
   }
@@ -246,11 +240,22 @@ export async function callToolDirectWithTier(
   }
 
   if (fullName === 'llm_generate') {
-    const apiStore = useApiStore()
     const prompt = String(args.prompt || args.input || '')
     if (!prompt) throw new Error('llm_generate: missing prompt')
 
-    const tier = modelTier || 'standard'
+    let tier: string
+    if (!modelTier) {
+      const routingDecision = smartRoute({
+        text: prompt,
+        taskType: 'llm_generate',
+        callerId: 'macro:direct',
+        historicalTokenAvg: getHistoricalTokenAvg('llm_generate')
+      })
+      tier = routingDecision.tier
+      debugLog(`[macroExecutor] smartRouter tier=${tier} for prompt (len=${prompt.length})`)
+    } else {
+      tier = modelTier
+    }
     const tierConfig = getTierConfig(tier)
     const maxTokens = Number(args.maxTokens) || tierConfig.maxTokens
     const stepTimeout = timeoutMs || STEP_TIMEOUT_MS[tier] || 30000
@@ -274,13 +279,13 @@ export async function callToolDirectWithTier(
       }
 
       try {
-        const resp = await apiStore.chatCompletion(
-          [{ role: 'user', content: prompt }],
-          true,
-          undefined,
-          Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
-          controller.signal
-        )
+        const resp = await globalBus.requestAsync<{ content: string }>('llm:chat-completion', {
+          messages: [{ role: 'user', content: prompt }],
+          stream: true,
+          maxTokens: Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
+          signal: controller.signal,
+          meta: { taskType: 'llm_generate', callerId: `macro:${currentTier}` }
+        })
         clearTimeout(timeoutId)
         return resp.content || '(LLM无输出)'
       } catch (err) {
@@ -317,12 +322,13 @@ export async function callToolDirectWithTier(
   if (sepIdx < 0) throw new Error(`无效工具名: ${fullName}`)
   const mcpIdRaw = fullName.substring(0, sepIdx)
   const toolName = fullName.substring(sepIdx + 3)
-  const conn = mcpStore.connections.find(c => {
+  const connections = globalBus.request<{ id: string }[]>('mcp:get-connections', {})
+  const conn = connections.find(c => {
     const safeId = c.id.replace(/[^a-zA-Z0-9_-]/g, '_')
     return safeId === mcpIdRaw
   })
   if (!conn) throw new Error(`MCP连接未找到: ${mcpIdRaw}`)
-  const result = await mcpStore.callTool(conn.id, toolName, args)
+  const result = await globalBus.requestAsync<string>('mcp:call-tool', { mcpId: conn.id, toolName, args })
   return result
 }
 
@@ -431,7 +437,6 @@ export async function executeStep(
   manifest: L2ToolManifest,
   userInput: { filePath?: string; inputText?: string; context?: string },
   stepResults: Record<number, string>,
-  mcpStore: ReturnType<typeof useMcpStore>,
   onStepStart?: (stepNum: number, tool: string) => void,
   onStepDone?: (stepNum: number, result: string) => void,
   onStepFailed?: (stepNum: number, error: string) => void,
@@ -442,10 +447,7 @@ export async function executeStep(
   onStepStart?.(step.step, step.tool)
 
   try {
-    const { useDebugStore } = await import('@/stores/debugStore')
-    const ds = useDebugStore()
-    ds.emitEvent('info', step.tool === 'shell_exec' ? 'shell' : step.tool === 'llm_generate' ? 'llm' : 'tool',
-      `[executeStep] S${step.step} ${step.tool} | 依赖=${(step.depends_on || []).join(',')} | 参数=${JSON.stringify(resolvedArgs).substring(0, 200)}`)
+    globalBus.emit('debug:log-event', { level: 'info', tag: step.tool === 'shell_exec' ? 'shell' : step.tool === 'llm_generate' ? 'llm' : 'tool', message: `[executeStep] S${step.step} ${step.tool} | 依赖=${(step.depends_on || []).join(',')} | 参数=${JSON.stringify(resolvedArgs).substring(0, 200)}` })
   } catch { /* ignore */ }
 
   if (macroSignal?.aborted) {
@@ -474,12 +476,12 @@ export async function executeStep(
       groundTruthEntities = extractEntities(contextText.substring(0, 5000))
     }
 
-    if (step.tool === 'shell_exec') {
+    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'read_file') {
       const { shouldValidate, buildActionManifest, dualEngineValidate } = await import('./dualEngineValidator')
       if (shouldValidate(step, manifest.identity.id)) {
         const actionManifest = buildActionManifest(manifest.identity.id, step, userInput.inputText || '')
         const validation = await dualEngineValidate(actionManifest, userInput.inputText || '')
-        try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('info', 'factguard', `[双引擎审核] S${step.step} | intent=${validation.intent_match} | param=${validation.parameter_sane} | risk=${validation.risk_level}${validation.reason ? ' | ' + validation.reason : ''}`) } catch { /* ignore */ }
+        try { globalBus.emit('debug:log-event', { level: 'info', tag: 'factguard', message: `[双引擎审核] S${step.step} | intent=${validation.intent_match} | param=${validation.parameter_sane} | risk=${validation.risk_level}${validation.reason ? ' | ' + validation.reason : ''}` }) } catch { /* ignore */ }
 
         if (!validation.intent_match) {
           const msg = `双引擎审核: 意图偏离 — ${validation.reason || '动作不匹配用户意图'}`
@@ -493,9 +495,7 @@ export async function executeStep(
         }
         if (validation.risk_level === 'high') {
           try {
-            const { useDialogStore } = await import('@/stores/dialogStore')
-            const dialogStore = useDialogStore()
-            const approved = await dialogStore.requestRiskConfirm(actionManifest)
+            const approved = await globalBus.requestAsync<boolean>('dialog:confirm-risk', { actionManifest })
             if (!approved) {
               throw new Error('用户拒绝高风险操作')
             }
@@ -506,7 +506,7 @@ export async function executeStep(
       }
     }
 
-    let result = await callToolDirectWithTier(mcpStore, step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+    let result = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
 
     if (step.tool === 'shell_exec') {
       const cmd = String(resolvedArgs.command || '')
@@ -522,20 +522,30 @@ export async function executeStep(
 
     if (step.tool === 'llm_generate' && groundTruthEntities.length > 0) {
       const outputEntities = extractEntities(result.substring(0, 5000))
-      const factResult = runFactGuard(groundTruthEntities, outputEntities, result)
-      debugLog(`[FactGuard] step${step.step}: ${factResult.summary}`)
+      const factResult = runFactGuardV2(groundTruthEntities, outputEntities, result)
+      debugLog(`[FactGuardV2] step${step.step}: ${factResult.summary}`)
+
+      const semiAssistResults = factResult.allConstraintResults.filter(
+        r => r.triggered && r.automationLevel === 'semi'
+      )
+      for (const cr of semiAssistResults) {
+        debugLog(`[FactGuardV2] step${step.step}: [${cr.automationLevel}] ${cr.message}${cr.humanJudgmentPrompt ? ' → ' + cr.humanJudgmentPrompt : ''}`)
+      }
+
       if (factResult.severity === 'critical') {
         const errDetail = factResult.conflicts.filter(c => c.severity === 'critical').map(c => c.diff).join('；')
-        probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${errDetail}`, resolvedArgs, result, Date.now() - stepStartTime)
-        throw new Error(`FactGuard: ${errDetail}`)
+        const constraintErrors = factResult.allConstraintResults.filter(r => r.triggered && r.severity === 'error' && (!r.automationLevel || r.automationLevel === 'full')).map(r => r.message).join('；')
+        const fullError = [errDetail, constraintErrors].filter(Boolean).join('；')
+        probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${fullError}`, resolvedArgs, result, Date.now() - stepStartTime)
+        throw new Error(`FactGuard: ${fullError}`)
       }
       if (factResult.severity === 'minor' && factResult.correctedOutput) {
         result = factResult.correctedOutput
-        debugLog(`[FactGuard] step${step.step}: 微小差异已自动修正`)
+        debugLog(`[FactGuardV2] step${step.step}: 微小差异已自动修正`)
       }
       if (factResult.hallucinatedEntities.length > 0) {
         const halluList = factResult.hallucinatedEntities.map(e => `${e.type}:${e.raw}`).join(', ')
-        console.warn(`[FactGuard] step${step.step}: 疑似幻觉实体: ${halluList}`)
+        debugLog(`[FactGuardV2] step${step.step}: 疑似幻觉实体: ${halluList}`)
       }
     }
 
@@ -559,7 +569,7 @@ export async function executeStep(
     try {
       const { classifyError } = await import('./errorClassifier')
       const classification = await classifyError(errMsg, step.tool, step.description || '')
-      try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('warn', 'schedule', `[错误分类] S${step.step} ${step.tool}: ${classification.category} → ${classification.action}${classification.fixHint ? ' | ' + classification.fixHint : ''}`) } catch { /* ignore */ }
+      try { globalBus.emit('debug:log-event', { level: 'warn', tag: 'schedule', message: `[错误分类] S${step.step} ${step.tool}: ${classification.category} → ${classification.action}${classification.fixHint ? ' | ' + classification.fixHint : ''}` }) } catch { /* ignore */ }
 
       if (classification.action === 'abort') {
         onStepFailed?.(step.step, `${errMsg} [${classification.category}] ${classification.fixHint || ''}`)
@@ -573,7 +583,7 @@ export async function executeStep(
           if (installMatch) {
             const mod = installMatch[1]
             if (!/^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(mod)) {
-              try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('warn', 'shell', `[安全拒绝] npm包名不合法: ${mod}`) } catch { /* ignore */ }
+              try { globalBus.emit('debug:log-event', { level: 'warn', tag: 'shell', message: `[安全拒绝] npm包名不合法: ${mod}` }) } catch { /* ignore */ }
             } else {
               try {
                 const installResult = await window.electronAPI?.shellExec({
@@ -581,8 +591,8 @@ export async function executeStep(
                   timeout: 30000
                 })
                 if (installResult?.success) {
-                  try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('info', 'shell', `[自动修复] 已安装缺失模块: ${mod}`) } catch { /* ignore */ }
-                  const retryResult = await callToolDirectWithTier(mcpStore, step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
+                  try { globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[自动修复] 已安装缺失模块: ${mod}` }) } catch { /* ignore */ }
+                  const retryResult = await callToolDirectWithTier(step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
                   onStepDone?.(step.step, retryResult)
                   return { done: true, result: retryResult, fromCache: false }
                 }
@@ -594,7 +604,7 @@ export async function executeStep(
 
       if (classification.action === 'retry' && !step.fallback) {
         try {
-          const retryResult = await callToolDirectWithTier(mcpStore, step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+          const retryResult = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
           onStepDone?.(step.step, retryResult)
           return { done: true, result: retryResult, fromCache: false }
         } catch (retryErr) {
@@ -607,7 +617,7 @@ export async function executeStep(
     if (step.fallback) {
       try {
         const fbTier = step.modelTier || 'mini'
-        const fbResult = await callToolDirectWithTier(mcpStore, step.fallback, resolvedArgs, fbTier, undefined, macroSignal, stepResults, userInput)
+        const fbResult = await callToolDirectWithTier(step.fallback, resolvedArgs, fbTier, undefined, macroSignal, stepResults, userInput)
         onStepDone?.(step.step, fbResult)
         return { done: true, result: fbResult, fromCache: false, usedFallback: true }
       } catch (fbErr) {
@@ -702,16 +712,13 @@ export async function executeMacro(
   replayPriorResults?: Record<number, string>
 ): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage }> {
   const { execution } = manifest
-  const mcpStore = useMcpStore()
   let savedTokens = 0
   const macroController = new AbortController()
-  const debugStore = useDebugStore()
-  debugStore.registerAbortController(macroController)
+  globalBus.emit('debug:register-abort', macroController)
   const macroSignal = macroController.signal
   const lineage: MacroLineage = []
 
   if (execution.mode === 'direct' && execution.directCall) {
-    const apiStore = useApiStore()
     const compiled = getCompiledPrompt(execution.directCall.promptTemplate)
     const variables: Record<string, string> = {
       input: userInput.inputText || '',
@@ -726,13 +733,13 @@ export async function executeMacro(
       variables[slot.name.replace(/[{}]/g, '')] = value
     }
     const prompt = fillCompiledPrompt(compiled, variables)
-    const resp = await apiStore.chatCompletion(
-      [{ role: 'user', content: prompt }],
-      true,
-      undefined,
-      execution.directCall.maxTokens,
-      macroController.signal
-    )
+    const resp = await globalBus.requestAsync<{ content: string }>('llm:chat-completion', {
+      messages: [{ role: 'user', content: prompt }],
+      stream: true,
+      maxTokens: execution.directCall.maxTokens,
+      signal: macroController.signal,
+      meta: { taskType: 'raap', callerId: 'macro_directCall' }
+    })
     return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }] }
   }
 
@@ -745,13 +752,13 @@ export async function executeMacro(
 
   const dataflowReport = simulateDataFlow(steps)
   if (!dataflowReport.ok) {
-    console.warn(`[MacroExecutor] 数据流预检失败: ${dataflowReport.summary}`)
+    debugLog(`[MacroExecutor] 数据流预检失败: ${dataflowReport.summary}`)
     const issueList = dataflowReport.issues.filter(i => i.severity === 'error').map(i => i.description).join('；')
     throw new Error(`DAG数据流预检失败：${issueList}`)
   }
   if (dataflowReport.issues.length > 0) {
     const warnList = dataflowReport.issues.map(i => i.description).join('；')
-    console.warn(`[MacroExecutor] 数据流警告: ${warnList}`)
+    debugLog(`[MacroExecutor] 数据流警告: ${warnList}`)
   }
 
   const executionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
@@ -766,14 +773,13 @@ export async function executeMacro(
   const autoCompiled = isManifestAutoCompiled(manifest.identity.id)
 
   try {
-    const debugStore = (await import('@/stores/debugStore')).useDebugStore()
-    debugStore.emitEvent('info', 'schedule', `[macroExec] 开始执行 ${manifest.identity.id} | 输入指纹=${inputFingerprint.substring(0, 16)} | 缓存=${!!cached} | 自编译=${autoCompiled}`)
+    globalBus.emit('debug:log-event', { level: 'info', tag: 'schedule', message: `[macroExec] 开始执行 ${manifest.identity.id} | 输入指纹=${inputFingerprint.substring(0, 16)} | 缓存=${!!cached} | 自编译=${autoCompiled}` })
   } catch { /* ignore */ }
 
   const sideEffectCb = (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => {
     sideEffects.push({ stepNum, tool, operation, filePath, originalExisted: operation !== 'create', timestamp: Date.now() })
     try {
-      useDebugStore().emitEvent('info', 'shell', `[副作用] S${stepNum} ${tool} ${operation} → ${filePath}`)
+      globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[副作用] S${stepNum} ${tool} ${operation} → ${filePath}` })
     } catch { /* ignore */ }
   }
 
@@ -802,7 +808,7 @@ export async function executeMacro(
             savedTokens += 2000
             lineage.push({ step: step.step, source: 'auto_compiled', tool: step.tool })
           } else {
-            const { done, result } = await executeStep(step, manifest, userInput, finalResults, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+            const { done, result } = await executeStep(step, manifest, userInput, finalResults, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
             if (done && result) finalResults[step.step] = result
             lineage.push({ step: step.step, source: tierToLineage(step.modelTier), tool: step.tool, tier: step.modelTier })
           }
@@ -815,7 +821,7 @@ export async function executeMacro(
           onStepReuse?.(step.step)
           lineage.push({ step: step.step, source: 'cache_reuse', tool: step.tool })
         } else {
-          const { done, result } = await executeStep(step, manifest, userInput, finalResults, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+          const { done, result } = await executeStep(step, manifest, userInput, finalResults, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
           if (done && result) finalResults[step.step] = result
           lineage.push({ step: step.step, source: 'tool_call', tool: step.tool })
         }
@@ -826,8 +832,7 @@ export async function executeMacro(
     saveExecutionFingerprint(manifest.identity.id, inputFingerprint, {}, finalResults, true, sideEffectStepNums)
     if (sideEffects.length > 0) {
       try {
-        const { useFeedbackStore } = await import('@/stores/feedbackStore')
-        useFeedbackStore().addSideEffectManifest({ executionId, manifestId: manifest.identity.id, userInput: userInput.inputText || '', queryFingerprint, sideEffects, timestamp: Date.now() })
+        globalBus.emit('feedback:add-side-effect', { executionId, manifestId: manifest.identity.id, userInput: userInput.inputText || '', queryFingerprint, sideEffects, timestamp: Date.now() })
       } catch { /* ignore */ }
     }
     const lastStep = steps[steps.length - 1]
@@ -928,15 +933,21 @@ export async function executeMacro(
       const step = readySteps[0]
 
       try {
-        const { useDialogStore } = await import('@/stores/dialogStore')
-        const ds = useDialogStore()
-        if (ds.dagPaused && ds.dagPausedStep === step.step) {
-          ds.addSystemNotice(`⏸️ 步骤${step.step}(${step.tool})已暂停，等待操作...`)
-          while (ds.dagPaused && !macroController.signal.aborted) {
-            await new Promise(r => setTimeout(r, 500))
-          }
-          if (ds.awaitingTakeover && ds.takeoverStepNum === step.step) {
-            const takeoverResult = await ds.requestTakeover(step.step)
+        const pausedState = globalBus.request<{ paused: boolean; pausedStep: number | null; awaitingTakeover: boolean; takeoverStepNum: number | null }>('dialog:get-paused-state', {})
+        if (pausedState.paused && pausedState.pausedStep === step.step) {
+          globalBus.emit('dialog:add-notice', { message: `⏸️ 步骤${step.step}(${step.tool})已暂停，等待操作...` })
+          const pollPaused = () => new Promise<boolean>(resolve => {
+            const check = () => {
+              const s = globalBus.request<{ paused: boolean }>('dialog:get-paused-state', {})
+              if (!s.paused || macroController.signal.aborted) resolve(false)
+              else setTimeout(check, 500)
+            }
+            check()
+          })
+          await pollPaused()
+          const finalState = globalBus.request<{ awaitingTakeover: boolean; takeoverStepNum: number | null }>('dialog:get-paused-state', {})
+          if (finalState.awaitingTakeover && finalState.takeoverStepNum === step.step) {
+            const takeoverResult = await globalBus.requestAsync<string | null>('dialog:request-takeover', { stepNum: step.step })
             if (takeoverResult) {
               stepDone.set(step.step, true)
               results[step.step] = takeoverResult
@@ -947,7 +958,7 @@ export async function executeMacro(
         }
       } catch { /* ignore */ }
 
-      const execResult = await executeStep(step, manifest, userInput, results, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
       if (execResult.done && execResult.result) {
         stepDone.set(step.step, true)
         results[step.step] = execResult.result
@@ -964,7 +975,7 @@ export async function executeMacro(
     } else {
       const execResults = await Promise.all(
         readySteps.map(async (step) => {
-      const execResult = await executeStep(step, manifest, userInput, results, mcpStore, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
           return { step, execResult }
         })
       )
@@ -1009,9 +1020,7 @@ export async function executeMacro(
 
   if (sideEffects.length > 0) {
     try {
-      const { useFeedbackStore } = await import('@/stores/feedbackStore')
-      const feedbackStore = useFeedbackStore()
-      feedbackStore.addSideEffectManifest({
+      globalBus.emit('feedback:add-side-effect', {
         executionId,
         manifestId: manifest.identity.id,
         userInput: userInput.inputText || '',
@@ -1019,13 +1028,13 @@ export async function executeMacro(
         sideEffects,
         timestamp: Date.now()
       })
-    } catch { /* feedback store not available */ }
+    } catch { /* feedback bus not available */ }
   }
 
   const lastStep = steps.filter(s => !skipSteps.has(s.step))
   const finalStep = lastStep[lastStep.length - 1]
   const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
-  debugStore.clearAbortController()
+  globalBus.emit('debug:clear-abort', {})
   return { results, lastResult, savedTokens, lineage }
 }
 

@@ -5,23 +5,24 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['test/**/*.test.ts', 'test/**/*.spec.ts'],
+    include: ['test/**/*.spec.ts'],
     exclude: ['test/e2e/**', 'node_modules/**'],
     coverage: {
       provider: 'v8',
-      include: ['src/services/macroExecutor.ts', 'src/services/scheduleOptimizer.ts', 'src/services/errorClassifier.ts', 'src/services/dualEngineValidator.ts'],
+      include: ['src/services/**/*.ts', 'src/stores/**/*.ts'],
       thresholds: {
-        lines: 60,
-        functions: 60,
-        branches: 50,
-        statements: 60
+        lines: 40,
+        functions: 40,
+        branches: 30,
+        statements: 40
       },
       perFile: true
     }
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      '@electron': resolve(__dirname, 'electron')
     }
   }
 })

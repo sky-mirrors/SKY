@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { L2DagStep, L2ToolManifest } from '@/models'
+import { globalBus } from '@/kernel/bus'
+import { vault } from '@/vault'
 
 const mockDebugStore = {
   enabled: false,
@@ -7,22 +9,6 @@ const mockDebugStore = {
   recordProbe: vi.fn(),
   registerAbortController: vi.fn(),
   clearAbortController: vi.fn()
-}
-
-const mockApiStore = {
-  config: { activeModel: 'mock-model', activeProviderId: 'mock', isReachable: true, baseUrl: 'http://mock', providers: [], models: [] },
-  isReady: true,
-  isCircuitOpen: false,
-  chatCompletion: vi.fn().mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } }),
-  recordSuccess: vi.fn(),
-  recordFailure: vi.fn(),
-  resetCircuitBreaker: vi.fn()
-}
-
-const mockMcpStore = {
-  connections: [],
-  callTool: vi.fn().mockResolvedValue('mcp-tool-result'),
-  mcpToolsAsNodes: []
 }
 
 const mockDialogStore = {
@@ -44,8 +30,6 @@ const mockFeedbackStore = {
   getWeightModifier: vi.fn().mockReturnValue(0)
 }
 
-vi.mock('@/stores/apiStore', () => ({ useApiStore: vi.fn(() => mockApiStore) }))
-vi.mock('@/stores/mcpStore', () => ({ useMcpStore: vi.fn(() => mockMcpStore) }))
 vi.mock('@/stores/debugStore', () => ({ useDebugStore: vi.fn(() => mockDebugStore) }))
 vi.mock('@/stores/dialogStore', () => ({ useDialogStore: vi.fn(() => mockDialogStore) }))
 vi.mock('@/stores/feedbackStore', () => ({ useFeedbackStore: vi.fn(() => mockFeedbackStore), computeQueryFingerprint: vi.fn(() => 'qfp') }))
@@ -56,7 +40,7 @@ vi.mock('@/services/dualEngineValidator', () => ({
   dualEngineValidate: vi.fn()
 }))
 vi.mock('@/services/errorClassifier', () => ({ classifyError: vi.fn() }))
-vi.mock('@/services/factGuard', () => ({ extractEntities: vi.fn(() => []), shouldTrigger: vi.fn(() => false), runFactGuard: vi.fn() }))
+vi.mock('@/services/factGuard', () => ({ extractEntities: vi.fn(() => []), shouldTrigger: vi.fn(() => false), runFactGuard: vi.fn(), runFactGuardV2: vi.fn() }))
 vi.mock('@/services/ruleEngine', () => ({
   runRuleEngine: vi.fn(() => ({ matched: false })),
   buildRuleContext: vi.fn()
@@ -116,23 +100,43 @@ function makeManifest(o: Partial<L2ToolManifest> = {}): L2ToolManifest {
 describe('executeMacro DAG编排', () => {
   let originalWindow: any
   let shellExecFn: any
+  let llmChatCompletionFn: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vault.clearCache()
     mockDebugStore.enabled = false
     mockDialogStore.dagPaused = false
     mockDialogStore.dagPausedStep = null
     mockDialogStore.awaitingTakeover = false
-    mockApiStore.chatCompletion.mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } })
+    llmChatCompletionFn = vi.fn().mockResolvedValue({ content: 'mocked-llm-response', toolCalls: [], usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 } })
 
     shellExecFn = vi.fn().mockResolvedValue({ success: true, stdout: 'shell-output', stderr: '', code: 0 })
     originalWindow = (globalThis as any).window
-    ;(globalThis as any).window = { electronAPI: { shellExec: shellExecFn, fileRead: vi.fn().mockResolvedValue({ success: true, content: 'file-content', size: 100, isBinary: false }), httpFetch: vi.fn().mockResolvedValue({ success: true, status: 200, body: 'http-body' }) } }
+    ;(globalThis as any).window = {
+      electronAPI: {
+        shellExec: shellExecFn,
+        fileRead: vi.fn().mockResolvedValue({ success: true, content: 'file-content', size: 100, isBinary: false, encoding: 'utf-8' }),
+        httpFetch: vi.fn().mockResolvedValue({ success: true, status: 200, body: 'http-body' }),
+        vaultRead: vi.fn().mockResolvedValue(null),
+        vaultWrite: vi.fn().mockResolvedValue(undefined),
+        vaultDelete: vi.fn().mockResolvedValue(undefined),
+        vaultList: vi.fn().mockResolvedValue([])
+      }
+    }
     ;(globalThis as any).process = { env: { USERPROFILE: 'C:\\Users\\Test', HOME: '/home/test', APPDATA: 'C:\\Users\\Test\\AppData\\Roaming' } }
+
+    globalBus.registerHandler('debug:get-step-cost', () => undefined)
+    globalBus.on('debug:log-probe', () => {})
+    globalBus.on('debug:register-abort', () => {})
+    globalBus.on('debug:clear-abort', () => {})
+    globalBus.registerHandler('llm:chat-completion', (data: any) => llmChatCompletionFn(data))
+    globalBus.registerHandler('dialog:confirm-risk', () => true)
   })
 
   afterEach(() => {
     ;(globalThis as any).window = originalWindow
+    globalBus.clear()
   })
 
   describe('依赖解析-拓扑排序', () => {
@@ -374,7 +378,7 @@ describe('executeMacro DAG编排', () => {
     })
 
     it('混合工具类型结果正确聚合', async () => {
-      mockApiStore.chatCompletion.mockResolvedValue({ content: 'llm-analysis', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
+      llmChatCompletionFn.mockResolvedValue({ content: 'llm-analysis', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
 
       const steps: L2DagStep[] = [
         { step: 1, description: 'shell', tool: 'shell_exec', depends_on: [], params: { command: 'echo data' }, expectedOutput: 'data' },
@@ -404,7 +408,7 @@ describe('executeMacro DAG编排', () => {
 
       const result = await executeMacro(manifest, { inputText: 'test' })
 
-      expect(mockApiStore.chatCompletion).not.toHaveBeenCalled()
+      expect(llmChatCompletionFn).not.toHaveBeenCalled()
       expect(result.results[1]).toBe('rule-output-1')
       expect(result.lineage.every(l => l.source === 'rule_engine')).toBe(true)
     })
@@ -415,7 +419,7 @@ describe('executeMacro DAG编排', () => {
         .mockReturnValueOnce({ matched: true, output: 'rule-output-1', matchedRuleId: 'r1' })
         .mockReturnValueOnce({ matched: false })
 
-      mockApiStore.chatCompletion.mockResolvedValue({ content: 'llm-fallback', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
+      llmChatCompletionFn.mockResolvedValue({ content: 'llm-fallback', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
 
       const steps: L2DagStep[] = [
         { step: 1, description: 'llm1', tool: 'llm_generate', depends_on: [], params: { prompt: 'test1' }, expectedOutput: '1' },
@@ -428,7 +432,7 @@ describe('executeMacro DAG编排', () => {
 
       const result = await executeMacro(manifest, { inputText: 'test' })
 
-      expect(mockApiStore.chatCompletion).toHaveBeenCalledTimes(1)
+      expect(llmChatCompletionFn).toHaveBeenCalledTimes(1)
       expect(result.results[1]).toBe('rule-output-1')
       expect(result.results[2]).toBe('llm-fallback')
       expect(result.lineage[0].source).toBe('rule_engine')
@@ -439,7 +443,7 @@ describe('executeMacro DAG编排', () => {
       const { runRuleEngine } = await import('@/services/ruleEngine')
       vi.mocked(runRuleEngine).mockReturnValue({ matched: false })
 
-      mockApiStore.chatCompletion.mockResolvedValue({ content: 'llm-response', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
+      llmChatCompletionFn.mockResolvedValue({ content: 'llm-response', toolCalls: [], usage: { promptTokens: 5, completionTokens: 10, totalTokens: 15 } })
 
       const steps: L2DagStep[] = [
         { step: 1, description: 'llm1', tool: 'llm_generate', depends_on: [], params: { prompt: 'test1' }, expectedOutput: '1' },
@@ -452,7 +456,7 @@ describe('executeMacro DAG编排', () => {
 
       const result = await executeMacro(manifest, { inputText: 'test' })
 
-      expect(mockApiStore.chatCompletion).toHaveBeenCalledTimes(2)
+      expect(llmChatCompletionFn).toHaveBeenCalledTimes(2)
       expect(result.lineage.every(l => l.source.includes('llm_'))).toBe(true)
     })
   })

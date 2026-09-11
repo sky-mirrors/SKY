@@ -185,6 +185,99 @@ export interface UserConfig {
   selectedL2Ids: string[]
   firstLaunchDone: boolean
   apiConfig: ApiConfig
+  uiMode?: 'workbench' | 'starmap'
+  onboardingCompleted?: boolean
+  apiConfigured?: boolean
+  knowledgeFed?: boolean
+  terminologyStyle?: 'technical' | 'plain'
+  animationEnabled?: boolean
+  starmapNodeDensity?: 'core' | 'standard' | 'full'
+  dialogPanelWidth?: number
+  favoriteSkills?: string[]
+  recentSkills?: RecentSkillEntry[]
+  viewMode?: 'starmap' | 'preview'
+}
+
+export interface RecentSkillEntry {
+  id: string
+  name: string
+  lastUsed: number
+}
+
+export type NotificationType =
+  | 'audit_block'
+  | 'api_degrade'
+  | 'circuit_breaker'
+  | 'tool_fail'
+  | 'storage_warning'
+  | 'tool_complete'
+  | 'knowledge_ingest'
+  | 'cache_hit'
+  | 'skill_install'
+
+export type NotificationPriority = 'high' | 'medium' | 'low'
+
+export interface NotificationAction {
+  label: string
+  action: 'detail' | 'retry' | 'view' | 'manage' | 'settings'
+  payload: Record<string, string>
+}
+
+export interface Notification {
+  id: string
+  type: NotificationType
+  priority: NotificationPriority
+  title: string
+  message: string
+  timestamp: number
+  read: boolean
+  actions: NotificationAction[]
+  autoReadAt: number | null
+  expiresAt: number | null
+}
+
+export interface NotificationSettings {
+  auditBlock: boolean
+  apiDegrade: boolean
+  toolComplete: boolean
+  toolFail: boolean
+  cacheHit: boolean
+  knowledgeIngest: boolean
+  storageWarning: boolean
+  popupDuration: number
+}
+
+export interface CommandPaletteResult {
+  type: 'skill' | 'tool' | 'setting' | 'action' | 'history'
+  id: string
+  label: string
+  description: string
+  category: string
+  weight: number
+  data?: Record<string, unknown>
+}
+
+export interface StorageBreakdown {
+  category: string
+  sizeMB: number
+  storeKey: string
+  label: string
+  canClean: boolean
+}
+
+export interface ImportPreview {
+  sourceFile: string
+  exportDate: string
+  appVersion: string
+  items: ImportPreviewItem[]
+  warnings: string[]
+}
+
+export interface ImportPreviewItem {
+  category: string
+  label: string
+  count: number
+  strategy: 'overwrite' | 'merge' | 'append' | 'skip'
 }
 
 export interface InteractionState {
@@ -314,6 +407,20 @@ export interface DialogMessage {
   fileAttachment?: FileAttachment
   timestamp: number
   isTyping?: boolean
+}
+
+export interface StreamChunk {
+  content: string
+  delta: string
+  toolCalls?: { id: string; name: string; arguments: string }[]
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number }
+  done: boolean
+}
+
+export interface StreamCallbacks {
+  onChunk: (chunk: StreamChunk) => void
+  onDone: (final: { content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: StreamChunk['usage'] }) => void
+  onError: (error: Error) => void
 }
 
 export interface WorkflowCard {
@@ -743,14 +850,48 @@ export interface DagCheckpoint {
 
 export type FeedbackAction = 'thumbs_up' | 'thumbs_down' | 'undo'
 
+export type DetectedDomain = 'legal' | 'finance' | 'hr' | 'general'
+
+export type RewriteStrategy = 'none' | 'keyword_extract'
+export type DisambigStrategy = 'auto_pick' | 'show_candidates' | 'ask_clarify' | 'fallback_l1'
+
+export interface DomainRewriteOffsets {
+  minContentLength: number
+  minKeywordCount: number
+  minLawArticleCount: number
+  minFinanceTermCount: number
+}
+
+export interface DomainDisambigOffsets {
+  highConfidenceGap: number
+  mediumConfidenceGap: number
+  lowConfidenceCandidateCount: number
+  lowConfidenceScoreGap: number
+}
+
+export interface StrategyContext {
+  contentLength: number
+  keywordCount: number
+  initialMatchFailed: boolean
+  detectedDomain: DetectedDomain
+  lawArticleCount: number
+  financeTermCount: number
+  constraintHitCount: number
+  candidateCount: number
+  topScoreGap: number
+  hasDomainSignalMatch: boolean
+}
+
 export interface DecisionContext {
-  rewriteStrategy: string
-  disambigStrategy: string
+  rewriteStrategy: RewriteStrategy
+  disambigStrategy?: DisambigStrategy
   wasRewritten: boolean
   originalQuery: string
   rewrittenQuery?: string
   matchResult: string
   gate: string
+  detectedDomain: DetectedDomain
+  strategyContextSnapshot: Record<string, number>
 }
 
 export interface FeedbackEntry {
@@ -812,4 +953,237 @@ export interface ValidationCacheEntry {
   key: string
   result: ValidationResult
   timestamp: number
+}
+
+export type FactEntityType = 'amount' | 'date' | 'percentage' | 'contract_id' | 'person_name' | 'law_article' | 'company_name' | 'bank_account' | 'id_card' | 'location'
+
+export interface ExtractedEntity {
+  type: FactEntityType
+  raw: string
+  normalized: string
+  linePos: number
+  subType?: 'chinese_number' | 'contextual' | 'law_article' | 'ner_model'
+  modelScore?: number
+}
+
+export interface LawArticleEntity {
+  raw: string
+  article: number
+  paragraph?: number
+  item?: number
+}
+
+export interface ChineseNumberEntity {
+  raw: string
+  numericValue: number
+  normalized: string
+  linePos: number
+}
+
+export interface CompanyNameEntity {
+  raw: string
+  linePos: number
+}
+
+export type RuleStatus = 'draft' | 'testing' | 'reviewed' | 'active' | 'deprecated'
+
+export type ConstraintSourceType = 'law' | 'regulation' | 'standard' | 'judicial_interpretation'
+
+export interface ConstraintSource {
+  type: ConstraintSourceType
+  name: string
+  article: string
+  effectiveDate: string
+  originalText?: string
+  verifiedBy?: string
+  verifiedAt?: number
+}
+
+export interface ConstraintApplicability {
+  jurisdiction: string
+  companySize?: 'small' | 'medium' | 'large' | 'all'
+  expiresAt?: number
+}
+
+export interface ConstraintTestCase {
+  description: string
+  input: string
+  expectedTrigger: boolean
+  expectedMessage?: string
+}
+
+export interface ConstraintReliability {
+  confidence: 'high' | 'medium' | 'low'
+  source: ConstraintSource
+  caveat?: string
+}
+
+export interface ConstraintResult {
+  triggered: boolean
+  constraintId: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  reliability: ConstraintReliability
+  matchedEntities?: ExtractedEntity[]
+  requiresHumanConfirmation?: boolean
+  humanJudgmentPrompt?: string
+  automationLevel?: 'full' | 'semi'
+}
+
+export interface DomainConstraint {
+  id: string
+  domain: 'finance' | 'legal' | 'hr'
+  category: string
+  description: string
+  severity: 'info' | 'warning' | 'error'
+  applicability: ConstraintApplicability
+  reliability: ConstraintReliability
+  testCases: ConstraintTestCase[]
+  status: RuleStatus
+  triggerCount: number
+  falsePositiveCount: number
+  lastTriggeredAt: number
+  createdAt: number
+  updatedAt: number
+  automationLevel: 'full' | 'semi'
+  humanJudgmentPrompt?: string
+  reviewType: 'auto' | 'manual'
+  check(context: ConstraintCheckContext): ConstraintResult | null
+}
+
+export interface ConstraintCheckContext {
+  entities: ExtractedEntity[]
+  sourceText: string
+  outputText: string
+  stepResults: Record<number, string>
+  manifestRoles: string[]
+}
+
+export interface RuleWithStatus {
+  ruleId: string
+  status: RuleStatus
+  triggerCount: number
+  falsePositiveCount: number
+  lastTriggeredAt: number
+  lastReviewedAt?: number
+  reviewerName?: string
+}
+
+export interface ConstraintFeedbackEntry {
+  id: string
+  constraintId: string
+  userFeedback: 'correct' | 'false_positive' | 'missed'
+  inputSnapshot: string
+  timestamp: number
+}
+
+export interface FactConflict {
+  type: FactEntityType
+  sourceRaw: string
+  outputRaw: string
+  sourceNormalized: string
+  outputNormalized: string
+  severity: 'critical' | 'minor'
+  diff: string
+}
+
+export interface FactGuardResult {
+  ok: boolean
+  conflicts: FactConflict[]
+  hallucinatedEntities: ExtractedEntity[]
+  severity: 'critical' | 'minor' | 'ok'
+  correctedOutput: string | null
+  summary: string
+}
+
+export type ModelTier = 'nano' | 'mini' | 'standard' | 'pro'
+
+export type OverBudgetStrategy = 'degrade' | 'block' | 'warn'
+
+export type BudgetMode = 'zero' | 'economy' | 'standard'
+
+export type TierWhitelist = Record<ModelTier, boolean>
+
+export const BUDGET_MODE_TIERS: Record<BudgetMode, ModelTier> = {
+  zero: 'nano',
+  economy: 'mini',
+  standard: 'pro',
+}
+
+export const DEFAULT_TIER_WHITELIST: TierWhitelist = {
+  nano: true,
+  mini: true,
+  standard: true,
+  pro: true,
+}
+
+export interface UserPricing {
+  inputPricePer1k: number
+  outputPricePer1k: number
+  cacheHitDiscount: number
+}
+
+export interface TokenBudget {
+  dailyBudgetCny: number
+  sessionBudgetCny: number
+  monthlyBudgetCny: number
+  warnThreshold: number
+  overBudgetStrategy: OverBudgetStrategy
+  budgetMode: BudgetMode
+  tierWhitelist: TierWhitelist
+}
+
+export interface BudgetPeriodStatus {
+  spent: number
+  budget: number
+  percent: number
+  overBudget: boolean
+  warnLevel: 'ok' | 'warning' | 'critical' | 'exceeded'
+}
+
+export interface BudgetStatus {
+  daily: BudgetPeriodStatus
+  session: BudgetPeriodStatus
+  monthly: BudgetPeriodStatus
+  recommendedTier: ModelTier
+  strategy: OverBudgetStrategy
+}
+
+export interface CostBreakdown {
+  byTier: Record<string, { cost: number; callCount: number; totalTokens: number }>
+  byCategory: Record<string, { cost: number; callCount: number }>
+  totalInputCost: number
+  totalOutputCost: number
+  totalCost: number
+  cacheSaving: number
+}
+
+export interface CostRecord {
+  id: string
+  tier: ModelTier
+  inputTokens: number
+  outputTokens: number
+  cacheHitTokens: number
+  inputCost: number
+  outputCost: number
+  cacheSaving: number
+  totalCost: number
+  category: string
+  timestamp: number
+}
+
+export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
+  dailyBudgetCny: 10,
+  sessionBudgetCny: 5,
+  monthlyBudgetCny: 200,
+  warnThreshold: 0.8,
+  overBudgetStrategy: 'degrade',
+  budgetMode: 'standard',
+  tierWhitelist: { ...DEFAULT_TIER_WHITELIST },
+}
+
+export const DEFAULT_USER_PRICING: UserPricing = {
+  inputPricePer1k: 0.005,
+  outputPricePer1k: 0.015,
+  cacheHitDiscount: 0.5
 }

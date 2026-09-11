@@ -4,7 +4,8 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream } from 'fs'
 import type { BrowserWindow } from 'electron'
 import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds } from './mcp-manager'
-import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP } from './shell-security'
+import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP, isMcpCommandAllowed } from './shell-security'
+import { validatePath, validateReadPath, validateOpenPath, sanitizeKey } from './pathValidator'
 import archiver from 'archiver'
 import extract from 'extract-zip'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
@@ -42,7 +43,7 @@ function chunkText(text: string, chunkSize: number): string[] {
   return chunks.filter(c => c.trim().length > 0)
 }
 
-function isPrivateHostname(hostname: string): boolean {
+export function isPrivateHostname(hostname: string): boolean {
   if (hostname === 'localhost' || hostname === '127.0.0.1') return true
   if (hostname.startsWith('192.168.') || hostname.startsWith('10.')) return true
   if (hostname.startsWith('172.')) {
@@ -115,6 +116,8 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('vector:readBin', (_event, key: string) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return null
     try {
       const filePath = join(vectorDir, `${key}.bin`)
       if (!existsSync(filePath)) return null
@@ -128,6 +131,8 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('vector:writeBin', (_event, key: string, base64Data: string) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return false
     try {
       const filePath = join(vectorDir, `${key}.bin`)
       const buf = Buffer.from(base64Data, 'base64')
@@ -148,28 +153,34 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('file:write', (_event, opts: { filePath: string; content: string; encoding?: BufferEncoding }) => {
+    const pathCheck = validatePath(opts.filePath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     try {
-      const dir = join(opts.filePath, '..')
+      const dir = join(pathCheck.resolved, '..')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      writeFileSync(opts.filePath, opts.content || '', opts.encoding || 'utf-8')
-      return { success: true, path: opts.filePath }
+      writeFileSync(pathCheck.resolved, opts.content || '', opts.encoding || 'utf-8')
+      return { success: true, path: pathCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
   ipcMain.handle('file:createDirectory', (_event, dirPath: string) => {
+    const pathCheck = validatePath(dirPath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     try {
-      mkdirSync(dirPath, { recursive: true })
-      return { success: true, path: dirPath }
+      mkdirSync(pathCheck.resolved, { recursive: true })
+      return { success: true, path: pathCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
   ipcMain.handle('file:createDocx', async (_event, opts: { filePath: string; content?: string; title?: string }) => {
+    const pathCheck = validatePath(opts.filePath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     try {
-      const dir = join(opts.filePath, '..')
+      const dir = join(pathCheck.resolved, '..')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       const children: InstanceType<typeof Paragraph>[] = []
       if (opts.title) {
@@ -185,14 +196,17 @@ export function setupIpc(win: BrowserWindow | null) {
       }
       const doc = new Document({ sections: [{ children }] })
       const buffer = await Packer.toBuffer(doc)
-      writeFileSync(opts.filePath, buffer)
-      return { success: true, path: opts.filePath }
+      writeFileSync(pathCheck.resolved, buffer)
+      return { success: true, path: pathCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 
   ipcMain.handle('file:read', async (_event, filePath: string, maxBytes?: number) => {
+    const pathCheck = validateReadPath(filePath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+    const validatedPath = pathCheck.resolved
     const fileTimeout = 15000
     return new Promise((resolve) => {
       let settled = false
@@ -204,12 +218,12 @@ export function setupIpc(win: BrowserWindow | null) {
       }, fileTimeout)
 
       try {
-        if (!filePath || !existsSync(filePath)) {
+        if (!validatedPath || !existsSync(validatedPath)) {
           clearTimeout(timer)
           if (!settled) { settled = true; resolve({ success: false, error: '文件不存在' }) }
           return
         }
-        const stat = statSync(filePath)
+        const stat = statSync(validatedPath)
         const limit = maxBytes || 512000
         if (stat.size > limit * 2) {
           clearTimeout(timer)
@@ -217,7 +231,7 @@ export function setupIpc(win: BrowserWindow | null) {
           return
         }
 
-        readFile(filePath, { encoding: null }, (err: Error | null, buf: Buffer) => {
+        readFile(validatedPath, { encoding: null }, (err: Error | null, buf: Buffer) => {
           if (settled) return
           clearTimeout(timer)
           settled = true
@@ -228,7 +242,7 @@ export function setupIpc(win: BrowserWindow | null) {
           const truncated = buf.subarray(0, limit)
           const isBinary = truncated.some((b: number, i: number) => i < 8192 && (b === 0 || (b < 8 && b > 0)))
           if (isBinary) {
-            resolve({ success: true, content: `[二进制文件: ${filePath}, 大小: ${stat.size}字节]`, size: stat.size, isBinary: true, encoding: 'binary' })
+            resolve({ success: true, content: `[二进制文件: ${validatedPath}, 大小: ${stat.size}字节]`, size: stat.size, isBinary: true, encoding: 'binary' })
             return
           }
           let detectedEncoding = 'utf-8'
@@ -259,6 +273,8 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('store:read', (_event, key: string) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return null
     try {
       const filePath = join(storeDir, `${key}.json`)
       if (!existsSync(filePath)) return null
@@ -270,6 +286,8 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('store:write', (_event, key: string, value: unknown) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return false
     try {
       const filePath = join(storeDir, `${key}.json`)
       writeFileSync(filePath, JSON.stringify(value), 'utf-8')
@@ -280,6 +298,8 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('store:delete', (_event, key: string) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return false
     try {
       const filePath = join(storeDir, `${key}.json`)
       if (existsSync(filePath)) {
@@ -292,6 +312,10 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('mcp:spawn', async (_event, opts: { id: string; command: string; args: string[]; env: Record<string, string> }) => {
+    const cmdCheck = isMcpCommandAllowed(opts.command)
+    if (!cmdCheck.allowed) {
+      return { success: false, error: cmdCheck.reason || 'MCP命令被安全策略拒绝' }
+    }
     if (hasMcpProcess(opts.id)) {
       stopMcpProcess(opts.id)
     }
@@ -561,16 +585,19 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.handle('watchfs:setDir', async (_event, dirPath: string | null) => {
     if (fsWatcher) { fsWatcher.close(); fsWatcher = null }
-    watchDir = dirPath
-    if (!dirPath || !existsSync(dirPath)) return { success: true }
+    watchDir = null
+    if (!dirPath) return { success: true }
+    const pathCheck = validatePath(dirPath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+    if (!existsSync(pathCheck.resolved)) return { success: true }
     try {
       const fs = await import('fs')
-      fsWatcher = fs.watch(dirPath, { recursive: true }, (eventType: string, filename: string | Buffer | null) => {
+      fsWatcher = fs.watch(pathCheck.resolved, { recursive: true }, (eventType: string, filename: string | Buffer | null) => {
         if (!filename || typeof filename !== 'string') return
         const ext = filename.split('.').pop()?.toLowerCase()
         if (!ext || !['md', 'txt', 'json', 'csv', 'pdf', 'docx'].includes(ext)) return
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('watchfs:changed', { event: eventType, filename, path: join(dirPath, filename) })
+          mainWindow.webContents.send('watchfs:changed', { event: eventType, filename, path: join(pathCheck.resolved, filename) })
         }
       })
       return { success: true }
@@ -626,6 +653,14 @@ export function setupIpc(win: BrowserWindow | null) {
       const baseUrl = (provider.baseUrl || stored.baseUrl || '').replace(/\/+$/, '')
       if (!baseUrl) {
         return { success: false, error: 'No base URL configured for provider' }
+      }
+      try {
+        const baseUrlObj = new URL(baseUrl)
+        if (isPrivateHostname(baseUrlObj.hostname)) {
+          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}` }
+        }
+      } catch {
+        return { success: false, error: 'LLM API base URL格式无效' }
       }
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (provider.authType === 'bearer' && apiKey) {
@@ -755,6 +790,14 @@ export function setupIpc(win: BrowserWindow | null) {
         }
       }
       const baseUrl = provider.baseUrl.replace(/\/+$/, '')
+      try {
+        const baseUrlObj = new URL(baseUrl)
+        if (isPrivateHostname(baseUrlObj.hostname)) {
+          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}` }
+        }
+      } catch {
+        return { success: false, error: 'LLM API base URL格式无效' }
+      }
       const endpoint = provider.modelsEndpoint || '/v1/models'
       const headers: Record<string, string> = {}
       if (provider.authType === 'bearer' && apiKey) {
@@ -785,6 +828,10 @@ export function setupIpc(win: BrowserWindow | null) {
     if (!filename || !content) {
       return { success: false, error: 'Missing filename or content' }
     }
+    const MAX_CONTENT_SIZE = 10 * 1024 * 1024
+    if (content.length > MAX_CONTENT_SIZE) {
+      return { success: false, error: `内容过大(${Math.round(content.length / 1024)}KB)，上限10MB` }
+    }
     try {
       const id = `kb-${Date.now()}`
       const entryPath = join(knowledgeDir, `${id}.json`)
@@ -805,7 +852,7 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.handle('knowledge:search', async (_event, opts: { query: string; topK?: number }) => {
     const query = (opts.query || '').toLowerCase()
-    const topK = opts.topK || 5
+    const topK = Math.min(opts.topK || 5, 100)
     if (!query) {
       return { success: false, error: 'Missing query' }
     }
@@ -852,14 +899,19 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('env:resolvePath', (_event, template: string) => {
-    return template
-      .replace('%USERPROFILE%', process.env.USERPROFILE || 'C:\\Users\\Default')
-      .replace('%HOME%', process.env.HOME || process.env.USERPROFILE || 'C:\\Users\\Default')
+    const resolved = template
+      .replace('%USERPROFILE%', app.getPath('home'))
+      .replace('%HOME%', app.getPath('home'))
+    const pathCheck = validatePath(resolved)
+    if (!pathCheck.safe) return ''
+    return pathCheck.resolved
   })
 
   ipcMain.handle('shell:openPath', async (_event, filePath: string) => {
+    const pathCheck = validateOpenPath(filePath)
+    if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     try {
-      const result = await shell.openPath(filePath)
+      const result = await shell.openPath(pathCheck.resolved)
       if (result && result !== '') {
         return { success: false, error: result }
       }
@@ -868,6 +920,91 @@ export function setupIpc(win: BrowserWindow | null) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
+
+  ipcMain.handle('data:exportZip', async (_event, opts: { data: string; defaultName: string }) => {
+    try {
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        title: '导出数据',
+        defaultPath: opts.defaultName,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      })
+      if (canceled || !filePath) return { success: false, error: 'Cancelled' }
+      writeFileSync(filePath, opts.data, 'utf-8')
+      return { success: true, filePath }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('data:importZip', async () => {
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: '导入数据',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+        properties: ['openFile']
+      })
+      if (canceled || filePaths.length === 0) return { success: false, error: 'Cancelled' }
+      const content = readFileSync(filePaths[0], 'utf-8')
+      return { success: true, content, filePath: filePaths[0] }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('app:getUserDataPath', () => {
+    return app.getPath('userData')
+  })
+
+  const { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList, vaultReadVector, vaultWriteVector, vaultDeleteVector, vaultListVectors, vaultGetStats } = require('./vault')
+  const { migrateToVault, isMigrationComplete } = require('./vault-migration')
+  openVault()
+
+  ipcMain.handle('vault:read', (_event, namespace: string, key: string) => {
+    return vaultRead(namespace, key)
+  })
+
+  ipcMain.handle('vault:write', (_event, namespace: string, key: string, value: string, encrypted?: boolean) => {
+    vaultWrite(namespace, key, value, encrypted)
+  })
+
+  ipcMain.handle('vault:delete', (_event, namespace: string, key: string) => {
+    vaultDelete(namespace, key)
+  })
+
+  ipcMain.handle('vault:list', (_event, namespace?: string) => {
+    return vaultList(namespace)
+  })
+
+  ipcMain.handle('vault:readVector', (_event, namespace: string, key: string) => {
+    const result = vaultReadVector(namespace, key)
+    if (!result) return null
+    return {
+      metadata: result.metadata,
+      embedding: result.embedding.toString('base64'),
+    }
+  })
+
+  ipcMain.handle('vault:writeVector', (_event, namespace: string, key: string, metadata: string, embeddingBase64: string) => {
+    const buf = Buffer.from(embeddingBase64, 'base64')
+    vaultWriteVector(namespace, key, metadata, buf)
+    return true
+  })
+
+  ipcMain.handle('vault:deleteVector', (_event, namespace: string, key: string) => {
+    vaultDeleteVector(namespace, key)
+  })
+
+  ipcMain.handle('vault:listVectors', (_event, namespace?: string) => {
+    return vaultListVectors(namespace)
+  })
+
+  ipcMain.handle('vault:migrate', async (_event, localStorageData: Record<string, string>) => {
+    return migrateToVault(localStorageData, storeDir, vectorDir)
+  })
+
+  ipcMain.handle('vault:getStats', () => {
+    return vaultGetStats()
+  })
 }
 
 export function cleanupMcpProcesses() {
@@ -875,3 +1012,241 @@ export function cleanupMcpProcesses() {
     stopMcpProcess(id)
   }
 }
+
+const activeStreamControllers = new Map<string, AbortController>()
+
+ipcMain.on('llm:stream:start', async (event, opts: {
+  streamId: string
+  providerId: string
+  model: string
+  messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
+  tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+  maxTokens?: number
+}) => {
+  const { streamId, providerId, model, messages, tools, maxTokens } = opts
+  const abortCtrl = new AbortController()
+  activeStreamControllers.set(streamId, abortCtrl)
+
+  const chunkChannel = `llm:stream:chunk:${streamId}`
+  const endChannel = `llm:stream:end:${streamId}`
+  const errorChannel = `llm:stream:error:${streamId}`
+
+  try {
+    if (!providerId || !model || !messages) {
+      event.sender.send(errorChannel, 'Missing providerId, model, or messages')
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    const configPath = join(storeDir, 'api-config.json')
+    if (!existsSync(configPath)) {
+      event.sender.send(errorChannel, 'No API configuration found')
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    const raw = readFileSync(configPath, 'utf-8')
+    const stored = JSON.parse(raw) as {
+      baseUrl?: string
+      providers?: Array<{
+        id: string; name: string; baseUrl: string; authType: string; apiKey: string
+        modelsEndpoint?: string; chatFormat?: string; models?: Array<{ id: string; name: string }>
+      }>
+    }
+    const provider = (stored.providers || []).find(p => p.id === providerId)
+    if (!provider) {
+      event.sender.send(errorChannel, `Provider '${providerId}' not found`)
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    let apiKey = provider.apiKey || ''
+    if (apiKey.startsWith('enc:') && safeStorage.isEncryptionAvailable()) {
+      try {
+        const buffer = Buffer.from(apiKey.substring(4), 'base64')
+        apiKey = safeStorage.decryptString(buffer)
+      } catch {
+        event.sender.send(errorChannel, 'Failed to decrypt API key')
+        activeStreamControllers.delete(streamId)
+        return
+      }
+    }
+    const baseUrl = (provider.baseUrl || stored.baseUrl || '').replace(/\/+$/, '')
+    if (!baseUrl) {
+      event.sender.send(errorChannel, 'No base URL configured')
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    try {
+      const baseUrlObj = new URL(baseUrl)
+      if (isPrivateHostname(baseUrlObj.hostname)) {
+        event.sender.send(errorChannel, `LLM API不允许访问内网地址: ${baseUrlObj.hostname}`)
+        activeStreamControllers.delete(streamId)
+        return
+      }
+    } catch {
+      event.sender.send(errorChannel, 'LLM API base URL格式无效')
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (provider.authType === 'bearer' && apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    } else if (provider.authType === 'api-key' && apiKey) {
+      headers['x-api-key'] = apiKey
+    }
+
+    const chatFormat = provider.chatFormat || 'openai'
+    let body: Record<string, unknown>
+    let endpoint = '/v1/chat/completions'
+    if (chatFormat === 'anthropic') {
+      endpoint = '/v1/messages'
+      headers['anthropic-version'] = '2023-06-01'
+      body = {
+        model,
+        messages: messages.filter(m => m.role !== 'system'),
+        system: messages.find(m => m.role === 'system')?.content,
+        max_tokens: maxTokens || 4096,
+        stream: true
+      }
+    } else {
+      body = {
+        model,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        max_tokens: maxTokens || 16384
+      }
+      if (tools && tools.length > 0) {
+        body.tools = tools.map(t => ({
+          type: 'function',
+          function: { name: t.name, description: t.description, parameters: t.parameters }
+        }))
+      }
+    }
+
+    const maxTok = maxTokens || 16384
+    const tierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
+    const absoluteCap = 180000
+    const fetchSignal = AbortSignal.any([abortCtrl.signal, AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))])
+
+    const resp = await fetch(`${baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: fetchSignal
+    })
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '')
+      event.sender.send(errorChannel, `API error ${resp.status}: ${errBody.slice(0, 200)}`)
+      activeStreamControllers.delete(streamId)
+      return
+    }
+    if (!resp.body) {
+      event.sender.send(errorChannel, 'Response body is null')
+      activeStreamControllers.delete(streamId)
+      return
+    }
+
+    let accumulatedContent = ''
+    const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>()
+    let promptTokens = 0
+    let completionTokens = 0
+
+    const reader = (resp.body as unknown as ReadableStream<Uint8Array>).getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+
+    while (true) {
+      if (abortCtrl.signal.aborted) { reader.cancel(); break }
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunk = decoder.decode(value, { stream: true })
+      const lines = (buffer + chunk).split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ') && !line.startsWith('event: ')) continue
+        if (line.startsWith('data: ')) {
+          const d = line.slice(6)
+          if (chatFormat === 'openai') {
+            if (d.trim() === '[DONE]') {
+              const toolCalls = Array.from(toolCallMap.values())
+              event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+              activeStreamControllers.delete(streamId)
+              return
+            }
+            try {
+              const p = JSON.parse(d)
+              if (p.choices?.[0]?.delta?.content) {
+                accumulatedContent += p.choices[0].delta.content
+                event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.choices[0].delta.content, toolCalls: undefined, usage: undefined, done: false })
+              }
+              if (p.choices?.[0]?.delta?.tool_calls) {
+                for (const tc of p.choices[0].delta.tool_calls) {
+                  const idx = tc.index ?? 0
+                  const existing = toolCallMap.get(idx)
+                  if (existing) {
+                    if (tc.id) existing.id = tc.id
+                    if (tc.function?.name) existing.name = tc.function.name
+                    if (tc.function?.arguments) existing.arguments += tc.function.arguments
+                  } else {
+                    toolCallMap.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: tc.function?.arguments || '' })
+                  }
+                }
+              }
+              if (p.usage) {
+                promptTokens = p.usage.prompt_tokens || promptTokens
+                completionTokens = p.usage.completion_tokens || completionTokens
+              }
+            } catch { /* skip */ }
+          } else {
+            try {
+              const p = JSON.parse(d)
+              if (p.type === 'content_block_delta' && p.delta?.type === 'text_delta' && p.delta?.text) {
+                accumulatedContent += p.delta.text
+                event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.delta.text, toolCalls: undefined, usage: undefined, done: false })
+              }
+              if (p.type === 'content_block_start' && p.content_block?.type === 'tool_use') {
+                toolCallMap.set(p.content_block.index ?? 0, { id: p.content_block.id, name: p.content_block.name, arguments: '' })
+              }
+              if (p.type === 'content_block_delta' && p.delta?.type === 'input_json_delta' && p.delta?.partial_json) {
+                const idx = p.index ?? 0
+                const existing = toolCallMap.get(idx)
+                if (existing) existing.arguments += p.delta.partial_json
+              }
+              if (p.type === 'message_start' && p.message?.usage) {
+                promptTokens = p.message.usage.input_tokens || 0
+              }
+              if (p.type === 'message_delta' && p.usage) {
+                completionTokens = p.usage.output_tokens || 0
+              }
+              if (p.type === 'message_stop') {
+                const toolCalls = Array.from(toolCallMap.values())
+                event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+                activeStreamControllers.delete(streamId)
+                return
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
+    }
+
+    if (!abortCtrl.signal.aborted) {
+      const toolCalls = Array.from(toolCallMap.values())
+      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+    }
+    activeStreamControllers.delete(streamId)
+  } catch (err) {
+    if (!abortCtrl.signal.aborted) {
+      event.sender.send(errorChannel, err instanceof Error ? err.message : String(err))
+    }
+    activeStreamControllers.delete(streamId)
+  }
+})
+
+ipcMain.on('llm:stream:cancel', (_event, opts: { streamId: string }) => {
+  const ctrl = activeStreamControllers.get(opts.streamId)
+  if (ctrl) {
+    ctrl.abort()
+    activeStreamControllers.delete(opts.streamId)
+  }
+})

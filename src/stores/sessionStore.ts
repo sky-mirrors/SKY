@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { DialogMessage } from '@/models'
+import { debugLog } from '@/services/debugLog'
+import { vault } from '@/vault'
 
 export interface Session {
   id: string
@@ -18,31 +20,27 @@ const SESSIONS_KEY = 'holo-sessions'
 const ACTIVE_SESSION_KEY = 'holo-active-session'
 
 function loadSessions(): Session[] {
-  try {
-    const raw = localStorage.getItem(SESSIONS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
+  const raw = vault.readCache('session', SESSIONS_KEY)
+  if (raw) {
+    try { return JSON.parse(raw) } catch { return [] }
+  }
+  return []
 }
 
 function saveSessions(sessions: Session[]): void {
-  try {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions))
-  } catch {
-    console.warn('[SessionStore] localStorage写入失败')
-  }
+  vault.writeThrough('session', SESSIONS_KEY, JSON.stringify(sessions))
 }
 
 function loadActiveId(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_SESSION_KEY)
-  } catch { return null }
+  return vault.readCache('session', ACTIVE_SESSION_KEY)
 }
 
 function saveActiveId(id: string | null): void {
-  try {
-    if (id) localStorage.setItem(ACTIVE_SESSION_KEY, id)
-    else localStorage.removeItem(ACTIVE_SESSION_KEY)
-  } catch { /* ignore */ }
+  if (id) {
+    vault.writeThrough('session', ACTIVE_SESSION_KEY, id)
+  } else {
+    vault.delete('session', ACTIVE_SESSION_KEY)
+  }
 }
 
   function ensureSessionFields(session: Session): void {

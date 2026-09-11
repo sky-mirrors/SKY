@@ -157,6 +157,52 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }) =>
     ipcRenderer.invoke('llm:chatCompletion', opts),
 
+  llmChatCompletionStream: (
+    opts: {
+      providerId: string
+      model: string
+      messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
+      tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
+      maxTokens?: number
+    },
+    callbacks: {
+      onChunk: (chunk: { content: string; delta: string; done: boolean }) => void
+      onDone: (final: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }) => void
+      onError: (err: string) => void
+    }
+  ) => {
+    const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const chunkChannel = `llm:stream:chunk:${streamId}`
+    const endChannel = `llm:stream:end:${streamId}`
+    const errorChannel = `llm:stream:error:${streamId}`
+
+    const chunkHandler = (_event: Electron.IpcRendererEvent, data: unknown) => callbacks.onChunk(data as { content: string; delta: string; done: boolean })
+    const endHandler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      cleanup()
+      callbacks.onDone(data as { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } })
+    }
+    const errorHandler = (_event: Electron.IpcRendererEvent, data: unknown) => {
+      cleanup()
+      callbacks.onError(data as string)
+    }
+
+    const cleanup = () => {
+      ipcRenderer.removeListener(chunkChannel, chunkHandler)
+      ipcRenderer.removeListener(endChannel, endHandler)
+      ipcRenderer.removeListener(errorChannel, errorHandler)
+    }
+
+    ipcRenderer.on(chunkChannel, chunkHandler)
+    ipcRenderer.on(endChannel, endHandler)
+    ipcRenderer.on(errorChannel, errorHandler)
+    ipcRenderer.send('llm:stream:start', { streamId, ...opts })
+
+    return () => {
+      cleanup()
+      ipcRenderer.send('llm:stream:cancel', { streamId })
+    }
+  },
+
   llmListModels: (opts: { providerId: string }) =>
     ipcRenderer.invoke('llm:listModels', opts),
 
@@ -175,6 +221,45 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFilePath: (filePath: string) =>
     ipcRenderer.invoke('shell:openPath', filePath),
 
+  dataExportZip: (opts: { data: string; defaultName: string }) =>
+    ipcRenderer.invoke('data:exportZip', opts),
+
+  dataImportZip: () =>
+    ipcRenderer.invoke('data:importZip'),
+
+  getUserDataPath: () =>
+    ipcRenderer.invoke('app:getUserDataPath'),
+
+  vaultRead: (namespace: string, key: string) =>
+    ipcRenderer.invoke('vault:read', namespace, key),
+
+  vaultWrite: (namespace: string, key: string, value: string, encrypted?: boolean) =>
+    ipcRenderer.invoke('vault:write', namespace, key, value, encrypted),
+
+  vaultDelete: (namespace: string, key: string) =>
+    ipcRenderer.invoke('vault:delete', namespace, key),
+
+  vaultList: (namespace?: string) =>
+    ipcRenderer.invoke('vault:list', namespace),
+
+  vaultReadVector: (namespace: string, key: string) =>
+    ipcRenderer.invoke('vault:readVector', namespace, key),
+
+  vaultWriteVector: (namespace: string, key: string, metadata: string, embeddingBase64: string) =>
+    ipcRenderer.invoke('vault:writeVector', namespace, key, metadata, embeddingBase64),
+
+  vaultDeleteVector: (namespace: string, key: string) =>
+    ipcRenderer.invoke('vault:deleteVector', namespace, key),
+
+  vaultListVectors: (namespace?: string) =>
+    ipcRenderer.invoke('vault:listVectors', namespace),
+
+  vaultMigrate: (localStorageData: Record<string, string>) =>
+    ipcRenderer.invoke('vault:migrate', localStorageData),
+
+  vaultGetStats: () =>
+    ipcRenderer.invoke('vault:getStats'),
+
   openDebugWindow: () => ipcRenderer.send('open:debug-window'),
 
   debugWindowMinimize: () => ipcRenderer.send('debug:window:minimize'),
@@ -187,8 +272,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   benchmarkWindowMaximize: () => ipcRenderer.send('benchmark:window:maximize'),
   benchmarkWindowClose: () => ipcRenderer.send('benchmark:window:close'),
 
+  openRuleReviewWindow: () => ipcRenderer.send('open:rule-review-window'),
+  ruleReviewWindowMinimize: () => ipcRenderer.send('rule-review:window:minimize'),
+  ruleReviewWindowMaximize: () => ipcRenderer.send('rule-review:window:maximize'),
+  ruleReviewWindowClose: () => ipcRenderer.send('rule-review:window:close'),
+
   storeSyncToDebug: (data: { storeId: string; state: Record<string, unknown> }) =>
     ipcRenderer.send('store:syncToDebug', data),
 
-  ipcRendererSend: (channel: string, ...args: unknown[]) => ipcRenderer.send(channel, ...args)
 })

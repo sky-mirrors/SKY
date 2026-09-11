@@ -1,3 +1,5 @@
+import { debugLog } from '@/services/debugLog'
+
 export const VECTOR_DIM = 384
 
 type Embedder = { embed: (text: string) => Promise<number[]> }
@@ -22,7 +24,7 @@ export async function getEmbedder(): Promise<Embedder | null> {
       embedderReady = true
       return embedder
     } catch (err) {
-      console.warn('[Embedder] transformers.js load failed:', err)
+      debugLog('[Embedder] transformers.js load failed:', err)
       embedderPromise = null
       return null
     }

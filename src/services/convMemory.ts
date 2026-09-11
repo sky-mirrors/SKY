@@ -1,5 +1,6 @@
 import { DialogMessage } from '@/models'
 import { ingestText, hybridSearch } from './knowledgeBase'
+import { vault } from '@/vault'
 
 const CONV_SUMMARY_KEY = 'holo-conv-summaries'
 
@@ -12,13 +13,13 @@ interface PeriodSummary {
 
 function loadSummaries(): PeriodSummary[] {
   try {
-    const raw = localStorage.getItem(CONV_SUMMARY_KEY)
+    const raw = vault.readCache('conv', CONV_SUMMARY_KEY)
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
 
 function saveSummaries(summaries: PeriodSummary[]): void {
-  localStorage.setItem(CONV_SUMMARY_KEY, JSON.stringify(summaries.slice(-20)))
+  vault.writeThrough('conv', CONV_SUMMARY_KEY, JSON.stringify(summaries.slice(-20)))
 }
 
 let lastIndexTimestamp = 0
@@ -121,6 +122,6 @@ export function detectChallenge(userInput: string, lastAssistantContent: string)
 }
 
 export function clearConvMemory(): void {
-  localStorage.removeItem(CONV_SUMMARY_KEY)
-  localStorage.removeItem('holo-conv-chunks')
+  vault.delete('conv', CONV_SUMMARY_KEY).catch(() => {})
+  vault.delete('conv', 'holo-conv-chunks').catch(() => {})
 }

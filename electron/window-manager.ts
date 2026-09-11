@@ -47,7 +47,9 @@ export function createWindow(): BrowserWindow {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -96,7 +98,9 @@ export function createPipelineWindow(): BrowserWindow {
   })
 
   pipelineWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -145,7 +149,9 @@ export function createDebugWindow(): BrowserWindow {
   })
 
   debugWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -190,7 +196,9 @@ export function createBenchmarkWindow(): BrowserWindow {
   })
 
   benchmarkWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -202,6 +210,52 @@ export function createBenchmarkWindow(): BrowserWindow {
 
   benchmarkWindow.on('closed', () => { benchmarkWindow = null })
   return benchmarkWindow
+}
+
+let ruleReviewWindow: BrowserWindow | null = null
+
+export function getRuleReviewWindow(): BrowserWindow | null {
+  return ruleReviewWindow && !ruleReviewWindow.isDestroyed() ? ruleReviewWindow : null
+}
+
+export function createRuleReviewWindow(): BrowserWindow {
+  if (ruleReviewWindow && !ruleReviewWindow.isDestroyed()) {
+    ruleReviewWindow.focus()
+    return ruleReviewWindow
+  }
+
+  ruleReviewWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    show: true,
+    frame: false,
+    backgroundColor: '#050510',
+    title: 'HoloStarmap - 规则审核',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  ruleReviewWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    ruleReviewWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/rule-review.html`)
+  } else {
+    ruleReviewWindow.loadFile(join(__dirname, '../renderer/rule-review.html'))
+  }
+
+  ruleReviewWindow.on('closed', () => { ruleReviewWindow = null })
+  return ruleReviewWindow
 }
 
 export function registerGlobalShortcuts() {
