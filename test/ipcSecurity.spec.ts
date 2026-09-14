@@ -34,8 +34,8 @@ describe('IPC安全 - shell:exec 白名单机制 (生产代码导入)', () => {
       expect(isShellCommandAllowed('npm install docx').allowed).toBe(true)
     })
 
-    it('npm run 允许', () => {
-      expect(isShellCommandAllowed('npm run build').allowed).toBe(true)
+    it('npm run 已移出白名单（package.json scripts 可被伪造实现任意执行）', () => {
+      expect(isShellCommandAllowed('npm run build').allowed).toBe(false)
     })
 
     it('pip install 允许', () => {
@@ -130,8 +130,8 @@ describe('IPC安全 - shell:exec 白名单机制 (生产代码导入)', () => {
       expect(r.allowed).toBe(false)
     })
 
-    it('readFileSync → 允许', () => {
-      expect(isShellCommandAllowed('node -e "require(\'fs\').readFileSync(\'test.txt\',\'utf-8\')"').allowed).toBe(true)
+    it('readFileSync → 拒绝（P0-2：读原语可窃取 token 文件，已入黑名单）', () => {
+      expect(isShellCommandAllowed('node -e "require(\'fs\').readFileSync(\'test.txt\',\'utf-8\')"').allowed).toBe(false)
     })
 
     it('JSON操作 → 允许', () => {
@@ -262,8 +262,8 @@ describe('IPC安全 - 超时层级', () => {
     expect(getTimeoutForCommand('npm install')).toBe(120000)
   })
 
-  it('npm run build → 重型命令 tier=120s', () => {
-    expect(getTimeoutForCommand('npm run build')).toBe(120000)
+  it('npm run build → 已移出重型清单，默认 tier=60s（P1-7：npm run 整体禁用）', () => {
+    expect(getTimeoutForCommand('npm run build')).toBe(60000)
   })
 
   it('用户指定timeout被绝对上限截断', () => {

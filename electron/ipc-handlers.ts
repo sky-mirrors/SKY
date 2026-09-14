@@ -1,11 +1,13 @@
 import { ipcMain, dialog, safeStorage, app, FileFilter, shell } from 'electron'
 import { spawn } from 'child_process'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
+import { lookup } from 'dns/promises'
+import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
 import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds } from './mcp-manager'
 import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP, isMcpCommandAllowed } from './shell-security'
-import { validatePath, validateReadPath, validateOpenPath, sanitizeKey } from './pathValidator'
+import { validatePath, validateReadPath, validateOpenPath, validateWritePath, hasSuspiciousBasename, sanitizeKey } from './pathValidator'
 import archiver from 'archiver'
 import extract from 'extract-zip'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
@@ -30,6 +32,34 @@ function ensureDir(dir: string) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 }
 
+// P1-1 修复：恢复前对解压产物做条目校验（仅 store 数据、拒符号链接、限数量/大小）
+function validateExtractedBackup(rootDir: string): { files: number } {
+  const MAX_FILES = 5000
+  const MAX_FILE_BYTES = 20 * 1024 * 1024
+  const MAX_TOTAL_BYTES = 200 * 1024 * 1024
+  let files = 0
+  let total = 0
+  const walk = (dir: string): void => {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      const full = join(dir, entry.name)
+      if (entry.isSymbolicLink()) throw new Error(`备份包含符号链接，拒绝恢复: ${entry.name}`)
+      if (entry.isDirectory()) { walk(full); continue }
+      if (!entry.isFile()) throw new Error(`备份包含非常规文件，拒绝恢复: ${entry.name}`)
+      const ext = entry.name.toLowerCase().split('.').pop() || ''
+      if (!['json', 'bin'].includes(ext)) throw new Error(`备份包含不支持的文件类型(.${ext})，拒绝恢复: ${entry.name}`)
+      const size = statSync(full).size
+      if (size > MAX_FILE_BYTES) throw new Error(`备份条目过大，拒绝恢复: ${entry.name}`)
+      files++
+      total += size
+      if (files > MAX_FILES) throw new Error('备份条目数超过上限(5000)，拒绝恢复')
+      if (total > MAX_TOTAL_BYTES) throw new Error('备份总量超过上限(200MB)，拒绝恢复')
+    }
+  }
+  walk(rootDir)
+  return { files }
+}
+
 function chunkText(text: string, chunkSize: number): string[] {
   const chunks: string[] = []
   let i = 0
@@ -47,15 +77,81 @@ function chunkText(text: string, chunkSize: number): string[] {
   return chunks.filter(c => c.trim().length > 0)
 }
 
+// P0-3 修复：SSRF 防护覆盖全部私网/保留地址段（IPv4 + IPv6 字面量）
 export function isPrivateHostname(hostname: string): boolean {
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return true
-  if (hostname.startsWith('192.168.') || hostname.startsWith('10.')) return true
-  if (hostname.startsWith('172.')) {
-    const parts = hostname.split('.')
-    const second = parseInt(parts[1], 10)
-    if (second >= 16 && second <= 31) return true
-  }
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (host === 'localhost') return true
+  const version = isIP(host)
+  if (version === 4) return isPrivateIPv4(host)
+  if (version === 6) return isPrivateIPv6(host)
   return false
+}
+
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true
+  const [a, b] = parts
+  if (a === 0 || a === 10 || a === 127) return true
+  if (a === 169 && b === 254) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 192 && (b === 0 || b === 2)) return true
+  if (a === 198 && (b === 18 || b === 19)) return true
+  if (a === 198 && b === 51) return true
+  if (a === 203 && b === 0) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  if (a >= 224) return true
+  return false
+}
+
+function isPrivateIPv6(ip: string): boolean {
+  const lower = ip.toLowerCase()
+  if (lower === '::1' || lower === '::') return true
+  if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return true
+  if (lower.startsWith('100::')) return true
+  if (lower.startsWith('2001:db8:')) return true
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  if (mapped) return isPrivateIPv4(mapped[1])
+  const nat64 = lower.match(/^64:ff9b::(\d+\.\d+\.\d+\.\d+)$/)
+  if (nat64) return isPrivateIPv4(nat64[1])
+  return false
+}
+
+// P0-3 修复：非字面量域名必须 DNS 解析后逐地址判定，堵死 nip.io/localtest.me 等解析绕过
+async function isHostAllowed(hostname: string): Promise<{ allowed: boolean; reason?: string }> {
+  if (isPrivateHostname(hostname)) {
+    return { allowed: false, reason: `不允许访问内网/保留地址: ${hostname}` }
+  }
+  if (isIP(hostname.replace(/^\[|\]$/g, ''))) return { allowed: true }
+  try {
+    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    for (const { address } of addresses) {
+      const v = isIP(address)
+      const priv = v === 4 ? isPrivateIPv4(address) : v === 6 ? isPrivateIPv6(address) : true
+      if (priv) {
+        return { allowed: false, reason: `域名解析到内网/保留地址: ${hostname} -> ${address}` }
+      }
+    }
+    return { allowed: true }
+  } catch {
+    return { allowed: false, reason: `域名解析失败: ${hostname}` }
+  }
+}
+
+async function assertUrlAllowed(urlStr: string): Promise<{ ok: boolean; url?: URL; error?: string }> {
+  try {
+    const url = new URL(urlStr)
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return { ok: false, error: '仅支持 http/https 协议' }
+    }
+    const hostCheck = await isHostAllowed(url.hostname)
+    if (!hostCheck.allowed) {
+      return { ok: false, error: hostCheck.reason || `不允许访问内网地址: ${url.hostname}` }
+    }
+    return { ok: true, url }
+  } catch {
+    return { ok: false, error: `URL 格式无效: ${urlStr}` }
+  }
 }
 
 export function setupIpc(win: BrowserWindow | null) {
@@ -157,8 +253,14 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('file:write', (_event, opts: { filePath: string; content: string; encoding?: BufferEncoding }) => {
-    const pathCheck = validatePath(opts.filePath)
+    // P0-6 修复：写路径走 validateWritePath（敏感目标 + 扩展名黑名单 + 尾随点/空格），
+    // 并施加内容大小上限
+    const pathCheck = validateWritePath(opts.filePath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+    const MAX_WRITE_SIZE = 10 * 1024 * 1024
+    if ((opts.content || '').length > MAX_WRITE_SIZE) {
+      return { success: false, error: `写入内容过大，上限 10MB` }
+    }
     try {
       const dir = join(pathCheck.resolved, '..')
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -172,6 +274,9 @@ export function setupIpc(win: BrowserWindow | null) {
   ipcMain.handle('file:createDirectory', (_event, dirPath: string) => {
     const pathCheck = validatePath(dirPath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+    if (hasSuspiciousBasename(pathCheck.resolved)) {
+      return { success: false, error: `目录名以点/空格结尾或包含冒号，被安全策略拒绝: ${pathCheck.resolved}` }
+    }
     try {
       mkdirSync(pathCheck.resolved, { recursive: true })
       return { success: true, path: pathCheck.resolved }
@@ -181,7 +286,7 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('file:createDocx', async (_event, opts: { filePath: string; content?: string; title?: string }) => {
-    const pathCheck = validatePath(opts.filePath)
+    const pathCheck = validateWritePath(opts.filePath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     try {
       const dir = join(pathCheck.resolved, '..')
@@ -316,7 +421,7 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('mcp:spawn', async (_event, opts: { id: string; command: string; args: string[]; env: Record<string, string> }) => {
-    const cmdCheck = isMcpCommandAllowed(opts.command)
+    const cmdCheck = isMcpCommandAllowed(opts.command, opts.args)
     if (!cmdCheck.allowed) {
       return { success: false, error: cmdCheck.reason || 'MCP命令被安全策略拒绝' }
     }
@@ -440,7 +545,20 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('shell:exec', async (_event, opts: { command: string; cwd?: string; timeout?: number; env?: Record<string, string> }) => {
-    const check = isShellCommandAllowed(opts.command)
+    // P1-7 修复：cwd 必须通过路径校验且真实存在
+    let cwd = app.getPath('home')
+    if (opts.cwd) {
+      const cwdCheck = validatePath(opts.cwd)
+      if (!cwdCheck.safe) {
+        return { success: false, code: -1, stdout: '', stderr: `工作目录被安全策略拒绝: ${cwdCheck.reason}` }
+      }
+      if (!existsSync(cwdCheck.resolved) || !statSync(cwdCheck.resolved).isDirectory()) {
+        return { success: false, code: -1, stdout: '', stderr: `工作目录不存在: ${cwdCheck.resolved}` }
+      }
+      cwd = cwdCheck.resolved
+    }
+
+    const check = isShellCommandAllowed(opts.command, opts.cwd ? cwd : undefined)
     if (!check.allowed) {
       return { success: false, code: -1, stdout: '', stderr: check.reason || '命令被安全策略拒绝' }
     }
@@ -454,10 +572,13 @@ export function setupIpc(win: BrowserWindow | null) {
       let capTimer: ReturnType<typeof setTimeout> | undefined
       try {
         const extraNodePath = join(process.resourcesPath, 'node_modules')
+        // NODE_PATH 强制为主进程指定值，防止渲染层 env 覆盖后 node -e 加载恶意模块
+        const childEnv: Record<string, string> = { ...(process.env as Record<string, string>), NODE_PATH: extraNodePath, ...(opts.env || {}) }
+        childEnv.NODE_PATH = extraNodePath
         const child = spawn(opts.command, [], {
-          cwd: opts.cwd || app.getPath('home'),
+          cwd,
           shell: true,
-          env: { ...(process.env as Record<string, string>), NODE_PATH: extraNodePath, ...(opts.env || {}) }
+          env: childEnv
         })
         child.stdout?.on('data', (data: Buffer) => { stdout += data.toString() })
         child.stderr?.on('data', (data: Buffer) => { stderr += data.toString() })
@@ -505,32 +626,55 @@ export function setupIpc(win: BrowserWindow | null) {
     if (!HTTP_ALLOWED_METHODS.includes(method)) {
       return { success: false, status: 0, error: `方法不允许: ${method}，仅支持 ${HTTP_ALLOWED_METHODS.join('/')}` }
     }
-    try {
-      const url = new URL(opts.url)
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        return { success: false, status: 0, error: `仅支持 http/https 协议` }
-      }
-      if (isPrivateHostname(url.hostname)) {
-        return { success: false, status: 0, error: `不允许访问内网地址: ${url.hostname}` }
-      }
-    } catch {
-      return { success: false, status: 0, error: `URL 格式无效: ${opts.url}` }
-    }
     if (opts.body && opts.body.length > HTTP_MAX_BODY_SIZE) {
       return { success: false, status: 0, error: `请求体过大，上限 1MB` }
     }
     const tierTimeout = Math.min(opts.timeout || HTTP_TIMEOUT_TIER[method] || 30000, HTTP_ABSOLUTE_CAP)
+    const MAX_REDIRECTS = 3
     try {
-      const controller = new AbortController()
-      const tierTimer = setTimeout(() => controller.abort(), tierTimeout)
-      let capAborted = false
-      const capTimer = setTimeout(() => { capAborted = true; controller.abort() }, HTTP_ABSOLUTE_CAP)
-      const fetchOpts: Record<string, unknown> = { method, signal: controller.signal }
-      if (opts.headers) fetchOpts.headers = opts.headers
-      if (opts.body && method !== 'GET' && method !== 'HEAD') fetchOpts.body = opts.body
-      const resp = await fetch(opts.url, fetchOpts)
-      clearTimeout(tierTimer)
-      clearTimeout(capTimer)
+      let currentUrl = opts.url
+      let currentMethod = method
+      let currentBody = opts.body
+      let resp: Response | null = null
+
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        // P0-3 修复：每一跳都重新做协议 + DNS 解析 + 私网判定，堵死 302 重定向绕过
+        const urlCheck = await assertUrlAllowed(currentUrl)
+        if (!urlCheck.ok) {
+          return { success: false, status: 0, error: urlCheck.error || 'URL 校验失败' }
+        }
+        const controller = new AbortController()
+        const tierTimer = setTimeout(() => controller.abort(), tierTimeout)
+        const capTimer = setTimeout(() => controller.abort(), HTTP_ABSOLUTE_CAP)
+        try {
+          const fetchOpts: Record<string, unknown> = { method: currentMethod, signal: controller.signal, redirect: 'manual' }
+          if (opts.headers) fetchOpts.headers = opts.headers
+          if (currentBody && currentMethod !== 'GET' && currentMethod !== 'HEAD') fetchOpts.body = currentBody
+          resp = await fetch(currentUrl, fetchOpts)
+        } finally {
+          clearTimeout(tierTimer)
+          clearTimeout(capTimer)
+        }
+
+        if ([301, 302, 303, 307, 308].includes(resp.status)) {
+          const location = resp.headers.get('location')
+          if (!location) break
+          if (hop === MAX_REDIRECTS) {
+            return { success: false, status: 0, error: `重定向次数超过上限(${MAX_REDIRECTS})` }
+          }
+          currentUrl = new URL(location, currentUrl).toString()
+          if ([301, 302, 303].includes(resp.status)) {
+            currentMethod = 'GET'
+            currentBody = undefined
+          }
+          continue
+        }
+        break
+      }
+
+      if (!resp) {
+        return { success: false, status: 0, error: '请求未产生响应' }
+      }
       const text = await resp.text()
       return { success: true, status: resp.status, headers: Object.fromEntries(resp.headers.entries()), body: text.substring(0, 512000) }
     } catch (e: unknown) {
@@ -558,7 +702,9 @@ export function setupIpc(win: BrowserWindow | null) {
   })
 
   ipcMain.handle('backup:restore', async () => {
+    // P1-1 修复：解压到临时目录 → 条目校验 → 快照现网 → 原子交换，失败可回滚
     if (!mainWindow) return { success: false, error: 'No window' }
+    let tmpDir = ''
     try {
       const result = await dialog.showOpenDialog(mainWindow, {
         properties: ['openFile'],
@@ -566,10 +712,32 @@ export function setupIpc(win: BrowserWindow | null) {
         title: '选择备份文件恢复'
       })
       if (result.canceled || result.filePaths.length === 0) return { success: false, error: '取消选择' }
-      await extract(result.filePaths[0], { dir: storeDir })
-      return { success: true, message: '备份已恢复，请重启应用生效' }
+
+      tmpDir = join(userDataDir, `restore-tmp-${Date.now()}`)
+      mkdirSync(tmpDir, { recursive: true })
+      await extract(result.filePaths[0], { dir: tmpDir })
+
+      const extractedStore = join(tmpDir, 'store')
+      if (!existsSync(extractedStore)) {
+        throw new Error('备份内不含 store 目录，不是有效的 HoloStarmap 备份')
+      }
+      const validated = validateExtractedBackup(extractedStore)
+
+      const snapshotDir = join(userDataDir, `store-pre-restore-${Date.now()}`)
+      renameSync(storeDir, snapshotDir)
+      try {
+        renameSync(extractedStore, storeDir)
+      } catch (e: unknown) {
+        renameSync(snapshotDir, storeDir)
+        throw e
+      }
+      return { success: true, message: `备份已恢复（${validated.files} 个文件）。恢复前数据已快照至 ${snapshotDir}，请重启应用生效` }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
+    } finally {
+      if (tmpDir) {
+        try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
+      }
     }
   })
 
@@ -660,8 +828,9 @@ export function setupIpc(win: BrowserWindow | null) {
       }
       try {
         const baseUrlObj = new URL(baseUrl)
-        if (isPrivateHostname(baseUrlObj.hostname)) {
-          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}` }
+        const hostCheck = await isHostAllowed(baseUrlObj.hostname)
+        if (!hostCheck.allowed) {
+          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}（${hostCheck.reason || ''}）` }
         }
       } catch {
         return { success: false, error: 'LLM API base URL格式无效' }
@@ -796,8 +965,9 @@ export function setupIpc(win: BrowserWindow | null) {
       const baseUrl = provider.baseUrl.replace(/\/+$/, '')
       try {
         const baseUrlObj = new URL(baseUrl)
-        if (isPrivateHostname(baseUrlObj.hostname)) {
-          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}` }
+        const hostCheck = await isHostAllowed(baseUrlObj.hostname)
+        if (!hostCheck.allowed) {
+          return { success: false, error: `LLM API不允许访问内网地址: ${baseUrlObj.hostname}（${hostCheck.reason || ''}）` }
         }
       } catch {
         return { success: false, error: 'LLM API base URL格式无效' }
@@ -1078,8 +1248,9 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     }
     try {
       const baseUrlObj = new URL(baseUrl)
-      if (isPrivateHostname(baseUrlObj.hostname)) {
-        event.sender.send(errorChannel, `LLM API不允许访问内网地址: ${baseUrlObj.hostname}`)
+      const hostCheck = await isHostAllowed(baseUrlObj.hostname)
+      if (!hostCheck.allowed) {
+        event.sender.send(errorChannel, `LLM API不允许访问内网地址: ${baseUrlObj.hostname}（${hostCheck.reason || ''}）`)
         activeStreamControllers.delete(streamId)
         return
       }

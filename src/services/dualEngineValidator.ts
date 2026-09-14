@@ -72,9 +72,13 @@ function extractTargetFile(command: string): string {
   const writeFileRe = new RegExp(`writeFile\\s*\\(\\s*(?:${sq}|${dq}|${edq})`)
   const writeFileMatch = command.match(writeFileRe)
   if (writeFileMatch) return writeFileMatch[1] ?? writeFileMatch[2] ?? writeFileMatch[3]
-  const pathRe = new RegExp(`(?:${sq}|${dq}|${edq})((?:[A-Za-z]:[\\\\/]|/)[^'"\\\\]+\\.[A-Za-z]\\w+)(?:${sq}|${dq}|${edq})`)
+  // A4-9 修复：引号组改为非捕获，使路径升为组 1（原实现取组 1/2/3 返回引号串内容）
+  const ncsq = "'(?:[^'\\\\]|\\\\.)+?'"
+  const ncdq = '"(?:[^"\\\\]|\\\\.)+?"'
+  const ncedq = '\\\\"(?:[^"\\\\]|\\\\.)+?\\\\"'
+  const pathRe = new RegExp(`(?:${ncsq}|${ncdq}|${ncedq})((?:[A-Za-z]:[\\\\/]|/)[^'\"\\\\]+\\.[A-Za-z]\\w+)(?:${ncsq}|${ncdq}|${ncedq})`)
   const pathMatch = command.match(pathRe)
-  if (pathMatch) return pathMatch[1] ?? pathMatch[2] ?? pathMatch[3]
+  if (pathMatch) return pathMatch[1]
   return '(未知)'
 }
 
@@ -94,6 +98,10 @@ export function shouldValidate(step: { tool: string; params?: Record<string, unk
   if (step.tool === 'file_write') return true
   if (step.tool === 'http_request') return true
   if (step.tool === 'read_file') return true
+  // A4-24 修复：目录创建 / docx 落盘 / MCP 工具调用纳入双引擎审计
+  if (step.tool === 'create_directory') return true
+  if (step.tool === 'create_docx') return true
+  if (step.tool.includes('___')) return true
   return false
 }
 
@@ -158,6 +166,33 @@ export function buildActionManifest(
       target_file: filePath,
       operation: pathUnsafe ? '危险路径文件读取' : '文件读取',
       expected_output: `读取目标: ${filePath}`,
+      intent: userInput.substring(0, 200),
+      isHighRisk: pathUnsafe
+    }
+  }
+
+  // A4-24 修复：create_directory / create_docx / MCP 工具的 manifest 构造
+  if (step.tool === 'create_directory' || step.tool === 'create_docx') {
+    const targetPath = String(step.params?.path || step.params?.dirPath || step.params?.filePath || step.params?.file || '')
+    const pathUnsafe = !isPathSafe(targetPath)
+    return {
+      skill_id: manifestId,
+      target_file: targetPath,
+      operation: pathUnsafe ? `危险路径${step.tool === 'create_docx' ? 'docx写入' : '目录创建'}` : (step.tool === 'create_docx' ? 'docx文件创建' : '目录创建'),
+      expected_output: `目标: ${targetPath}`,
+      intent: userInput.substring(0, 200),
+      isHighRisk: pathUnsafe
+    }
+  }
+
+  if (step.tool.includes('___')) {
+    const targetPath = extractFilePath(step.params)
+    const pathUnsafe = targetPath ? !isPathSafe(targetPath) : false
+    return {
+      skill_id: manifestId,
+      target_file: targetPath || `(MCP工具: ${step.tool})`,
+      operation: pathUnsafe ? '危险路径MCP工具调用' : 'MCP工具调用',
+      expected_output: `MCP工具: ${step.tool}`,
       intent: userInput.substring(0, 200),
       isHighRisk: pathUnsafe
     }

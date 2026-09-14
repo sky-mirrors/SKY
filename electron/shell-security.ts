@@ -1,6 +1,8 @@
+import { resolve } from 'path'
+import { validateReadPath, validateWritePath } from './pathValidator'
+
 const SHELL_ALLOWED_COMMANDS = [
   'npm install',
-  'npm run',
   'dir ',
   'ls',
   'cat ',
@@ -14,15 +16,37 @@ const SHELL_ALLOWED_COMMANDS = [
   'pip install'
 ]
 
+// P0-1 修复：cmd.exe 元字符黑名单。% 与换行任意位置拒绝（%VAR% 展开后
+// 的 & 仍是命令分隔符）；& | < > ^ 仅在双引号外拒绝（引号内为字面量）
+export function findShellMetacharacter(command: string): string | null {
+  let inQuote = false
+  for (const ch of command) {
+    if (ch === '"') { inQuote = !inQuote; continue }
+    if (ch === '%') return '%'
+    if (ch === '\n') return '\\n'
+    if (ch === '\r') return '\\r'
+    if (!inQuote && (ch === '&' || ch === '|' || ch === '<' || ch === '>' || ch === '^')) return ch
+  }
+  if (inQuote) return '"'
+  return null
+}
+
 const NODE_E_DANGEROUS_PATTERNS = [
   /require\s*\(\s*['"]child_process['"]\s*\)/,
   /require\s*\(\s*['"]net['"]\s*\)/,
   /require\s*\(\s*['"]http['"]\s*\)/,
   /require\s*\(\s*['"]https['"]\s*\)/,
   /require\s*\(\s*['"]dgram['"]\s*\)/,
+  /require\s*\(\s*['"]vm['"]\s*\)/,
+  /require\s*\(\s*['"]worker_threads['"]\s*\)/,
+  /require\s*\(\s*['"]dns['"]\s*\)/,
+  /require\s*\(\s*['"]repl['"]\s*\)/,
+  /require\s*\(\s*['"]module['"]\s*\)/,
   /process\.exit/,
   /process\.kill/,
   /process\.binding/,
+  /process\.mainModule/,
+  /import\s*\(/,
   /eval\s*\(/,
   /Function\s*\(/i,
   /child_process/,
@@ -48,6 +72,9 @@ const NODE_E_DANGEROUS_PATTERNS = [
   /\.writefile\s*\(/i,
   /\.writefilesync\s*\(/i,
   /\.createwritestream\s*\(/i,
+  /\.readfilesync\s*\(/i,
+  /\.readfile\s*\(/i,
+  /\.createreadstream\s*\(/i,
   /rm\s+-rf/,
   /del\s+\/[sS]/,
   /format\s+[a-zA-Z]:/,
@@ -121,22 +148,124 @@ const MCP_ALLOWED_COMMANDS = [
   'uvx',
 ]
 
-export function isMcpCommandAllowed(command: string): { allowed: boolean; reason?: string } {
-  const firstWord = command.trim().split(/\s+/)[0].toLowerCase()
+function defaultHome(): string {
+  return process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+}
+
+// P1-3 修复：MCP 解释器参数约束。内联代码/任意模块执行一律禁止；
+// 脚本路径参数必须通过 validateReadPath
+export function isMcpCommandAllowed(command: string, args?: string[]): { allowed: boolean; reason?: string } {
+  const parts = command.trim().split(/\s+/)
+  const firstWord = (parts[0] || '').toLowerCase()
   if (!MCP_ALLOWED_COMMANDS.includes(firstWord)) {
     return { allowed: false, reason: `MCP命令不在白名单中: ${firstWord}` }
   }
+  const argList = [...parts.slice(1), ...(args || []).map(a => String(a))]
+  if (argList.some(a => /[\n\r]/.test(a))) {
+    return { allowed: false, reason: 'MCP参数包含换行符，被安全策略拒绝' }
+  }
+  if (argList.some(a => /^https?:\/\//i.test(a))) {
+    return { allowed: false, reason: 'MCP参数不允许URL，被安全策略拒绝' }
+  }
+
   if (firstWord === 'npx') {
     const rest = command.trim().substring(4).trim()
-    if (!rest.startsWith('@modelcontextprotocol/') && !rest.startsWith('@anthropic/')) {
+    if (rest && !rest.startsWith('@modelcontextprotocol/') && !rest.startsWith('@anthropic/')) {
       return { allowed: false, reason: `npx仅允许@modelcontextprotocol/或@anthropic/包: ${rest.substring(0, 50)}` }
+    }
+    if (!rest) {
+      const pkg = argList.find(a => !a.startsWith('-'))
+      if (pkg && !pkg.startsWith('@modelcontextprotocol/') && !pkg.startsWith('@anthropic/')) {
+        return { allowed: false, reason: `npx仅允许@modelcontextprotocol/或@anthropic/包: ${pkg.substring(0, 50)}` }
+      }
+    }
+    return { allowed: true }
+  }
+
+  if (firstWord === 'uvx') {
+    const pkg = argList.find(a => !a.startsWith('-'))
+    const pkgRe = /^(@[a-z0-9][-a-z0-9]*[a-z0-9]\/)?[a-z0-9][-a-z0-9._]*[a-z0-9]$/
+    if (pkg && !pkgRe.test(pkg)) {
+      return { allowed: false, reason: `uvx包名不合法，被安全策略拒绝: ${pkg.substring(0, 50)}` }
+    }
+    return { allowed: true }
+  }
+
+  // node / python / python3
+  for (const arg of argList) {
+    if (/^-{1,2}(e|eval|p|print|c|command|m|module|stdin)$/i.test(arg)) {
+      return { allowed: false, reason: `MCP解释器参数被禁止: ${arg}` }
+    }
+    const isPathLike = /^[A-Za-z]:[\\/]/.test(arg) || arg.includes('/') || arg.includes('\\') || /\.(js|mjs|cjs|py|pyw)$/i.test(arg)
+    if (isPathLike) {
+      const target = /^[A-Za-z]:[\\/]/.test(arg) || arg.startsWith('/') || arg.startsWith('\\') ? arg : resolve(defaultHome(), arg)
+      const check = validateReadPath(target)
+      if (!check.safe) {
+        return { allowed: false, reason: `MCP脚本路径被拒绝: ${check.reason}` }
+      }
     }
   }
   return { allowed: true }
 }
 
-export function isShellCommandAllowed(command: string): { allowed: boolean; reason?: string } {
-  const trimmed = command.trim().toLowerCase()
+const READ_SHELL_COMMANDS = ['type', 'cat', 'head', 'tail', 'find', 'grep', 'wc']
+const WRITE_SHELL_COMMANDS = ['mkdir', 'copy', 'cp']
+
+function tokenizeArgs(command: string): string[] {
+  const tokens: string[] = []
+  let cur = ''
+  let inQuote = false
+  for (const ch of command) {
+    if (ch === '"') { inQuote = !inQuote; continue }
+    if (!inQuote && /\s/.test(ch)) {
+      if (cur) { tokens.push(cur); cur = '' }
+      continue
+    }
+    cur += ch
+  }
+  if (cur) tokens.push(cur)
+  return tokens
+}
+
+function resolveAgainstCwd(token: string, cwd?: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(token) || token.startsWith('/') || token.startsWith('\\')) return token
+  return resolve(cwd || defaultHome(), token)
+}
+
+// P0-1 修复：读类白名单命令的路径参数必须通过 validateReadPath，
+// 堵死 `type C:\Users\x\.ssh\id_rsa` 这类绕过 pathValidator 的读取
+function validateShellPathArgs(command: string, cwd?: string): { allowed: boolean; reason?: string } {
+  const trimmed = command.trim()
+  const firstWord = trimmed.split(/\s+/)[0].toLowerCase()
+  const tokens = tokenizeArgs(trimmed).filter(t => !t.startsWith('-') && !t.startsWith('/'))
+
+  if (READ_SHELL_COMMANDS.includes(firstWord)) {
+    for (const token of tokens) {
+      const check = validateReadPath(resolveAgainstCwd(token, cwd))
+      if (!check.safe) return { allowed: false, reason: `读取路径被安全策略拒绝: ${check.reason}` }
+    }
+  }
+  if (WRITE_SHELL_COMMANDS.includes(firstWord)) {
+    for (let i = 0; i < tokens.length; i++) {
+      const target = resolveAgainstCwd(tokens[i], cwd)
+      // copy/cp 首个参数为源（读），其余为目标（写）；mkdir 直接按写目标校验
+      const check = (firstWord === 'mkdir' || (firstWord !== 'mkdir' && i > 0))
+        ? validateWritePath(target)
+        : validateReadPath(target)
+      if (!check.safe) return { allowed: false, reason: `路径参数被安全策略拒绝: ${check.reason}` }
+    }
+  }
+  return { allowed: true }
+}
+
+export function isShellCommandAllowed(command: string, cwd?: string): { allowed: boolean; reason?: string } {
+  const raw = typeof command === 'string' ? command : ''
+  const metachar = findShellMetacharacter(raw)
+  if (metachar) {
+    return { allowed: false, reason: `命令包含shell元字符 '${metachar}'，被安全策略拒绝` }
+  }
+
+  const trimmed = raw.trim().toLowerCase()
 
   if (trimmed.startsWith('node -e ') || trimmed.startsWith('node -e"')) {
     const codeContent = trimmed.replace(/^node\s+-e\s*/, '').replace(/^node\s+-e"/, '').replace(/"$/, '')
@@ -172,9 +301,17 @@ export function isShellCommandAllowed(command: string): { allowed: boolean; reas
     return { allowed: false, reason: 'node脚本执行仅允许通过MCP spawn或node -e受限模式，被安全策略拒绝' }
   }
 
+  if (trimmed.startsWith('npm run')) {
+    // P1-7 修复：npm run 读取 cwd 下的 package.json scripts，
+    // 渲染层可用 file:write 伪造 package.json 实现任意执行，移出白名单
+    return { allowed: false, reason: 'npm run 已移出白名单（package.json scripts 可被伪造实现任意执行），被安全策略拒绝' }
+  }
+
   const firstCmd = trimmed.split(/\s+/)[0] + ' '
   for (const allowed of SHELL_ALLOWED_COMMANDS) {
     if (trimmed.startsWith(allowed.toLowerCase()) || firstCmd === allowed.toLowerCase()) {
+      const pathArgCheck = validateShellPathArgs(raw, cwd)
+      if (!pathArgCheck.allowed) return pathArgCheck
       return { allowed: true }
     }
   }
@@ -183,7 +320,7 @@ export function isShellCommandAllowed(command: string): { allowed: boolean; reas
 }
 
 const QUICK_COMMANDS = ['ls', 'dir', 'cat', 'type', 'echo', 'pwd', 'cd', 'hostname', 'date', 'wc', 'head', 'tail', 'find', 'where', 'which', 'grep', 'sort', 'uniq', 'mkdir']
-const HEAVY_COMMANDS = ['npm run build', 'npm install', 'npm ci', 'pip install', 'yarn install', 'pnpm install']
+const HEAVY_COMMANDS = ['npm install', 'npm ci', 'pip install', 'yarn install', 'pnpm install']
 const QUICK_TIMEOUT = 10000
 const STANDARD_TIMEOUT = 60000
 const HEAVY_TIMEOUT = 120000

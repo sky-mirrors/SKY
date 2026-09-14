@@ -476,7 +476,7 @@ export async function executeStep(
       groundTruthEntities = extractEntities(contextText.substring(0, 5000))
     }
 
-    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'read_file') {
+    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'read_file' || step.tool === 'create_directory' || step.tool === 'create_docx' || step.tool.includes('___')) {
       const { shouldValidate, buildActionManifest, dualEngineValidate } = await import('./dualEngineValidator')
       if (shouldValidate(step, manifest.identity.id)) {
         const actionManifest = buildActionManifest(manifest.identity.id, step, userInput.inputText || '')
