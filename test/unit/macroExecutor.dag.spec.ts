@@ -130,7 +130,7 @@ describe('executeMacro DAG编排', () => {
     globalBus.on('debug:log-probe', () => {})
     globalBus.on('debug:register-abort', () => {})
     globalBus.on('debug:clear-abort', () => {})
-    globalBus.registerHandler('llm:chat-completion', (data: any) => llmChatCompletionFn(data))
+    globalBus.registerHandler('api:chat-completion', (data: any) => llmChatCompletionFn(data))
     globalBus.registerHandler('dialog:confirm-risk', () => true)
   })
 

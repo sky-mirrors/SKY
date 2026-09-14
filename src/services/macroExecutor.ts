@@ -279,12 +279,13 @@ export async function callToolDirectWithTier(
       }
 
       try {
-        const resp = await globalBus.requestAsync<{ content: string }>('llm:chat-completion', {
-          messages: [{ role: 'user', content: prompt }],
-          stream: true,
+        // P0-10：原请求 llm:chat-completion 死频道（全仓无注册，每次必抛）；改走 api:chat-completion，
+        // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
+        const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
+          messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
           maxTokens: Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
           signal: controller.signal,
-          meta: { taskType: 'llm_generate', callerId: `macro:${currentTier}` }
+          routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}` }
         })
         clearTimeout(timeoutId)
         return resp.content || '(LLM无输出)'
@@ -494,13 +495,15 @@ export async function executeStep(
           throw new Error(msg)
         }
         if (validation.risk_level === 'high') {
+          // P0-9：fail-closed——确认通道断裂、超时、任何异常均按拒绝处理，高危命令绝不无确认执行
+          let approved = false
           try {
-            const approved = await globalBus.requestAsync<boolean>('dialog:confirm-risk', { actionManifest })
-            if (!approved) {
-              throw new Error('用户拒绝高风险操作')
-            }
+            approved = await globalBus.requestAsync<boolean>('dialog:confirm-risk', { actionManifest })
           } catch (e) {
-            if ((e as Error).message === '用户拒绝高风险操作') throw e
+            debugLog(`[macroExecutor] 高风险确认链异常，按拒绝处理: ${e}`)
+          }
+          if (!approved) {
+            throw new Error('用户拒绝高风险操作')
           }
         }
       }
@@ -586,15 +589,33 @@ export async function executeStep(
               try { globalBus.emit('debug:log-event', { level: 'warn', tag: 'shell', message: `[安全拒绝] npm包名不合法: ${mod}` }) } catch { /* ignore */ }
             } else {
               try {
-                const installResult = await window.electronAPI?.shellExec({
-                  command: `npm install ${mod}`,
-                  timeout: 30000
-                })
-                if (installResult?.success) {
-                  try { globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[自动修复] 已安装缺失模块: ${mod}` }) } catch { /* ignore */ }
-                  const retryResult = await callToolDirectWithTier(step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
-                  onStepDone?.(step.step, retryResult)
-                  return { done: true, result: retryResult, fromCache: false }
+                // P1-23：错误文本不可信——自动装包前必须经用户确认，恶意输出可诱导安装任意包
+                let installApproved = false
+                try {
+                  installApproved = await globalBus.requestAsync<boolean>('dialog:confirm-risk', {
+                    actionManifest: {
+                      skill_id: manifest.identity.id,
+                      target_file: `npm:${mod}`,
+                      operation: '自动安装缺失npm模块（包名提取自不可信错误信息）',
+                      expected_output: `npm install ${mod}`,
+                      intent: (userInput.inputText || '').substring(0, 200),
+                      isHighRisk: true
+                    }
+                  })
+                } catch { installApproved = false }
+                if (!installApproved) {
+                  try { globalBus.emit('debug:log-event', { level: 'warn', tag: 'shell', message: `[安全拦截] 用户未确认，跳过自动安装: ${mod}` }) } catch { /* ignore */ }
+                } else {
+                  const installResult = await window.electronAPI?.shellExec({
+                    command: `npm install ${mod}`,
+                    timeout: 30000
+                  })
+                  if (installResult?.success) {
+                    try { globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[自动修复] 已安装缺失模块: ${mod}` }) } catch { /* ignore */ }
+                    const retryResult = await callToolDirectWithTier(step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
+                    onStepDone?.(step.step, retryResult)
+                    return { done: true, result: retryResult, fromCache: false }
+                  }
                 }
               } catch { /* install failed, fall through */ }
             }
@@ -733,12 +754,12 @@ export async function executeMacro(
       variables[slot.name.replace(/[{}]/g, '')] = value
     }
     const prompt = fillCompiledPrompt(compiled, variables)
-    const resp = await globalBus.requestAsync<{ content: string }>('llm:chat-completion', {
-      messages: [{ role: 'user', content: prompt }],
-      stream: true,
+    // P0-10：同上——死频道 llm:chat-completion 改走 api:chat-completion
+    const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
+      messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
       maxTokens: execution.directCall.maxTokens,
       signal: macroController.signal,
-      meta: { taskType: 'raap', callerId: 'macro_directCall' }
+      routingOptions: { taskType: 'raap', callerId: 'macro_directCall' }
     })
     return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }] }
   }

@@ -50,4 +50,11 @@ export function registerApiHandlers(bus: HoloEventBus) {
     const store = useApiStore()
     return store.config.models
   })
+
+  // P0-10：补齐死频道——executePipeline 入口的同步 request 原在此处必抛（无 handler 即 throw），
+  // 整条 L1 流水线 100% 崩溃。返回 apiStore 既有的 gatewayAdapter。
+  bus.registerHandler('llm:get-gateway', () => {
+    const store = useApiStore()
+    return store.gatewayAdapter
+  })
 }

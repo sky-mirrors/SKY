@@ -122,7 +122,7 @@ describe('executeStep', () => {
     globalBus.on('debug:log-probe', () => {})
     globalBus.on('debug:register-abort', () => {})
     globalBus.on('debug:clear-abort', () => {})
-    globalBus.registerHandler('llm:chat-completion', (data: any) => llmChatCompletionFn(data))
+    globalBus.registerHandler('api:chat-completion', (data: any) => llmChatCompletionFn(data))
     globalBus.registerHandler('dialog:confirm-risk', () => true)
   })
 
@@ -253,6 +253,53 @@ describe('executeStep', () => {
     const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults)
     expect(result.done).toBe(true)
     expect(result.result).toBe('retry-output')
+  })
+
+  it('P0-9回归：高风险步骤用户确认通过 → 执行', async () => {
+    const { shouldValidate, dualEngineValidate } = await import('@/services/dualEngineValidator')
+    vi.mocked(shouldValidate).mockReturnValueOnce(true)
+    vi.mocked(dualEngineValidate).mockResolvedValueOnce({ intent_match: true, parameter_sane: true, risk_level: 'high', reason: '测试高风险' })
+    const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults)
+    expect(result.done).toBe(true)
+    expect(result.result).toBe('shell-output')
+  })
+
+  it('P0-9回归：高风险确认链异常 → fail-closed 拒绝执行', async () => {
+    const { shouldValidate, dualEngineValidate } = await import('@/services/dualEngineValidator')
+    vi.mocked(shouldValidate).mockReturnValueOnce(true)
+    vi.mocked(dualEngineValidate).mockResolvedValueOnce({ intent_match: true, parameter_sane: true, risk_level: 'high', reason: '测试高风险' })
+    globalBus.registerHandler('dialog:confirm-risk', async () => { throw new Error('确认链路断裂') })
+    const onStepFailed = vi.fn()
+    const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults, undefined, undefined, onStepFailed)
+    expect(result.done).toBe(false)
+    expect(shellExecFn).not.toHaveBeenCalled()
+    expect(onStepFailed).toHaveBeenCalled()
+  })
+
+  it('P0-9回归：高风险用户拒绝 → 不执行', async () => {
+    const { shouldValidate, dualEngineValidate } = await import('@/services/dualEngineValidator')
+    vi.mocked(shouldValidate).mockReturnValueOnce(true)
+    vi.mocked(dualEngineValidate).mockResolvedValueOnce({ intent_match: true, parameter_sane: true, risk_level: 'high', reason: '测试高风险' })
+    globalBus.registerHandler('dialog:confirm-risk', () => false)
+    const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults)
+    expect(result.done).toBe(false)
+    expect(shellExecFn).not.toHaveBeenCalled()
+  })
+
+  it('P1-23回归：npm自动装包未获用户确认 → 拒绝安装', async () => {
+    let callCount = 0
+    shellExecFn.mockImplementation(() => {
+      callCount++
+      if (callCount === 1) return Promise.reject(new Error("cannot find module 'lodash'"))
+      return Promise.resolve({ success: true, stdout: 'should-not-happen', stderr: '', code: 0 })
+    })
+    const { classifyError } = await import('@/services/errorClassifier')
+    vi.mocked(classifyError).mockResolvedValueOnce({ category: 'resource_missing', action: 'retry_with_fix', fixHint: 'install lodash' })
+    globalBus.registerHandler('dialog:confirm-risk', () => false)
+    const onStepFailed = vi.fn()
+    const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults, undefined, undefined, onStepFailed)
+    expect(result.done).toBe(false)
+    expect(callCount).toBe(1)
   })
 
   it('retry action重试成功', async () => {
