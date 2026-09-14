@@ -196,6 +196,7 @@ export interface SearchScope {
   ownerType?: 'global' | 'session' | 'pipeline' | 'group' | 'conversation'
   ownerId?: string
   groupIds?: string[]
+  partition?: { kind: 'kernel' | 'pack' | 'user'; id?: string }
 }
 
 export async function ingestFile(file: File, target: IngestTarget = { type: 'global' }): Promise<KnowledgeEntry> {
@@ -244,6 +245,23 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
 }
 
 export async function ingestText(text: string, target: IngestTarget = { type: 'global' }, label?: string): Promise<KnowledgeEntry> {
+  return ingestTextCore(text, target, label, undefined)
+}
+
+/**
+ * 规格 M11/8.4：pack 知识层摄取——条目打上 partition='pack' / partitionId=packId 标签，
+ * 无 partition scope 的检索对其完全不可见（零污染）。
+ */
+export async function ingestPackText(text: string, packId: string, label?: string): Promise<KnowledgeEntry> {
+  return ingestTextCore(text, { type: 'global' }, label, { kind: 'pack', id: packId })
+}
+
+async function ingestTextCore(
+  text: string,
+  target: IngestTarget,
+  label: string | undefined,
+  partition: { kind: 'kernel' | 'pack' | 'user'; id?: string } | undefined
+): Promise<KnowledgeEntry> {
   const chunks = chunkBySemantic(text, 512)
   const chunkRecords: ChunkRecord[] = []
   for (let idx = 0; idx < chunks.length; idx++) {
@@ -266,7 +284,9 @@ export async function ingestText(text: string, target: IngestTarget = { type: 'g
     fingerprint: computeFingerprint(text),
     createdAt: Date.now(),
     ownerType: target.type,
-    ownerId: target.ownerId
+    ownerId: target.ownerId,
+    partition: partition?.kind,
+    partitionId: partition?.id
   }
 
   for (const cr of chunkRecords) {
@@ -289,6 +309,20 @@ export async function searchKnowledge(query: string, topK: number = 5, scope?: S
 
 export async function hybridSearch(query: string, topK: number = 5, scope?: SearchScope): Promise<SearchResult[]> {
   let entries = getKnowledgeEntries()
+
+  // 规格 M11：partition 过滤（先于 ownerType/groupIds 过滤执行，二者正交叠加 AND）。
+  // - 显式 partition scope → 仅保留归属分区匹配的条目（pack 需 partitionId 精确相等）；
+  // - 无 partition scope → 默认可见范围 = user / undefined / kernel，pack 条目完全不可见（零污染兜底）。
+  if (scope && scope.partition) {
+    if (scope.partition.kind === 'pack') {
+      const packId = scope.partition.id || ''
+      entries = entries.filter(e => e.partition === 'pack' && (e.partitionId || '') === packId)
+    } else {
+      entries = entries.filter(e => (e.partition || 'user') === scope.partition!.kind)
+    }
+  } else {
+    entries = entries.filter(e => e.partition === undefined || e.partition === 'user' || e.partition === 'kernel')
+  }
 
   if (scope) {
     const allowedIds = new Set<string>()

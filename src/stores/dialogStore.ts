@@ -26,6 +26,9 @@ import type { RaapMatchResult, UniversalMatchResult, MatchableItem } from '@/ser
 import { tryL0Skill, buildExplorePlan, classifyDomain, tryL05QuickMatch, checkL1Capability } from '@/services/l0SkillRouter'
 import type { L0DirectPlan } from '@/services/l0SkillRouter'
 import { vault } from '@/vault'
+import { kernelRegistry } from '@/host/kernelRuntime'
+import type { DefaultKernelContext } from '@/kernels/default'
+import type { FunnelOutcome } from '@/kernel/funnel'
 
 function planContainsShellExec(plan: TaskPlan): boolean {
   return plan.steps.some(s => s.tool === 'shell_exec')
@@ -535,6 +538,293 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       .trim()
   }
 
+  // ===== Phase 3 灰度：六层漏斗 shadow 对照（vault 配置 config:holo-funnel-shadow = '1' 开启）=====
+  let funnelShadowEnabled: boolean | null = null
+
+  /** 旧路径 debug:log-probe 层信号 → 终点判定（仅层命中级别；暂停点/notice 类终点无法自动判定） */
+  function legacyEndpointFromTrail(trail: string[]): string {
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const m = trail[i]
+      if (m.includes('探索模式')) return 'L4'
+      if (m.includes('LLM仲裁选中')) return m.includes('MCP工具') ? 'mcp-direct' : 'L3'
+      if (m.includes('[Router] RaaP命中') || m.includes('[Router] RaaP直调')) return 'L2'
+      if (m.includes('[Router] L1命中')) return 'L1'
+      if (m.includes('[Router] L0.5命中')) return 'L0.5'
+      if (m.includes('[Router] L0命中')) return 'L0'
+    }
+    return 'unknown'
+  }
+
+  function funnelEndpointOf(outcome: FunnelOutcome): string {
+    if (outcome.kind === 'plan') return outcome.source
+    return outcome.kind
+  }
+
+  /**
+   * shadow 对照：与旧六层内联路由并行跑 funnel（kernelRegistry.route），
+   * 通过 debug:log-probe 事件流收集旧路径层信号做终点对照，差异 emit `funnel:shadow-diff`。
+   * 全程 try/catch + finally 解绑，任何失败不影响主路径。
+   */
+  async function runFunnelShadow(content: string, allMcpTools: { name: string; description: string }[], recentUserMsg: string): Promise<void> {
+    try {
+      if (funnelShadowEnabled === null) {
+        funnelShadowEnabled = (await vault.read('config', 'holo-funnel-shadow')) === '1'
+      }
+      if (!funnelShadowEnabled) return
+
+      const started = Date.now()
+      const legacyTrail: string[] = []
+      const dispose = globalBus.on('debug:log-probe', (payload: { message?: string }) => {
+        if (payload?.message) legacyTrail.push(String(payload.message))
+      })
+      try {
+        const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
+        const lastAssistantMsgs = messages.value.filter(m => m.role === 'assistant')
+        const lastAssistantContent = lastAssistantMsgs.length > 0 ? lastAssistantMsgs[lastAssistantMsgs.length - 1].content : ''
+        const ctx: DefaultKernelContext = {
+          allL2Manifests: allL2,
+          mcpTools: allMcpTools.map(t => ({ name: t.name, description: t.description })),
+          visibleL2Ids: globalBus.request('node:get-visible-l2-ids', {}) as string[],
+          selectedRole: globalBus.request('node:get-selected-role', {}) ?? undefined,
+          lastAssistantContent,
+          recentUserMsg,
+          chatCompletion: async (msgs) => {
+            const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128 })
+            return { content: (r as { content?: string }).content || '' }
+          }
+        }
+        const outcome = await kernelRegistry.route(content, ctx)
+        const legacyEndpoint = legacyEndpointFromTrail(legacyTrail)
+        const funnelEndpoint = funnelEndpointOf(outcome)
+        // 暂停点类终点旧侧走 system notice（无 log-probe），无法自动判定 → match=null 人工核对
+        const unjudgeable = legacyEndpoint === 'unknown' || ['candidates', 'intent-confirm', 'slot-fill'].includes(funnelEndpoint)
+        const match = unjudgeable ? null : legacyEndpoint === funnelEndpoint
+        const report = {
+          input: content.substring(0, 80),
+          funnel: {
+            kind: outcome.kind,
+            source: outcome.kind === 'plan' ? outcome.source : undefined,
+            intent: outcome.kind === 'plan' ? outcome.plan.intent : undefined
+          },
+          legacyEndpoint,
+          funnelEndpoint,
+          match,
+          durationMs: Date.now() - started
+        }
+        debugLog(`[funnel:shadow] ${JSON.stringify(report)}`)
+        globalBus.emit('funnel:shadow-diff', { ...report, legacyTrail: legacyTrail.slice(-30) })
+      } finally {
+        dispose()
+      }
+    } catch (e) {
+      debugLog(`[funnel:shadow] 对照失败（不影响主路径）: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // ===== Phase 3 灰度第二步（R14/R15）：funnel 主路径适配层（默认开启；vault config:holo-funnel-main = '0' 显式回滚旧路径）=====
+  let funnelMainEnabled: boolean | null = null
+
+  async function isFunnelMainEnabled(): Promise<boolean> {
+    if (funnelMainEnabled === null) {
+      try {
+        // R15：默认翻转——未配置（null）即走 funnel 主路径；'0' 为回滚开关（旧六层内联保留为回滚目标 + error 兜底）
+        funnelMainEnabled = (await vault.read('config', 'holo-funnel-main')) !== '0'
+      } catch {
+        funnelMainEnabled = true
+      }
+    }
+    return funnelMainEnabled
+  }
+
+  /** R16：工作台导航开关调用——vault 写入后清除闭包缓存，下一条消息即按新值路由 */
+  function refreshFunnelMainFlag(): void {
+    funnelMainEnabled = null
+  }
+
+  /** 旧各层确认摘要文案复刻（matchMethod/gate/置信度等 FunnelOutcome 不携带的字段已简化，偏差记录于 R14） */
+  function funnelPlanSummary(source: string, plan: TaskPlan, macroManifestId: string | null): string {
+    const stepsText = plan.steps.map(s => `${s.step}. ${s.description} → ${s.tool}`).join('\n')
+    if (source === 'L0') return `📋 **L0 Skill直通 (简单任务)**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L0.5') return `📋 **L0.5快速匹配 (单步manifest)**\n意图：${plan.intent}\nManifest：${macroManifestId ?? ''}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L1') return `📋 **L1管道直通 (单节点)**\n意图：${plan.intent}\n节点：${plan.needs[0] ?? ''}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L4') return `📋 **探索模式 (L1临时编排)**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    const depsText = plan.steps.map(s => {
+      const deps = s.depends_on.length > 0 ? `（依赖步骤${s.depends_on.join(',')}）` : ''
+      return `${s.step}. ${s.description} → ${s.tool} ${deps}`
+    }).join('\n')
+    return `📋 **任务分析 (DAG)**\n意图：${plan.intent}\n需要：${plan.needs.join('、')}\n\n**执行计划：**\n${depsText}\n\n请确认是否按此计划执行？`
+  }
+
+  /**
+   * FunnelOutcome → UI 动作分派（通知/暂停点状态机/执行）。
+   * 返回 true = 已接管本轮消息；false = 回退旧六层内联路径（error 兜底）。
+   */
+  async function consumeFunnelOutcome(content: string, outcome: FunnelOutcome, allMcpTools: ToolDef[]): Promise<boolean> {
+    if (outcome.kind === 'error') {
+      debugLog(`[funnel:main] 未接管（${outcome.error}），回退旧六层内联路由`)
+      return false
+    }
+    if (outcome.kind === 'blocked') {
+      const reasons = outcome.veto.entries.filter(e => e.severity === 'block').map(e => e.reason)
+        .concat(outcome.veto.humanJudgmentPrompts).join('；')
+      addSystemNotice(`⛔ 否决门拦截：${reasons || '人工复核'}`)
+      isProcessing.value = false
+      return true
+    }
+    if (outcome.kind === 'budget-blocked') {
+      addSystemNotice(`⛔ LLM 预算受限：${outcome.reason}`)
+      isProcessing.value = false
+      return true
+    }
+    if (outcome.kind === 'candidates') {
+      const candList = outcome.candidates.map((c, i) => `${i + 1}. ${c.name}（${(c.score * 100).toFixed(0)}%）`).join('\n')
+      addSystemNotice(`🟡 匹配到多个候选，请选择：\n${candList}\n\n输入编号选择，或重新描述你的需求`)
+      pendingCandidateList.value = outcome.candidates.map(c => ({ manifestId: c.id, manifestName: c.name, score: c.score }))
+      awaitingCandidatePick.value = true
+      isProcessing.value = false
+      return true
+    }
+    if (outcome.kind === 'intent-confirm') {
+      const params: Record<string, string> = {}
+      for (const [k, v] of Object.entries(outcome.params)) params[k] = String(v)
+      const paramStr = Object.entries(params).map(([k, v]) => `${k}=${v}`).join(', ')
+      translatedIntent.value = { intent: outcome.intent, manifestId: outcome.manifestId, params, originalInput: outcome.originalInput }
+      acquirePausePoint('intentConfirm')
+      addSystemNotice(`🟡 Agent翻译：你的意图是"${outcome.intent}"${paramStr ? '，参数：' + paramStr : ''}\n\n确认执行？`)
+      isProcessing.value = false
+      return true
+    }
+    if (outcome.kind === 'slot-fill') {
+      const missing = outcome.slots.filter(s => s.required && !s.value)
+      slotClarification.value = { manifestId: outcome.manifestId, manifestName: outcome.manifestName, slots: outcome.slots }
+      acquirePausePoint('slotFill')
+      addSystemNotice(`🔴 缺少必填参数：${missing.map(s => s.name).join('、')}\n请填写以下信息：`)
+      isProcessing.value = false
+      return true
+    }
+    if (outcome.kind === 'mcp-direct') {
+      const matched = allMcpTools.find(t => t.name === outcome.toolName)
+      if (matched) {
+        if (outcome.source === 'L2') {
+          addSystemNotice(`🎯 自动匹配工具：**${matched.name.replace(/.*___/, '')}**`)
+        }
+        try {
+          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matched] }) as { content?: string }
+          if (apiResult) {
+            addAssistantMessage(apiResult.content || '(无输出)')
+          }
+        } catch (e) {
+          const errStr = e instanceof Error ? e.message : String(e)
+          addAssistantMessage(`❌ 工具调用失败（${classifyError(errStr)}）`)
+          globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具调用失败: ${errStr}`, detail: errStr })
+        }
+      }
+      isProcessing.value = false
+      return true
+    }
+
+    // ===== kind === 'plan'：层来源通知 + 自检/thought（L2/L3）+ 确认暂停/自动执行 =====
+    const { plan, macroManifestId, autoExecutable, source } = outcome
+    globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `[Router] funnel(${source}) → ${plan.intent} | macro=${macroManifestId ?? '无'} | auto=${autoExecutable}` })
+    globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
+    if (source !== 'L1') {
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
+    }
+
+    if (source === 'L0') {
+      addSystemNotice(`⚡ L0 Skill直通：${plan.intent}（${plan.needs.join('/')}域，${plan.steps.length}步L1执行）`)
+    } else if (source === 'L0.5') {
+      const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
+      const m = allL2.find(x => x.identity.id === macroManifestId)
+      addSystemNotice(`⚡ L0.5快速匹配：${m?.identity.name ?? plan.intent}（置信≥80%）`)
+      if (autoExecutable) addSystemNotice('⚡ L0.5高置信自动执行（无shell操作）')
+    } else if (source === 'L1') {
+      addSystemNotice(`🔧 L1管道直通：${plan.needs[0] ?? ''}（置信≥60%）`)
+    } else if (source === 'L4') {
+      addSystemNotice(`🤔 RaaP未命中，进入探索模式：${plan.intent}`)
+      if (autoExecutable) addSystemNotice('⚡ L0 Skill自动执行（无shell操作）')
+    } else if (macroManifestId) {
+      const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
+      const m = allL2.find(x => x.identity.id === macroManifestId)
+      addSystemNotice(`🟢 RaaP匹配：${m?.identity.name ?? plan.intent}（${source === 'L3' ? 'LLM仲裁' : '检索'}）`)
+    }
+
+    // L2/L3 → 与旧路径一致：计划自检 + 思维链（L0/L0.5/L1/L4 早退不加）
+    if (source === 'L2' || source === 'L3') {
+      const planIssues: string[] = []
+      if (plan.steps.length === 0) planIssues.push('计划步骤为空')
+      for (let i = 0; i < plan.steps.length; i++) {
+        const step = plan.steps[i]
+        if (!step.description || step.description.length < 3) planIssues.push(`步骤${i + 1}描述不明确`)
+        if (!step.tool) planIssues.push(`步骤${i + 1}未指定工具`)
+      }
+      if (plan.intent.length < 3) planIssues.push('意图不明确')
+      const planThought: ThoughtStep = {
+        phase: 'plan',
+        content: `意图：${plan.intent} | 需要：${plan.needs.join('、')} | ${plan.steps.length}步计划${planIssues.length > 0 ? ' | ⚠️' + planIssues.join('、') : ' | ✅计划合理'}`,
+        timestamp: Date.now()
+      }
+      addThoughtMessage([planThought], plan)
+      await yieldToUI()
+    }
+
+    pendingPlan.value = plan
+    pendingContent.value = content
+    pendingMacroManifestId.value = macroManifestId
+
+    if (autoExecutable) {
+      isProcessing.value = false
+      await confirmPlan()
+      return true
+    }
+
+    acquirePausePoint('confirmation')
+    isProcessing.value = false
+    addSystemNotice(funnelPlanSummary(source, plan, macroManifestId))
+    return true
+  }
+
+  /**
+   * 主路径：六层路由经 kernelRegistry.route，outcome 由适配层消费（通知/暂停点/执行）。
+   * 返回 true = 已接管；false = 回退旧六层内联路径（funnel error 或适配层异常兜底）。
+   */
+  async function routeViaFunnel(content: string, allMcpTools: ToolDef[], recentUserMsg: string): Promise<boolean> {
+    try {
+      const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
+      const lastAssistantMsgs = messages.value.filter(m => m.role === 'assistant')
+      const lastAssistantContent = lastAssistantMsgs.length > 0 ? lastAssistantMsgs[lastAssistantMsgs.length - 1].content : ''
+      const ctx: DefaultKernelContext = {
+        allL2Manifests: allL2,
+        mcpTools: allMcpTools.map(t => ({ name: t.name, description: t.description })),
+        visibleL2Ids: globalBus.request('node:get-visible-l2-ids', {}) as string[],
+        selectedRole: globalBus.request('node:get-selected-role', {}) ?? undefined,
+        lastAssistantContent,
+        recentUserMsg,
+        isEmptyInput: content.trim() === '',
+        chatCompletion: async (msgs) => {
+          const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128 })
+          return { content: (r as { content?: string }).content || '' }
+        }
+      }
+      const outcome = await kernelRegistry.route(content, ctx)
+      const handled = await consumeFunnelOutcome(content, outcome, allMcpTools)
+      // 观测事件（R16）：工作台运行时面板订阅渲染最近路由结果
+      globalBus.emit('funnel:routed', {
+        handled,
+        kind: outcome.kind,
+        source: outcome.kind === 'plan' ? outcome.source : undefined,
+        intent: outcome.kind === 'plan' ? outcome.plan.intent : undefined,
+        autoExecutable: outcome.kind === 'plan' ? outcome.autoExecutable : undefined,
+        ts: Date.now()
+      })
+      return handled
+    } catch (e) {
+      debugLog(`[funnel:main] 主路径异常，回退旧六层内联路由: ${e instanceof Error ? e.message : String(e)}`)
+      globalBus.emit('funnel:routed', { handled: false, kind: 'exception', ts: Date.now() })
+      return false
+    }
+  }
+
   async function sendMessage(content: string): Promise<string> {
     if (content.trim() === '/debug') {
       if (globalBus.request('debug:is-enabled', {})) {
@@ -594,6 +884,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const mcpToolNames = allMcpTools.map(t => t.name.replace(/.*___/, ''))
       const recentUserMsgs = messages.value.filter(m => m.role === 'user')
       const recentUserMsg = recentUserMsgs.length > 1 ? recentUserMsgs[recentUserMsgs.length - 2].content : ''
+
+      // Phase 3 灰度第二步（R14/R15）：默认走 funnel 主路径（'0' 回滚旧内联）；error/异常回退下方旧路径兜底
+      if (await isFunnelMainEnabled()) {
+        if (await routeViaFunnel(content, allMcpTools, recentUserMsg)) return ''
+      } else {
+        // 回滚模式（config:holo-funnel-main='0'）：仅跑 shadow 对照；emit 路由事件供工作台观测（handled=false 表示走旧路径）
+        globalBus.emit('funnel:routed', { handled: false, kind: 'funnel-disabled', ts: Date.now() })
+        void runFunnelShadow(content, allMcpTools, recentUserMsg)
+      }
 
       let plan: TaskPlan | undefined = undefined
       let macroManifestId: string | null = null
@@ -1190,7 +1489,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           addSystemNotice(`✓ 步骤${s.step}完成`)
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
-          addSystemNotice(`✗ 步骤${s.step}失败（${classifyError(errMsg)}）`)
+          addSystemNotice(`✗ 步骤${s.step}失败（${classifyError(errMsg)}）: ${errMsg.substring(0, 120)}`)
           globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `步骤${s.step}失败: ${errMsg}`, detail: errMsg })
           allOk = false
           break
@@ -1262,7 +1561,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           },
           (stepNum, error) => {
             globalBus.emit('node:update-dag-step', { stepNum: stepNum, status: 'failed' })
-            addSystemNotice(`✗ 步骤${stepNum}失败（${classifyError(error)}）`)
+            addSystemNotice(`✗ 步骤${stepNum}失败（${classifyError(error)}）: ${String(error).substring(0, 120)}`)
             globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `步骤${stepNum}失败: ${error}`, detail: error })
           },
           (stepNum) => {
@@ -2223,6 +2522,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     messages,
     mode,
     isProcessing,
+    refreshFunnelMainFlag,
     currentEngine,
     pendingPlan,
     awaitingConfirmation,

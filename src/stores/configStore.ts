@@ -12,6 +12,8 @@ export const useConfigStore = defineStore('config', () => {
       baseUrl: '',
       models: [],
       activeModel: '',
+      providers: [],
+      activeProviderId: '',
       isReachable: false,
       lastCheckedAt: 0
     },

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { DomainConstraint, RuleStatus, ConstraintResult, ConstraintCheckContext } from '@/models'
+import { globalBus } from '@/kernel/bus'
 import {
   getAllConstraints,
   getConstraintsByDomain,
@@ -80,7 +81,12 @@ export const useRuleStore = defineStore('rule', () => {
 
   function markFalsePositive(ruleId: string): void {
     recordConstraintTrigger(ruleId, true)
-    loadRules()
+  // P3.5（R12）：约束装载改由 pack 管线驱动（异步挂载），订阅生命周期事件保持列表同步
+  globalBus.on('pack:mounted', () => loadRules())
+  globalBus.on('pack:unmounted', () => loadRules())
+  globalBus.on('pack:reloaded', () => loadRules())
+
+  loadRules()
   }
 
   function runTestOnRule(ruleId: string, testInput: string): ConstraintResult | null {

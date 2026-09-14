@@ -1,0 +1,353 @@
+<template>
+  <div class="wb-runtime">
+    <!-- 区 1：路由与执行 -->
+    <div class="wb-rt-section">
+      <div class="wb-rt-title">路由与执行</div>
+      <div class="wb-rt-card" v-if="dialogStore.isProcessing">
+        <span class="wb-rt-dot working"></span>执行中…
+      </div>
+      <div class="wb-rt-card warn" v-if="dialogStore.awaitingConfirmation">
+        <div class="wb-rt-card-head">⏸ 等待计划确认</div>
+        <div class="wb-rt-card-body">
+          意图：{{ dialogStore.pendingPlan?.intent || '—' }}（{{ dialogStore.pendingPlan?.steps.length ?? 0 }} 步）
+        </div>
+      </div>
+      <div class="wb-rt-card warn" v-else-if="dialogStore.awaitingCandidatePick">
+        <div class="wb-rt-card-head">⏸ 等待候选选择</div>
+        <div class="wb-rt-card-body">{{ dialogStore.pendingCandidateList.length }} 个候选</div>
+      </div>
+      <div class="wb-rt-card warn" v-else-if="dialogStore.awaitingIntentConfirm">
+        <div class="wb-rt-card-head">⏸ 等待意图确认</div>
+        <div class="wb-rt-card-body">{{ dialogStore.translatedIntent?.intent || '—' }}</div>
+      </div>
+      <div class="wb-rt-card warn" v-else-if="dialogStore.awaitingSlotFill">
+        <div class="wb-rt-card-head">⏸ 等待槽位填充</div>
+        <div class="wb-rt-card-body">{{ dialogStore.slotClarification?.manifestName || '—' }}</div>
+      </div>
+
+      <div class="wb-rt-card" v-if="hotplugStore.lastRouted">
+        <div class="wb-rt-card-head">
+          最近路由
+          <span class="wb-rt-tag" :class="hotplugStore.lastRouted.handled ? 'ok' : 'bad'">
+            {{ hotplugStore.lastRouted.handled ? '接管' : '回退' }}
+          </span>
+        </div>
+        <div class="wb-rt-card-body">
+          <div>层：{{ hotplugStore.lastRouted.source || '—' }} → {{ hotplugStore.lastRouted.kind }}</div>
+          <div v-if="hotplugStore.lastRouted.intent">意图：{{ hotplugStore.lastRouted.intent }}</div>
+          <div class="wb-rt-time">{{ formatTime(hotplugStore.lastRouted.ts) }}</div>
+        </div>
+      </div>
+
+      <div class="wb-rt-card" v-if="nodeStore.dagChainState.active">
+        <div class="wb-rt-card-head">DAG 执行链</div>
+        <div class="wb-rt-card-body">
+          <div v-for="s in nodeStore.dagChainState.steps" :key="s.stepNum" class="wb-rt-dag-step">
+            <span class="wb-rt-dot" :class="dagStatusClass(s.status)"></span>
+            <span class="wb-rt-dag-node">{{ nodeName(s.nodeId) }}</span>
+            <span class="wb-rt-dag-status">{{ dagStatusText(s.status) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 区 2：热插拔 -->
+    <div class="wb-rt-section">
+      <div class="wb-rt-title">热插拔</div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">内核</span>
+        <span class="wb-rt-v">
+          {{ hotplugStore.activeKernelId || '—' }}
+          <span class="wb-rt-tag" :class="hotplugStore.kernelState === 'active' ? 'ok' : 'warn'">{{ hotplugStore.kernelState }}</span>
+        </span>
+      </div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">在途/队列</span>
+        <span class="wb-rt-v">{{ hotplugStore.kernelInFlight }} / {{ hotplugStore.kernelQueueLen }}</span>
+      </div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">Pack</span>
+        <span class="wb-rt-v">
+          {{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}
+          <span v-for="p in hotplugStore.mountedPackIds" :key="p" class="wb-rt-chip">{{ p }}</span>
+        </span>
+      </div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">funnel 主路径</span>
+        <span class="wb-rt-v">
+          <span class="wb-rt-tag" :class="hotplugStore.funnelMainEnabled ? 'ok' : 'bad'">{{ hotplugStore.funnelMainEnabled ? '开启' : '已回滚' }}</span>
+        </span>
+      </div>
+      <div class="wb-rt-log">
+        <div v-for="(e, i) in hotplugStore.eventLog" :key="i" class="wb-rt-log-item" :class="e.level">
+          <span class="wb-rt-log-kind">{{ kindIcon(e.kind) }}</span>
+          <span class="wb-rt-log-text">{{ e.text }}</span>
+          <span class="wb-rt-time">{{ formatTime(e.ts) }}</span>
+        </div>
+        <div v-if="hotplugStore.eventLog.length === 0" class="wb-rt-log-empty">暂无事件</div>
+      </div>
+    </div>
+
+    <!-- 区 3：Token 预算 -->
+    <div class="wb-rt-section">
+      <div class="wb-rt-title">Token 预算</div>
+      <template v-if="debugStore.budgetStatus">
+        <div class="wb-rt-budget-row" v-for="period in (['session', 'daily', 'monthly'] as const)" :key="period">
+          <span class="wb-rt-k">{{ budgetLabel(period) }}</span>
+          <div class="wb-rt-bar">
+            <div class="wb-rt-bar-fill" :class="debugStore.budgetStatus[period].warnLevel" :style="{ width: Math.min(100, debugStore.budgetStatus[period].percent) + '%' }"></div>
+          </div>
+          <span class="wb-rt-v">{{ debugStore.budgetStatus[period].spent.toFixed(3) }}/{{ debugStore.budgetStatus[period].budget }} 元</span>
+        </div>
+      </template>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">本会话花费</span>
+        <span class="wb-rt-v">¥{{ getSessionSpent().toFixed(4) }}</span>
+      </div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">预算模式</span>
+        <span class="wb-rt-v">{{ budgetModeLabel }}</span>
+      </div>
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">熔断器</span>
+        <span class="wb-rt-v">
+          <template v-if="apiStore.isCircuitOpen">
+            <span class="wb-rt-tag bad">已熔断</span>
+            <button class="wb-rt-action" @click="apiStore.resetCircuitBreaker()">重置</button>
+          </template>
+          <span v-else class="wb-rt-tag ok">正常</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- 区 4：探针流 -->
+    <div class="wb-rt-section">
+      <div class="wb-rt-title">
+        探针流
+        <span class="wb-rt-tag" :class="{ warn: debugStore.frozen }">{{ debugStore.frozen ? '❄️ 冻结' : '记录中' }}</span>
+        <button class="wb-rt-action" @click="openDebugWindow">打开调试窗口</button>
+      </div>
+      <div class="wb-rt-probes">
+        <div v-for="p in recentProbes" :key="p.id" class="wb-rt-probe" :class="{ error: p.source === 'error' }">
+          <span class="wb-rt-probe-tool">{{ p.toolName || p.manifestId }}</span>
+          <span class="wb-rt-probe-detail">{{ probeLabel(p) }}</span>
+          <span class="wb-rt-time">{{ p.durationMs }}ms</span>
+        </div>
+        <div v-if="recentProbes.length === 0" class="wb-rt-log-empty">暂无探针</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useDialogStore } from '@/domains/dialog'
+import { useNodeStore } from '@/domains/node'
+import { useApiStore } from '@/domains/api'
+import { useDebugStore } from '@/domains/debug'
+import { useHotplugStore } from '@/stores/hotplugStore'
+import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
+import type { ProbeSnapshot } from '@/models'
+
+const dialogStore = useDialogStore()
+const nodeStore = useNodeStore()
+const apiStore = useApiStore()
+const debugStore = useDebugStore()
+const hotplugStore = useHotplugStore()
+
+const budgetModeLabel = computed(() => {
+  const mode = getBudgetMode()
+  if (mode === 'zero') return '零 Token'
+  if (mode === 'economy') return '经济'
+  return '标准'
+})
+
+const recentProbes = computed(() => {
+  return [...debugStore.activeProbes].slice(-30).reverse()
+})
+
+function formatTime(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
+function kindIcon(kind: 'kernel' | 'pack' | 'funnel'): string {
+  if (kind === 'kernel') return '🧠'
+  if (kind === 'pack') return '📦'
+  return '🧭'
+}
+
+function budgetLabel(period: 'session' | 'daily' | 'monthly'): string {
+  if (period === 'session') return '会话'
+  if (period === 'daily') return '日'
+  return '月'
+}
+
+function nodeName(nodeId: string): string {
+  return nodeStore.nodes.find(n => n.id === nodeId)?.name ?? nodeId
+}
+
+function dagStatusClass(status: string): string {
+  if (status === 'running') return 'working'
+  if (status === 'done' || status === 'reuse') return 'ok'
+  if (status === 'failed') return 'error'
+  return 'pending'
+}
+
+function dagStatusText(status: string): string {
+  const map: Record<string, string> = { pending: '待执行', running: '执行中', done: '完成', failed: '失败', replanned: '已重规划', reuse: '复用', skip: '跳过' }
+  return map[status] ?? status
+}
+
+function probeLabel(p: ProbeSnapshot): string {
+  if (p.source === 'error') return '执行错误'
+  if (p.source === 'cache') return '缓存命中'
+  if (p.source === 'rule') return '规则触发'
+  if (p.source === 'shell') return 'Shell 执行'
+  return p.sourceDetail || '探针'
+}
+
+function openDebugWindow() {
+  const api = (window as unknown as { electronAPI?: { openDebugWindow?: () => void } }).electronAPI
+  api?.openDebugWindow?.()
+}
+</script>
+
+<style scoped>
+.wb-runtime {
+  --rt-bg: rgba(6, 9, 20, 0.92);
+  --rt-border: rgba(80, 160, 255, 0.1);
+  --rt-text: #b8c6dd;
+  --rt-text-dim: #6b7a94;
+  --rt-card-bg: rgba(255, 255, 255, 0.03);
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--rt-bg);
+  border-left: 1px solid var(--rt-border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  user-select: none;
+}
+
+.wb-rt-section { padding: 10px 12px; border-bottom: 1px solid var(--rt-border); }
+.wb-rt-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ecbff;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wb-rt-title .wb-rt-action { margin-left: auto; }
+
+.wb-rt-card {
+  background: var(--rt-card-bg);
+  border: 1px solid var(--rt-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--rt-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wb-rt-card.warn { border-color: rgba(230, 180, 80, 0.35); }
+.wb-rt-card-head { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.wb-rt-card-body { color: var(--rt-text-dim); display: flex; flex-direction: column; gap: 2px; }
+.wb-rt-card.wb-rt-card { flex-direction: column; align-items: stretch; }
+.wb-rt-card .wb-rt-dot { align-self: auto; }
+
+.wb-rt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.wb-rt-dot.working { background: #6db3ff; animation: wb-pulse 1s infinite; }
+.wb-rt-dot.ok { background: #5ec98a; }
+.wb-rt-dot.error { background: #e06a6a; }
+.wb-rt-dot.pending { background: #55617a; }
+@keyframes wb-pulse { 50% { opacity: 0.35; } }
+
+.wb-rt-tag {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.wb-rt-tag.ok { background: rgba(94, 201, 138, 0.14); color: #5ec98a; }
+.wb-rt-tag.warn { background: rgba(230, 180, 80, 0.14); color: #e0b450; }
+.wb-rt-tag.bad { background: rgba(224, 106, 106, 0.14); color: #e06a6a; }
+
+.wb-rt-kv { display: flex; align-items: baseline; gap: 8px; font-size: 11px; margin-bottom: 5px; }
+.wb-rt-k { color: var(--rt-text-dim); flex-shrink: 0; width: 62px; }
+.wb-rt-v { color: var(--rt-text); display: flex; align-items: center; gap: 4px; flex-wrap: wrap; min-width: 0; }
+.wb-rt-chip {
+  font-size: 9px;
+  padding: 0 5px;
+  border-radius: 7px;
+  background: rgba(80, 160, 255, 0.1);
+  color: #7aa8dd;
+}
+
+.wb-rt-dag-step { display: flex; align-items: center; gap: 6px; }
+.wb-rt-dag-node { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rt-dag-status { color: var(--rt-text-dim); font-size: 10px; }
+
+.wb-rt-log {
+  margin-top: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wb-rt-log-item { display: flex; align-items: baseline; gap: 5px; font-size: 10px; color: var(--rt-text-dim); }
+.wb-rt-log-item.warn { color: #e0b450; }
+.wb-rt-log-item.error { color: #e06a6a; }
+.wb-rt-log-kind { flex-shrink: 0; }
+.wb-rt-log-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rt-log-empty { font-size: 10px; color: var(--rt-text-dim); text-align: center; padding: 8px 0; }
+
+.wb-rt-budget-row { display: flex; align-items: center; gap: 6px; font-size: 10px; margin-bottom: 5px; }
+.wb-rt-budget-row .wb-rt-k { width: 28px; }
+.wb-rt-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.wb-rt-bar-fill { height: 100%; border-radius: 3px; background: #5ec98a; transition: width 0.3s; }
+.wb-rt-bar-fill.warning { background: #e0b450; }
+.wb-rt-bar-fill.critical, .wb-rt-bar-fill.exceeded { background: #e06a6a; }
+.wb-rt-budget-row .wb-rt-v { width: 96px; justify-content: flex-end; flex-shrink: 0; font-size: 9px; }
+
+.wb-rt-action {
+  background: none;
+  border: 1px solid var(--rt-border);
+  color: var(--rt-text);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.wb-rt-action:hover { background: rgba(80, 160, 255, 0.08); }
+
+.wb-rt-probes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.wb-rt-probe { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--rt-text-dim); }
+.wb-rt-probe.error { color: #e06a6a; }
+.wb-rt-probe-tool { color: var(--rt-text); flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rt-probe-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.wb-rt-time { font-size: 9px; color: var(--rt-text-dim); opacity: 0.7; flex-shrink: 0; }
+
+:root[data-theme='light'] .wb-runtime {
+  --rt-bg: rgba(240, 243, 250, 0.95);
+  --rt-border: rgba(0, 0, 0, 0.08);
+  --rt-text: #3a4254;
+  --rt-text-dim: #8a93a6;
+  --rt-card-bg: rgba(0, 0, 0, 0.02);
+}
+:root[data-theme='green'] .wb-runtime {
+  --rt-bg: rgba(20, 32, 20, 0.92);
+  --rt-border: rgba(80, 160, 80, 0.15);
+  --rt-text: #a8c8a8;
+  --rt-text-dim: #6a8a6a;
+  --rt-card-bg: rgba(255, 255, 255, 0.03);
+}
+</style>

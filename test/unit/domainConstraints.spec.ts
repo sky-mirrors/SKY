@@ -9,8 +9,22 @@ import {
   runConstraints,
   getConstraintsByAutomationLevel
 } from '@/services/domainConstraints'
+import { PackLoader } from '@/host/pack/loader'
 import type { ConstraintCheckContext } from '@/models'
 import { extractEntities } from '@/services/nerExtractor'
+
+/**
+ * P3.5（R12）：内置约束退役后，约束库经 pack 管线装载。
+ * 顶层先挂载全部内置 pack（legal/finance，与生产 initPackRuntime 同路径），
+ * 再收集用例——describe 收集期需要约束列表就绪，故用顶层 await。
+ */
+const packLoader = new PackLoader()
+for (const packId of packLoader.listPackIds()) {
+  const mounted = await packLoader.mountPack(packId)
+  if (!mounted.ok) {
+    throw new Error(`pack ${packId} mount failed: ${mounted.error.phase}/${mounted.error.reason}`)
+  }
+}
 
 function makeContext(text: string, domain: string = 'legal'): ConstraintCheckContext {
   return {

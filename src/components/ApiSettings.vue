@@ -71,7 +71,7 @@
             <input
               v-model="editingKey"
               :type="showEditKey ? 'text' : 'password'"
-              placeholder="更新密钥..."
+              placeholder="输入 API 密钥，保存后自动检测连接..."
               class="key-input"
             />
             <button class="toggle-key" @click="showEditKey = !showEditKey">{{ showEditKey ? '隐藏' : '显示' }}</button>
@@ -82,6 +82,7 @@
       </div>
 
       <div v-if="checking" class="status">检测中...</div>
+      <div v-if="successMsg && !checking && !error" class="status ok">{{ successMsg }}</div>
       <div v-if="error" class="status error">{{ error }}</div>
 
       <div class="buttons">
@@ -102,6 +103,7 @@ const apiStore = useApiStore()
 const visible = ref(false)
 const checking = ref(false)
 const error = ref('')
+const successMsg = ref('')
 const showKey = ref(false)
 const showEditKey = ref(false)
 const customUrl = ref('')
@@ -110,7 +112,7 @@ const customApiKey = ref('')
 const editingProviderId = ref('')
 const editingKey = ref('')
 
-const presets: { id: string; name: string; baseUrl: string; authType: 'bearer' | 'api-key'; modelsEndpoint: string; chatFormat: 'openai' | 'anthropic' }[] = [
+const presets: { id: string; name: string; baseUrl: string; authType: 'none' | 'bearer' | 'api-key'; modelsEndpoint: string; chatFormat: 'openai' | 'anthropic' }[] = [
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', authType: 'api-key', modelsEndpoint: '/v1/models', chatFormat: 'anthropic' },
@@ -132,21 +134,22 @@ function addPreset(preset: typeof presets[0]) {
     return
   }
 
-  const apiKey = prompt(`请输入 ${preset.name} 的 API 密钥：`)
-  if (!apiKey && preset.authType !== 'none') return
-
   const providerId = apiStore.addProvider({
     id: preset.id,
     name: preset.name,
     baseUrl: preset.baseUrl,
     authType: preset.authType,
-    apiKey: apiKey || '',
+    apiKey: '',
     modelsEndpoint: preset.modelsEndpoint,
     chatFormat: preset.chatFormat
   })
 
   apiStore.switchProvider(providerId)
-  pingOne(providerId)
+  if (preset.authType === 'none') {
+    pingOne(providerId)
+  } else {
+    startEditKeyById(providerId)
+  }
 }
 
 function addCustomProvider() {
@@ -174,13 +177,16 @@ function removeProv(id: string) {
 async function pingOne(id: string) {
   checking.value = true
   error.value = ''
+  successMsg.value = ''
   const provider = apiStore.config.providers.find(p => p.id === id)
   if (!provider) { checking.value = false; return }
   const ok = await apiStore.pingProvider(provider)
-  if (!ok) {
+  checking.value = false
+  if (ok) {
+    successMsg.value = `${provider.name} 连接成功`
+  } else {
     error.value = `${provider.name} 连接失败，请检查地址和密钥`
   }
-  checking.value = false
 }
 
 async function pingAll() {
@@ -196,20 +202,26 @@ function selectModel(providerId: string, modelId: string) {
 }
 
 function startEditKey(prov: ProviderConfig) {
-  editingProviderId.value = prov.id
+  startEditKeyById(prov.id)
+}
+
+function startEditKeyById(id: string) {
+  editingProviderId.value = id
   editingKey.value = ''
   showEditKey.value = false
 }
 
-function saveProviderKey() {
-  if (!editingKey.value.trim()) return
+async function saveProviderKey() {
+  const key = editingKey.value.trim()
+  if (!key) return
   const provider = apiStore.config.providers.find(p => p.id === editingProviderId.value)
-  if (provider) {
-    provider.apiKey = editingKey.value.trim()
-    apiStore.saveToStorage()
-  }
   editingProviderId.value = ''
   editingKey.value = ''
+  if (provider) {
+    provider.apiKey = key
+    apiStore.saveToStorage()
+    await pingOne(provider.id)
+  }
 }
 
 function open() {
@@ -457,6 +469,9 @@ defineExpose({ open, close })
 }
 .status.error {
   color: #ff6a6a;
+}
+.status.ok {
+  color: #5fd89a;
 }
 .buttons {
   display: flex;

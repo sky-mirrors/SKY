@@ -8,7 +8,10 @@ import { vault } from '@/vault'
 
 const STOP_WORDS_SET = new Set(['的', '了', '在', '是', '我', '你', '他', '她', '它', '们', '这', '那', '有', '和', '与', '或', '帮', '给', '让', '把', '被', '从', '到', '用', '对', '为', '以', '及', '等', '着', '过', '一下', '一下下', '一个', '一些', '请', '要', '会', '能', '可以', '帮我', '帮我看看', '搞', '搞一下', '做', '做一下', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'it', 'this', 'that', 'me', 'my', 'your'])
 
-interface ToolIndex {
+
+
+
+export interface ToolIndex {
   fullName: string
   shortName: string
   summary: string
@@ -51,6 +54,7 @@ export function clearRouteCache(): void {
 let _routeCacheHitCount = 0
 let _routeCacheMissCount = 0
 
+// 路由缓存查找（内存）
 function lookupRouteCache(query: string, indexHash: string): UniversalMatchResult | null {
   const key = contentHash(query + '|' + indexHash)
   const entry = _routeCache.get(key)
@@ -73,6 +77,7 @@ function lookupRouteCache(query: string, indexHash: string): UniversalMatchResul
   return entry.result
 }
 
+// 路由缓存写入（内存）
 function storeRouteCache(query: string, indexHash: string, result: UniversalMatchResult): void {
   const key = contentHash(query + '|' + indexHash)
   _routeCache.set(key, { result, timestamp: Date.now(), indexHash })
@@ -542,7 +547,7 @@ export async function universalMatch(
   }
   const items: MatchableItem[] = filteredIndex.map(t =>
     t.l2ManifestId
-      ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [] } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest)
+      ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [], fallbackStrategy: 'retry', maxRetries: 2 } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest)
       : toolIndexToItem(t)
   )
   const l2ManifestMap = new Map<string, Partial<L2ToolManifest>>()
@@ -646,7 +651,7 @@ export async function universalMatch(
   if (hasStrongSignal && margin >= MARGIN_THRESHOLD) {
     recordScore(top1KwScore, 'keyword')
     recordScore(top1VecScore, 'vector')
-    const gate = (top1KwScore >= dynGreenGate || top1VecScore >= dynGreenGate) ? 'green' : 'yellow'
+    const gate: 'green' | 'yellow' = (top1KwScore >= dynGreenGate || top1VecScore >= dynGreenGate) ? 'green' : 'yellow'
     const isAmbiguous = gate === 'yellow'
     debugLog(`[Universal] RRF融合命中: ${top1.item.name} (rrf=${top1.rrfScore.toFixed(4)}, kw=${top1KwScore.toFixed(4)}, vec=${top1VecScore.toFixed(4)}, margin=${margin.toFixed(4)}, gate=${gate})`)
     const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous, candidates, gate }
@@ -658,7 +663,7 @@ export async function universalMatch(
     recordScore(top1KwScore, 'keyword')
     recordScore(top1VecScore, 'vector')
     debugLog(`[Universal] RRF高置信但margin小(margin=${margin.toFixed(4)})，判定模糊: ${top1.item.name}`)
-    const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' }
+    const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' as const }
     storeRouteCache(userInput, idxHash, result)
     return result
   }
@@ -668,7 +673,7 @@ export async function universalMatch(
     recordScore(top1VecScore, 'vector')
     if (margin >= MARGIN_THRESHOLD) {
       debugLog(`[Universal] RRF中等置信唯一(margin=${margin.toFixed(4)}): ${top1.item.name}`)
-      const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' }
+      const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' as const }
       storeRouteCache(userInput, idxHash, result)
       return result
     }
@@ -815,7 +820,7 @@ export function getTop3CandidatesUniversal(
 ): { item: MatchableItem; score: number; method: string }[] {
   const isNegated = hasNegation(userInput)
   const items = toolIndex.map(t =>
-    t.l2ManifestId ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [] }, dagPlan: { steps: [] } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest) : toolIndexToItem(t)
+    t.l2ManifestId ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [], fallbackStrategy: 'retry', maxRetries: 2 } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest) : toolIndexToItem(t)
   )
   const kwScores = items.map(item => ({
     item,

@@ -24,8 +24,8 @@ export function check(input: FactCheckInput, context?: KernelContext): FactCheck
       output: c.output?.raw ?? '',
       severity: c.severity,
     })),
-    autoCorrected: result.autoCorrected ?? false,
-    correctedText: result.correctedText,
+    autoCorrected: result.correctedOutput != null,
+    correctedText: result.correctedOutput ?? undefined,
     constraintResults: result.allConstraintResults,
   }
 }

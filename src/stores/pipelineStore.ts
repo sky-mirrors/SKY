@@ -49,7 +49,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     saveToStorage()
   }
 
-  async function startPipeline(id: string, onProgress?: (stepId: string, msg: string) => void): Promise<Record<string, string>> | undefined {
+  async function startPipeline(id: string, onProgress?: (stepId: string, msg: string) => void): Promise<Record<string, string> | undefined> {
     if (runningPipelineId.value) return undefined
     const pipeline = pipelines.value.find(p => p.id === id)
     if (!pipeline) return

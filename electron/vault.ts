@@ -76,7 +76,7 @@ export function vaultList(namespace?: string): string[] {
     const rows = d.prepare('SELECT key FROM kv_store WHERE namespace = ?').all(namespace) as { key: string }[]
     return rows.map(r => r.key)
   }
-  const rows = d.prepare('SELECT namespace || ":" || key AS fullKey FROM kv_store').all() as { fullKey: string }[]
+  const rows = d.prepare("SELECT namespace || ':' || key AS fullKey FROM kv_store").all() as { fullKey: string }[]
   return rows.map(r => r.fullKey)
 }
 
@@ -106,7 +106,7 @@ export function vaultListVectors(namespace?: string): string[] {
     const rows = d.prepare('SELECT key FROM vectors WHERE namespace = ?').all(namespace) as { key: string }[]
     return rows.map(r => r.key)
   }
-  const rows = d.prepare('SELECT namespace || ":" || key AS fullKey FROM vectors').all() as { fullKey: string }[]
+  const rows = d.prepare("SELECT namespace || ':' || key AS fullKey FROM vectors").all() as { fullKey: string }[]
   return rows.map(r => r.fullKey)
 }
 

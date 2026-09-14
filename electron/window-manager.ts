@@ -53,6 +53,10 @@ export function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[renderer][${level}] ${message} @ ${sourceId}:${line}`)
+  })
+
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error(`[Renderer CRASHED] reason=${details.reason}, exitCode=${details.exitCode}`)
   })

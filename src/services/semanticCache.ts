@@ -1,4 +1,4 @@
-import { ModelTier } from '@/models'
+﻿import { ModelTier } from '@/models'
 import { generateVector, cosineSimilarity, needsReembedding } from '@/services/embedder'
 import { calculateCost } from '@/services/tokenPricing'
 import { debugLog } from '@/services/debugLog'
@@ -16,6 +16,7 @@ export interface SemanticCacheEntry {
   lastAccessedAt: number
   hitCount: number
   domain: string
+  packId: string
   constraintIds: string[]
   ttl: number
 }
@@ -148,10 +149,34 @@ function isExpired(entry: SemanticCacheEntry): boolean {
   return Date.now() - entry.savedAt > entry.ttl
 }
 
+/**
+ * 规格 M10：精确键 = 查询哈希 × domain × packId。
+ * 原实现仅按 queryHash 去重/索引——同一查询来自不同 pack/domain 会互相顶替或错误复用
+ * （跨域缓存污染的 store 侧漏洞），复合键后各归属独立成条。
+ */
+function exactKey(hash: string, domain: string, packId: string): string {
+  return `${hash}|${domain || ''}|${packId || ''}`
+}
+
+/**
+ * 规格 M10：精确匹配——entry.domain 为 '' 时归一化为 undefined，
+ * 与查询 domain（'' 同样归一化）必须完全相等才可通过。
+ * 废除旧版两条宽松隐式通过（!domain→true / !entry.domain→true），杜绝跨域缓存污染。
+ */
 function domainMatch(entry: SemanticCacheEntry, domain?: string): boolean {
-  if (!domain) return true
-  if (!entry.domain) return true
-  return entry.domain === domain
+  const entryDomain = entry.domain || undefined
+  const queryDomain = domain || undefined
+  return entryDomain === queryDomain
+}
+
+/**
+ * 规格 M10：pack 隔离匹配——entry.packId 为 '' 时归一化为 undefined，
+ * 与查询 packId 必须完全相等才可通过（与 domainMatch 同一精确语义）。
+ */
+function packMatch(entry: SemanticCacheEntry, packId?: string): boolean {
+  const entryPack = entry.packId || undefined
+  const queryPack = packId || undefined
+  return entryPack === queryPack
 }
 
 function adjustThreshold(): void {
@@ -179,7 +204,8 @@ function recordLookupResult(isHit: boolean): void {
 
 export async function lookup(
   queryText: string,
-  domain?: string
+  domain?: string,
+  packId?: string
 ): Promise<SemanticCacheHit> {
   if (!config.enabled) {
     recordLookupResult(false)
@@ -188,8 +214,8 @@ export async function lookup(
 
   const hash = textHash(queryText)
 
-  const exact = exactMap.get(hash)
-  if (exact && !isExpired(exact) && domainMatch(exact, domain)) {
+  const exact = exactMap.get(exactKey(hash, domain || '', packId || ''))
+  if (exact && !isExpired(exact) && domainMatch(exact, domain) && packMatch(exact, packId)) {
     totalHits++
     exact.hitCount++
     exact.lastAccessedAt = Date.now()
@@ -216,6 +242,7 @@ export async function lookup(
   for (const entry of semanticArray) {
     if (isExpired(entry)) continue
     if (!domainMatch(entry, domain)) continue
+    if (!packMatch(entry, packId)) continue
     const sim = cosineSimilarity(embedding, entry.queryEmbedding)
     if (sim > bestSimilarity && sim >= adaptive.current) {
       bestSimilarity = sim
@@ -255,11 +282,13 @@ export async function store(entry: {
   promptTokens: number
   completionTokens: number
   domain?: string
+  packId?: string
   constraintIds?: string[]
   ttl?: number
 }): Promise<SemanticCacheEntry> {
   const hash = textHash(entry.queryText)
-  const existing = exactMap.get(hash)
+  const key = exactKey(hash, entry.domain || '', entry.packId || '')
+  const existing = exactMap.get(key)
   if (existing && !isExpired(existing)) {
     return existing
   }
@@ -277,18 +306,19 @@ export async function store(entry: {
     lastAccessedAt: Date.now(),
     hitCount: 0,
     domain: entry.domain || '',
+    packId: entry.packId || '',
     constraintIds: entry.constraintIds || [],
     ttl: entry.ttl !== undefined ? entry.ttl : config.defaultTTL
   }
 
-  exactMap.set(hash, cacheEntry)
+  exactMap.set(key, cacheEntry)
   semanticArray.push(cacheEntry)
   lruAdd(cacheEntry)
 
   while (exactMap.size > config.maxEntries) {
     const evicted = lruEvictOne()
     if (!evicted) break
-    exactMap.delete(evicted.queryHash)
+    exactMap.delete(exactKey(evicted.queryHash, evicted.domain, evicted.packId))
     semanticArray = semanticArray.filter(e => e.id !== evicted.id)
   }
 
@@ -301,7 +331,7 @@ export function invalidateByDomain(domain: string): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => e.domain === domain)
   for (const entry of toRemove) {
-    exactMap.delete(entry.queryHash)
+    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -314,11 +344,32 @@ export function invalidateByDomain(domain: string): number {
   return removed
 }
 
+/**
+ * 规格 M10：按 pack 摘除缓存——pack 卸载/回滚时调用，杜绝失效 pack 的回答继续命中。
+ */
+export function invalidateByPack(packId: string): number {
+  if (!packId) return 0
+  const before = semanticArray.length
+  const toRemove = semanticArray.filter(e => (e.packId || '') === packId)
+  for (const entry of toRemove) {
+    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
+    const lruNode = lruMap.get(entry.id)
+    if (lruNode) lruRemove(lruNode)
+  }
+  semanticArray = semanticArray.filter(e => (e.packId || '') !== packId)
+  const removed = before - semanticArray.length
+  if (removed > 0) {
+    debugLog(`[SemanticCache] INVALIDATE pack=${packId}, removed=${removed}`)
+    scheduleSave()
+  }
+  return removed
+}
+
 export function invalidateByConstraint(constraintId: string): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => e.constraintIds.includes(constraintId))
   for (const entry of toRemove) {
-    exactMap.delete(entry.queryHash)
+    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -335,7 +386,7 @@ export function invalidateExpired(): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => isExpired(e))
   for (const entry of toRemove) {
-    exactMap.delete(entry.queryHash)
+    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -416,6 +467,7 @@ interface SerializedEntry {
   lastAccessedAt: number
   hitCount: number
   domain: string
+  packId: string
   constraintIds: string[]
   ttl: number
 }
@@ -452,6 +504,7 @@ function serializeEntry(e: SemanticCacheEntry): SerializedEntry {
     lastAccessedAt: e.lastAccessedAt,
     hitCount: e.hitCount,
     domain: e.domain,
+    packId: e.packId,
     constraintIds: e.constraintIds,
     ttl: e.ttl
   }
@@ -472,6 +525,7 @@ function deserializeEntry(s: SerializedEntry): SemanticCacheEntry | null {
       lastAccessedAt: s.lastAccessedAt,
       hitCount: s.hitCount,
       domain: s.domain,
+      packId: s.packId || '',
       constraintIds: s.constraintIds,
       ttl: s.ttl
     }
@@ -499,7 +553,7 @@ function saveToStorage(): void {
     while (semanticArray.length > 10) {
       const evicted = lruEvictOne()
       if (!evicted) break
-      exactMap.delete(evicted.queryHash)
+      exactMap.delete(exactKey(evicted.queryHash, evicted.domain, evicted.packId))
       semanticArray = semanticArray.filter(e => e.id !== evicted.id)
     }
     try {
@@ -522,7 +576,7 @@ export function loadFromStorage(): void {
       const entry = deserializeEntry(s)
       if (!entry) continue
       if (now - entry.savedAt > entry.ttl) continue
-      exactMap.set(entry.queryHash, entry)
+      exactMap.set(exactKey(entry.queryHash, entry.domain, entry.packId), entry)
       semanticArray.push(entry)
       lruAdd(entry)
     }
@@ -542,7 +596,7 @@ export async function initSemanticCache(): Promise<void> {
           const entry = deserializeEntry(s)
           if (!entry) continue
           if (now - entry.savedAt > entry.ttl) continue
-          exactMap.set(entry.queryHash, entry)
+          exactMap.set(exactKey(entry.queryHash, entry.domain, entry.packId), entry)
           semanticArray.push(entry)
           lruAdd(entry)
         }
@@ -551,4 +605,20 @@ export async function initSemanticCache(): Promise<void> {
     } catch { /* non-critical */ }
   }
   reembedAll().catch(() => {})
+}
+
+async function reembedAll(): Promise<void> {
+  let updated = 0
+  for (const e of semanticArray) {
+    if (needsReembedding(e.queryEmbedding)) {
+      try {
+        e.queryEmbedding = await generateVector(e.queryText)
+        updated++
+      } catch { /* keep pseudo-vector on failure */ }
+    }
+  }
+  if (updated > 0) {
+    debugLog(`[SemanticCache] reembedAll: refreshed ${updated} entries`)
+    scheduleSave()
+  }
 }

@@ -9,13 +9,16 @@ let cache: DagCheckpoint[] | null = null
 
 async function loadAll(): Promise<DagCheckpoint[]> {
   if (cache) return cache
+  const all: DagCheckpoint[] = []
   try {
     const raw = await vault.read('dag', CHECKPOINT_STORE_KEY)
-    cache = raw ? JSON.parse(raw) : []
-  } catch {
-    cache = []
-  }
-  return cache
+    if (raw) {
+      const parsed = JSON.parse(raw) as DagCheckpoint[]
+      if (Array.isArray(parsed)) all.push(...parsed)
+    }
+  } catch { /* non-critical */ }
+  cache = all
+  return all
 }
 
 async function saveAll(checkpoints: DagCheckpoint[]): Promise<void> {

@@ -3,7 +3,7 @@ import { route as smartRoute, classifyComplexity, recordRoutingOutcome, detectOv
 import { tryL0Skill, tryL05QuickMatch, checkL1Capability, classifyDomain, buildExplorePlan } from '@/services/l0SkillRouter'
 import { estimateTokens } from '@/services/tokenEstimate'
 import { checkBudget } from '@/services/tokenBudget'
-import type { ModelTier } from '@/models'
+import type { ModelTier, DetectedDomain } from '@/models'
 
 export function route(input: RouteInput, context?: KernelContext): RouteResult {
   if (input.cacheHint?.hit) {
@@ -24,7 +24,7 @@ export function route(input: RouteInput, context?: KernelContext): RouteResult {
     text: input.text,
     taskType: input.taskType,
     historicalTokenAvg: input.historicalTokenAvg ?? getHistoricalTokenAvg(input.taskType),
-    domain: input.domain as any,
+    domain: input.domain as DetectedDomain | undefined,
   })
 
   const routeInput = {
@@ -32,7 +32,7 @@ export function route(input: RouteInput, context?: KernelContext): RouteResult {
     taskType: input.taskType,
     callerId: input.callerId,
     historicalTokenAvg: input.historicalTokenAvg,
-    domain: input.domain,
+    domain: input.domain as DetectedDomain | undefined,
     manifestMaxTier: input.manifestMaxTier ?? context?.manifestMaxTier,
     cacheHint: input.cacheHint,
   }
@@ -70,17 +70,24 @@ export function classifyInputDomain(input: string): string[] {
   return classifyDomain(input)
 }
 
-export function recordOutcome(tier: ModelTier, actualTokens: number, promptTokens: number, completionTokens: number, domain?: string): void {
-  const overkill = detectOverkill(tier, actualTokens)
+export function recordOutcome(entry: {
+  inputHash: string
+  taskType?: string
+  complexity: TaskComplexity
+  selectedTier: ModelTier
+  actualTokens: number
+  actualCost: number
+  qualityScore: number
+  overkill?: boolean
+}): void {
   recordRoutingOutcome({
-    tier,
-    complexity: 'moderate' as TaskComplexity,
-    reason: 'kernel-dispatch',
-    confidence: 0.9,
-    actualTokens,
-    promptTokens,
-    completionTokens,
-    overkill,
-    domain,
+    inputHash: entry.inputHash,
+    taskType: entry.taskType ?? '',
+    complexity: entry.complexity,
+    selectedTier: entry.selectedTier,
+    actualTokens: entry.actualTokens,
+    actualCost: entry.actualCost,
+    qualityScore: entry.qualityScore,
+    overkill: entry.overkill ?? detectOverkill(entry.selectedTier, entry.actualTokens),
   })
 }

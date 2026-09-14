@@ -1,0 +1,2601 @@
+[
+  {
+    "id": "legal-labor-contract-written",
+    "category": "劳动合同",
+    "description": "建立劳动关系应当订立书面劳动合同（劳动合同法第10条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第十条",
+        "effectiveDate": "2008-01-01"
+      },
+      "caveat": "仅检查是否存在劳动合同相关表述"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "入职",
+          "用工",
+          "劳动关系"
+        ],
+        [
+          "未签订",
+          "未签",
+          "未签署",
+          "没有签订",
+          "未订立"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "建立劳动关系应当订立书面劳动合同（劳动合同法第10条）",
+      "matchedEntityTypes": [
+        "law_article"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "入职满一个月未签劳动合同应触发",
+        "input": "员工张三于2024年1月1日入职，至今未签订劳动合同",
+        "expectedTrigger": true,
+        "expectedMessage": "建立劳动关系应当订立书面劳动合同"
+      },
+      {
+        "description": "已签劳动合同不应触发",
+        "input": "员工李四于2024年1月1日入职，已签订劳动合同",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-contract-probation-limit",
+    "category": "试用期",
+    "description": "劳动合同期限与试用期上限不匹配（劳动合同法第19条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第十九条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "试用期"
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "{{capture[0]}}年期限劳动合同试用期上限为{{capture[1]}}个月，当前约定{{capture[2]}}个月，超出法定上限（劳动合同法第19条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": "boundary/evaluators/labor-contract-probation-limit.ts",
+    "testCases": [
+      {
+        "description": "一年合同约定3个月试用期应触发",
+        "input": "劳动合同期限为一年，试用期为三个月",
+        "expectedTrigger": true,
+        "expectedMessage": "试用期上限"
+      },
+      {
+        "description": "三年合同约定6个月试用期不应触发",
+        "input": "劳动合同期限为三年，试用期为六个月",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-overtime-limit",
+    "category": "加班时长",
+    "description": "每月加班不得超过36小时（劳动法第41条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动法",
+        "article": "第四十一条",
+        "effectiveDate": "1995-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "numericCapture": [
+        {
+          "pattern": "加班[^\\d]*(\\d+)\\s*小时",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 36
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "月加班{{capture[0]}}小时，超过法定上限36小时（劳动法第41条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "月加班50小时应触发",
+        "input": "本月加班共计50小时",
+        "expectedTrigger": true,
+        "expectedMessage": "每月不得超过36小时"
+      },
+      {
+        "description": "月加班20小时不应触发",
+        "input": "本月加班共计20小时",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-salary-payment",
+    "category": "工资支付",
+    "description": "工资应当以货币形式按月支付（劳动法第50条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动法",
+        "article": "第五十条",
+        "effectiveDate": "1995-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "拖欠",
+        "克扣",
+        "不发工资",
+        "欠薪",
+        "未支付工资",
+        "未发放工资"
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "工资应当以货币形式按月支付，不得克扣或者无故拖欠（劳动法第50条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "拖欠工资应触发",
+        "input": "公司已拖欠员工三个月工资",
+        "expectedTrigger": true,
+        "expectedMessage": "不得克扣或者无故拖欠"
+      },
+      {
+        "description": "按时支付不应触发",
+        "input": "公司每月5日按时发放工资",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-dismiss-protection",
+    "category": "解除劳动合同",
+    "description": "孕期/产期/哺乳期女职工不得依第40/41条解除（劳动合同法第42条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第四十二条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "解除劳动合同",
+          "辞退",
+          "开除",
+          "解雇",
+          "终止劳动合同",
+          "解除"
+        ],
+        [
+          "孕期",
+          "产期",
+          "哺乳期",
+          "孕妇",
+          "产妇"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "孕期/产期/哺乳期女职工不得依第40/41条解除劳动合同（劳动合同法第42条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "解雇哺乳期女职工应触发",
+        "input": "公司决定解除哺乳期女职工王某的劳动合同",
+        "expectedTrigger": true,
+        "expectedMessage": "不得解除劳动合同"
+      },
+      {
+        "description": "正常解雇不应触发",
+        "input": "公司因员工严重违纪解除劳动合同",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-seal",
+    "category": "合同形式",
+    "description": "合同应加盖公章或合同专用章（民法典第490条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第四百九十条",
+        "effectiveDate": "2021-01-01"
+      },
+      "caveat": "仅检查文本表述，不验证实际签章"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "合同"
+      ],
+      "excludeKeywords": [
+        "盖章",
+        "公章",
+        "合同专用章",
+        "签字盖章",
+        "签章"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "合同未提及签章/盖章要求，建议确认合同成立要件（民法典第490条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "合同无签章要求应触发",
+        "input": "本合同一式两份，双方各持一份",
+        "expectedTrigger": true,
+        "expectedMessage": "签章"
+      },
+      {
+        "description": "合同有签章要求不应触发",
+        "input": "本合同自双方签字盖章之日起生效",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-severance-pay",
+    "category": "经济补偿",
+    "description": "用人单位解除/终止劳动合同应支付经济补偿的情形（劳动合同法第46条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第四十六条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "解除劳动合同",
+          "终止劳动合同",
+          "协商解除"
+        ],
+        [
+          "未提及",
+          "未支付",
+          "未给予",
+          "没有支付",
+          "没有给予",
+          "未补偿"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "解除/终止劳动合同可能需要支付经济补偿，请确认是否适用劳动合同法第46条情形"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "协商解除未提补偿应触发",
+        "input": "公司与员工协商解除劳动合同，未提及经济补偿",
+        "expectedTrigger": true,
+        "expectedMessage": "经济补偿"
+      },
+      {
+        "description": "正常提及补偿不应触发",
+        "input": "公司与员工协商解除劳动合同，支付N+1经济补偿",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-social-insurance",
+    "category": "社会保险",
+    "description": "用人单位应当为劳动者缴纳社会保险（劳动法第72条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动法",
+        "article": "第七十二条",
+        "effectiveDate": "1995-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "社会保险",
+          "社保",
+          "五险一金"
+        ],
+        [
+          "未缴纳",
+          "未缴",
+          "不缴",
+          "未购买",
+          "没有",
+          "未为"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "用人单位和劳动者必须依法参加社会保险（劳动法第72条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "未缴纳社保应触发",
+        "input": "公司未为员工缴纳社会保险",
+        "expectedTrigger": true,
+        "expectedMessage": "社会保险"
+      },
+      {
+        "description": "已缴纳社保不应触发",
+        "input": "公司依法为员工缴纳五险一金",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-minimum-wage",
+    "category": "最低工资",
+    "description": "工资不得低于当地最低工资标准（劳动法第48条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动法",
+        "article": "第四十八条",
+        "effectiveDate": "1995-01-01"
+      },
+      "caveat": "具体标准因地而异，2000元为全国最低参考线"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "numericCapture": [
+        {
+          "pattern": "(?:月工资|月薪|工资|月薪)[为是约]?\\s*(?:￥|¥)?(\\d+)",
+          "captureGroup": 1,
+          "compare": "<",
+          "threshold": 2000
+        }
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "月工资{{capture[0]}}元可能低于当地最低工资标准，请核实（劳动法第48条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "工资低于2000应触发",
+        "input": "员工月工资为1500元",
+        "expectedTrigger": true,
+        "expectedMessage": "最低工资"
+      },
+      {
+        "description": "工资正常不应触发",
+        "input": "员工月工资为8000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-breach-liquidated-damages",
+    "category": "违约金",
+    "description": "违约金不得过高（民法典第585条，一般不超过实际损失30%）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第五百八十五条",
+        "effectiveDate": "2021-01-01"
+      },
+      "caveat": "30%上限为司法实践参考"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "违约金"
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "违约金({{capture[0]}}元)占合同金额({{capture[1]}}元)的{{capture[2]}}%，可能过高（民法典第585条，司法实践一般不超过30%）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": "boundary/evaluators/contract-breach-liquidated-damages.ts",
+    "testCases": [
+      {
+        "description": "违约金为合同金额50%应触发",
+        "input": "合同金额100万元，违约金为50万元",
+        "expectedTrigger": true,
+        "expectedMessage": "违约金"
+      },
+      {
+        "description": "违约金为合同金额10%不应触发",
+        "input": "合同金额100万元，违约金为10万元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-dispatch-ratio",
+    "category": "劳务派遣",
+    "description": "劳务派遣用工比例不得超过10%（劳动合同法第66条+劳务派遣暂行规定第4条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第六十六条",
+        "effectiveDate": "2008-01-01"
+      },
+      "caveat": "劳务派遣暂行规定明确比例为10%"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "劳务派遣",
+        "派遣人员",
+        "派遣工"
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "劳务派遣用工比例{{capture[0]}}%超过10%法定上限（劳动合同法第66条、劳务派遣暂行规定第4条）",
+      "matchedEntityTypes": [
+        "percentage",
+        "amount"
+      ]
+    },
+    "evaluator": "boundary/evaluators/labor-dispatch-ratio.ts",
+    "testCases": [
+      {
+        "description": "派遣比例15%应触发",
+        "input": "公司共有员工100人，其中劳务派遣人员15人，派遣比例15%",
+        "expectedTrigger": true,
+        "expectedMessage": "10%"
+      },
+      {
+        "description": "派遣比例8%不应触发",
+        "input": "公司共有员工100人，其中劳务派遣人员8人，派遣比例8%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-dispatch-same-pay",
+    "category": "劳务派遣",
+    "description": "被派遣劳动者享有与用工单位同类岗位劳动者同工同酬权利（劳动合同法第63条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第六十三条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "派遣",
+          "派遣工",
+          "派遣人员"
+        ],
+        [
+          "薪酬",
+          "工资",
+          "薪资",
+          "报酬"
+        ]
+      ],
+      "excludeKeywords": [
+        "同工同酬",
+        "相同",
+        "一致",
+        "均为"
+      ],
+      "entities": [
+        {
+          "type": "amount",
+          "minCount": 2
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "被派遣劳动者享有同工同酬权利，用工单位应实行相同工资分配办法（劳动合同法第63条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "派遣工薪酬低于正式工应触发",
+        "input": "劳务派遣员工薪酬为5000元，同类岗位正式员工工资8000元",
+        "expectedTrigger": true,
+        "expectedMessage": "同工同酬"
+      },
+      {
+        "description": "薪酬无差异不应触发",
+        "input": "劳务派遣员工与正式员工同工同酬，工资均为8000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-annual-leave",
+    "category": "年休假",
+    "description": "职工累计工作年限对应年休假天数：1-10年5天、10-20年10天、20年以上15天（职工带薪年休假条例第3条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "职工带薪年休假条例",
+        "article": "第三条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "年休假",
+        "年假",
+        "带薪休假"
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "工作{{capture[0]}}年法定年休假下限为{{capture[1]}}天，当前{{capture[2]}}天不符合规定（职工带薪年休假条例第3条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": "boundary/evaluators/labor-annual-leave.ts",
+    "testCases": [
+      {
+        "description": "工作5年仅3天年假应触发",
+        "input": "员工累计工作5年，年休假3天",
+        "expectedTrigger": true,
+        "expectedMessage": "年休假"
+      },
+      {
+        "description": "工作5年5天年假不应触发",
+        "input": "员工累计工作5年，年休假5天",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-maternity-leave",
+    "category": "产假",
+    "description": "女职工产假不得少于98天（女职工劳动保护特别规定第7条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "女职工劳动保护特别规定",
+        "article": "第七条",
+        "effectiveDate": "2012-04-28"
+      },
+      "caveat": "各地产假延长天数不同，98天为法定最低标准"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "产假"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "产假[为约]?\\s*(\\d+)\\s*天",
+          "captureGroup": 1,
+          "compare": "<",
+          "threshold": 98
+        }
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "产假{{capture[0]}}天低于法定最低98天（女职工劳动保护特别规定第7条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "产假60天应触发",
+        "input": "女职工产假为60天",
+        "expectedTrigger": true,
+        "expectedMessage": "98天"
+      },
+      {
+        "description": "产假98天不应触发",
+        "input": "女职工产假为98天",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-work-injury-compensation",
+    "category": "工伤",
+    "description": "停工留薪期内原工资福利待遇不变（工伤保险条例第33条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "工伤保险条例",
+        "article": "第三十三条",
+        "effectiveDate": "2011-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "工伤"
+        ],
+        [
+          "降薪",
+          "扣减",
+          "最低工资",
+          "减少工资",
+          "降低待遇",
+          "按最低"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "停工留薪期内原工资福利待遇不变，不得降薪或按最低工资发放（工伤保险条例第33条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "工伤期间降薪应触发",
+        "input": "员工工伤停工留薪期内公司按最低工资标准发放",
+        "expectedTrigger": true,
+        "expectedMessage": "原工资福利待遇不变"
+      },
+      {
+        "description": "工伤期间原工资照发不应触发",
+        "input": "员工工伤停工留薪期内原工资福利待遇不变",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-non-compete-scope",
+    "category": "竞业限制",
+    "description": "竞业限制期限不得超过2年（劳动合同法第24条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第二十四条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "竞业限制",
+        "竞业禁止"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "竞业限制[期限为]*[约]?\\s*(\\d+)\\s*年",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 2
+        }
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "竞业限制期限{{capture[0]}}年超过法定上限2年（劳动合同法第24条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "竞业限制3年应触发",
+        "input": "离职后竞业限制期限为3年",
+        "expectedTrigger": true,
+        "expectedMessage": "2年"
+      },
+      {
+        "description": "竞业限制2年不应触发",
+        "input": "离职后竞业限制期限为2年",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-non-compete-compensation",
+    "category": "竞业限制",
+    "description": "竞业限制经济补偿不得低于劳动者离职前十二个月平均工资的30%（最高法司法解释第36条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "最高人民法院关于审理劳动争议案件适用法律问题的解释",
+        "article": "第三十六条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "竞业限制",
+          "竞业禁止"
+        ],
+        [
+          "补偿",
+          "经济补偿"
+        ]
+      ],
+      "numericCapture": [
+        {
+          "pattern": "(?:平均工资的?)?\\s*(\\d+(?:\\.\\d+)?)\\s*%",
+          "captureGroup": 1,
+          "compare": "<",
+          "threshold": 30
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "竞业限制经济补偿{{capture[0]}}%低于法定下限30%（最高法司法解释第36条）",
+      "matchedEntityTypes": [
+        "percentage"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "竞业限制补偿仅20%应触发",
+        "input": "竞业限制经济补偿为离职前月平均工资的20%",
+        "expectedTrigger": true,
+        "expectedMessage": "30%"
+      },
+      {
+        "description": "竞业限制补偿50%不应触发",
+        "input": "竞业限制经济补偿为离职前月平均工资的50%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-training-service-period",
+    "category": "培训服务期",
+    "description": "培训违约金不得超过培训费用（劳动合同法第22条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第二十二条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "培训",
+          "培训费"
+        ],
+        [
+          "违约金"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "培训违约金{{capture[0]}}元超过培训费用{{capture[1]}}元，超出部分无效（劳动合同法第22条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": "boundary/evaluators/labor-training-service-period.ts",
+    "testCases": [
+      {
+        "description": "违约金超培训费应触发",
+        "input": "公司提供培训费用50000元，约定违约金80000元",
+        "expectedTrigger": true,
+        "expectedMessage": "培训费用"
+      },
+      {
+        "description": "违约金等于培训费不应触发",
+        "input": "公司提供培训费用50000元，约定违约金50000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-standard-clause-invalid",
+    "category": "格式条款",
+    "description": "格式条款中免除己方责任、加重对方责任的条款无效（民法典第497条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第四百九十七条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "格式条款",
+          "标准合同",
+          "格式合同"
+        ],
+        [
+          "概不负责",
+          "不承担任何责任",
+          "免除一切责任",
+          "完全免责"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "格式条款中不合理免责条款无效（民法典第497条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "格式条款概不负责应触发",
+        "input": "本格式条款规定：本公司概不负责，不承担任何责任",
+        "expectedTrigger": true,
+        "expectedMessage": "格式条款"
+      },
+      {
+        "description": "正常格式条款不应触发",
+        "input": "本标准合同条款经双方协商一致确认",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-guarantee-type",
+    "category": "保证方式",
+    "description": "未明确保证方式默认为一般保证（民法典第686条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第六百八十六条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "保证",
+        "担保"
+      ],
+      "excludeKeywords": [
+        "连带",
+        "连带责任保证",
+        "一般保证"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "未明确保证方式，依法默认为一般保证（民法典第686条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "保证未明确方式应触发",
+        "input": "甲方为乙方提供保证担保",
+        "expectedTrigger": true,
+        "expectedMessage": "一般保证"
+      },
+      {
+        "description": "明确连带保证不应触发",
+        "input": "甲方为乙方提供连带责任保证",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-limitation-period",
+    "category": "诉讼时效",
+    "description": "诉讼时效期间为3年，约定超过3年的无效（民法典第188条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第一百八十八条",
+        "effectiveDate": "2021-01-01"
+      },
+      "caveat": "当事人约定延长诉讼时效的约定无效"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "诉讼时效"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "诉讼时效[为约]?\\s*(\\d+)\\s*年",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 3
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "约定诉讼时效{{capture[0]}}年，超过法定3年，该约定无效（民法典第188条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "约定诉讼时效5年应触发",
+        "input": "双方约定诉讼时效为5年",
+        "expectedTrigger": true,
+        "expectedMessage": "3年"
+      },
+      {
+        "description": "正常诉讼时效3年不应触发",
+        "input": "依法诉讼时效为3年",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-ip-copyright-work-for-hire",
+    "category": "职务作品",
+    "description": "职务作品作者享有署名权，单位可享有其他著作权（著作权法第18条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国著作权法",
+        "article": "第十八条",
+        "effectiveDate": "2021-06-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "职务作品"
+        ],
+        [
+          "全部著作权",
+          "放弃署名",
+          "不享有署名",
+          "无署名权"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "职务作品作者享有署名权，不得要求放弃（著作权法第18条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "职务作品放弃署名权应触发",
+        "input": "本职务作品作者放弃署名权，全部著作权归公司所有",
+        "expectedTrigger": true,
+        "expectedMessage": "署名权"
+      },
+      {
+        "description": "职务作品保留署名权不应触发",
+        "input": "本职务作品作者保留署名权，其他著作权归单位",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-consumer-triple-damages",
+    "category": "消费者欺诈",
+    "description": "经营者欺诈应三倍赔偿，不足500元按500元计（消费者权益保护法第55条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国消费者权益保护法",
+        "article": "第五十五条",
+        "effectiveDate": "2014-03-15"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "欺诈",
+          "欺诈行为"
+        ],
+        [
+          "赔偿",
+          "补偿"
+        ]
+      ],
+      "excludeKeywords": [
+        "三倍",
+        "3倍",
+        "三倍赔偿"
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "经营者欺诈应三倍赔偿，不足500元按500元计（消费者权益保护法第55条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "欺诈赔偿低于三倍应触发",
+        "input": "商家欺诈行为仅赔偿消费者商品原价1000元",
+        "expectedTrigger": true,
+        "expectedMessage": "三倍"
+      },
+      {
+        "description": "欺诈三倍赔偿不应触发",
+        "input": "商家欺诈行为按消费者购买价款的三倍赔偿3000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-consumer-seven-day-return",
+    "category": "网购退货",
+    "description": "网购商品7天无理由退货（消费者权益保护法第25条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国消费者权益保护法",
+        "article": "第二十五条",
+        "effectiveDate": "2014-03-15"
+      },
+      "caveat": "定制商品、鲜活易腐等除外"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "网购",
+          "网络购物",
+          "线上购买"
+        ],
+        [
+          "不支持退货",
+          "不可退货",
+          "不支持7天",
+          "不予退换",
+          "不退不换"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "网购商品消费者有权7天无理由退货，不支持退货的约定无效（消费者权益保护法第25条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "网购不支持退货应触发",
+        "input": "网购商品不支持7天无理由退货",
+        "expectedTrigger": true,
+        "expectedMessage": "7天"
+      },
+      {
+        "description": "支持7天退货不应触发",
+        "input": "网购商品支持7天无理由退货",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-housing-deposit-limit",
+    "category": "租赁押金",
+    "description": "租赁押金超过2个月租金可能存在不合理条款（司法实践参考）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "low",
+      "source": {
+        "type": "law",
+        "name": "司法实践参考",
+        "article": "各地法院裁判标准（无直接法条）",
+        "effectiveDate": "2021-01-01"
+      },
+      "caveat": "2个月上限为部分地方法院裁判参考标准，非全国统一规定"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "押金",
+        "租赁"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "押金[为约]?\\s*(\\d+)\\s*个月?\\s*(?:租金)?",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 2
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "租赁押金{{capture[0]}}个月租金超过通常2个月上限，可能存在不合理条款（司法实践参考）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "押金为3个月租金应触发",
+        "input": "租赁押金为3个月租金共9000元",
+        "expectedTrigger": true,
+        "expectedMessage": "2个月"
+      },
+      {
+        "description": "押金为1个月租金不应触发",
+        "input": "租赁押金为1个月租金共3000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-housing-lease-term-limit",
+    "category": "租赁期限",
+    "description": "租赁期限不得超过20年（民法典第705条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第七百零五条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "租赁"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "租赁期限[为约]?\\s*(\\d+)\\s*年",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 20
+        }
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "租赁期限{{capture[0]}}年超过法定上限20年，超过部分无效（民法典第705条）",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "租赁期限30年应触发",
+        "input": "房屋租赁期限为30年",
+        "expectedTrigger": true,
+        "expectedMessage": "20年"
+      },
+      {
+        "description": "租赁期限20年不应触发",
+        "input": "房屋租赁期限为20年",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-housing-sale-does-not-break-lease",
+    "category": "买卖不破租赁",
+    "description": "租赁物所有权变动不影响租赁合同效力（民法典第725条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第七百二十五条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "出售",
+          "转让",
+          "买卖"
+        ],
+        [
+          "租赁"
+        ],
+        [
+          "终止租赁",
+          "解除租赁",
+          "终止合同",
+          "解除合同"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "买卖不破租赁，房屋所有权变动不影响租赁合同效力（民法典第725条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "出售房屋终止租赁应触发",
+        "input": "房东出售房屋后终止租赁合同",
+        "expectedTrigger": true,
+        "expectedMessage": "买卖不破租赁"
+      },
+      {
+        "description": "出售房屋不影响租赁不应触发",
+        "input": "房东出售房屋但租赁合同继续有效",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-securities-insider-trading",
+    "category": "内幕交易",
+    "description": "禁止利用内幕信息进行证券交易（证券法第53条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国证券法",
+        "article": "第五十三条",
+        "effectiveDate": "2020-03-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "内幕",
+          "未公开",
+          "未披露"
+        ],
+        [
+          "买入",
+          "卖出",
+          "交易"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "禁止利用内幕信息进行证券交易（证券法第53条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "内幕信息买入股票应触发",
+        "input": "利用未公开的内幕信息买入公司股票",
+        "expectedTrigger": true,
+        "expectedMessage": "内幕交易"
+      },
+      {
+        "description": "正常交易不应触发",
+        "input": "基于公开信息买入公司股票",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-tax-individual-income-tax",
+    "category": "个人所得税",
+    "description": "个人所得税税率3%-45%（个人所得税法第2条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国个人所得税法",
+        "article": "第二条",
+        "effectiveDate": "2019-01-01"
+      },
+      "caveat": "综合所得适用3%-45%超额累进税率"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "个税",
+        "个人所得税"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "(?<![\\d.])((?:4[6-9]|[5-9]\\d|\\d{3,})(?:\\.\\d+)?|45\\.\\d*[1-9]\\d*|[0-2](?:\\.\\d+)?)\\s*%",
+          "captureGroup": 1,
+          "compare": ">=",
+          "threshold": 0
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "个人所得税税率{{capture[0]}}%超出法定3%-45%范围（个人所得税法第2条）",
+      "matchedEntityTypes": [
+        "percentage"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "个税率50%应触发",
+        "input": "个人所得税税率为50%",
+        "expectedTrigger": true,
+        "expectedMessage": "45%"
+      },
+      {
+        "description": "个税率30%不应触发",
+        "input": "个人所得税税率为30%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-tax-corporate-income-tax",
+    "category": "企业所得税",
+    "description": "企业所得税税率25%，高新技术企业15%，小型微利企业20%（企业所得税法第4条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国企业所得税法",
+        "article": "第四条",
+        "effectiveDate": "2008-01-01"
+      },
+      "caveat": "高新技术企业15%，小型微利企业20%为优惠税率"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": [
+        "企业所得税"
+      ],
+      "excludeKeywords": [
+        "高新",
+        "高新技术企业",
+        "小微",
+        "小型微利"
+      ],
+      "numericCapture": [
+        {
+          "pattern": "(?<![\\d.])((?:\\d{3,}|[3-9]\\d|2[6-9])(?:\\.\\d+)?|25\\.\\d*[1-9]\\d*)\\s*%",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 0
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "企业所得税税率{{capture[0]}}%超过法定25%（企业所得税法第4条）",
+      "matchedEntityTypes": [
+        "percentage"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "企业所得税率30%应触发",
+        "input": "企业所得税税率为30%",
+        "expectedTrigger": true,
+        "expectedMessage": "25%"
+      },
+      {
+        "description": "企业所得税率25%不应触发",
+        "input": "企业所得税税率为25%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-tax-invoice-obligation",
+    "category": "发票",
+    "description": "经营者不得拒绝开具发票（税收征收管理法第21条）",
+    "severity": "error",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国税收征收管理法",
+        "article": "第二十一条",
+        "effectiveDate": "2015-02-28"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "不开票",
+          "拒开",
+          "无票",
+          "不给发票",
+          "不开发票"
+        ],
+        [
+          "优惠",
+          "折扣",
+          "便宜",
+          "减价"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "error",
+      "messageTemplate": "经营者不得以优惠等理由拒绝开具发票（税收征收管理法第21条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "不开票优惠应触发",
+        "input": "不要发票可享受优惠，商家不开票给优惠",
+        "expectedTrigger": true,
+        "expectedMessage": "发票"
+      },
+      {
+        "description": "正常开票不应触发",
+        "input": "消费后商家依法开具发票",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-corporate-director-duty",
+    "category": "董事义务",
+    "description": "董事、高管负有忠实勤勉义务（公司法第147条）",
+    "severity": "warning",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国公司法",
+        "article": "第一百四十七条",
+        "effectiveDate": "2024-07-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "董事",
+          "高管",
+          "高级管理人员"
+        ],
+        [
+          "自我交易",
+          "利益冲突",
+          "关联交易",
+          "挪用",
+          "侵占",
+          "私利",
+          "谋取"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "董事、高管负有忠实勤勉义务，不得利用职权谋取私利（公司法第147条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "董事自我交易应触发",
+        "input": "董事利用职务便利进行自我交易谋取私利",
+        "expectedTrigger": true,
+        "expectedMessage": "忠实义务"
+      },
+      {
+        "description": "正常履职不应触发",
+        "input": "董事依法勤勉履职，为公司利益决策",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-work-injury-report",
+    "category": "工伤申报",
+    "description": "用人单位应在30日内提出工伤认定申请（工伤保险条例第17条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "工伤保险条例",
+        "article": "第十七条",
+        "effectiveDate": "2011-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "工伤"
+        ],
+        [
+          "申报",
+          "认定",
+          "申请"
+        ]
+      ],
+      "numericCapture": [
+        {
+          "pattern": "(\\d+)\\s*日[后以]?",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 30
+        }
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "工伤{{capture[0]}}日后申报，超过30日法定期限（工伤保险条例第17条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：是否在30日内申报工伤？",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "工伤60日后申报应触发",
+        "input": "员工发生工伤后60日才申报认定",
+        "expectedTrigger": true,
+        "expectedMessage": "30日"
+      },
+      {
+        "description": "工伤10日内申报不应触发",
+        "input": "员工发生工伤后10日内申报认定",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-labor-collective-contract",
+    "category": "集体合同",
+    "description": "集体合同应经职工代表大会讨论通过（劳动合同法第51条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国劳动合同法",
+        "article": "第五十一条",
+        "effectiveDate": "2008-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "集体合同"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "集体合同草案应提交职工代表大会或全体职工讨论通过（劳动合同法第51条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：集体合同是否经职工代表大会讨论通过？"
+    },
+    "evaluator": "boundary/evaluators/labor-collective-contract.ts",
+    "testCases": [
+      {
+        "description": "集体合同未经职代会讨论应触发",
+        "input": "公司签订集体合同，未经职工代表大会讨论",
+        "expectedTrigger": true,
+        "expectedMessage": "职工代表大会"
+      },
+      {
+        "description": "集体合同经职代会通过不应触发",
+        "input": "公司集体合同草案经职工代表大会讨论通过",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-standard-clause",
+    "category": "格式条款提示",
+    "description": "格式条款中免责条款应采取合理方式提示说明（民法典第496条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第四百九十六条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "格式条款",
+        "标准合同",
+        "格式合同"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "格式条款中免责/减轻责任条款应采取合理方式提示说明（民法典第496条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：格式条款中是否有免责条款的提示说明？"
+    },
+    "evaluator": "boundary/evaluators/contract-standard-clause.ts",
+    "testCases": [
+      {
+        "description": "格式条款免责未提示应触发",
+        "input": "本格式条款包含免责条款，未加粗提示",
+        "expectedTrigger": true,
+        "expectedMessage": "提示说明"
+      },
+      {
+        "description": "格式条款已提示说明不应触发",
+        "input": "本格式条款免责部分已加粗提示并经对方确认",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-guarantee-period",
+    "category": "保证期间",
+    "description": "未约定保证期间默认为主债务履行期届满之日起6个月（民法典第692条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第六百九十二条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "保证",
+        "担保"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "未约定保证期间，依法默认为主债务履行期届满之日起6个月（民法典第692条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：是否约定了保证期间？未约定则默认6个月"
+    },
+    "evaluator": "boundary/evaluators/contract-guarantee-period.ts",
+    "testCases": [
+      {
+        "description": "保证未约定期间应触发",
+        "input": "甲方为乙方提供保证担保，未约定保证期间",
+        "expectedTrigger": true,
+        "expectedMessage": "6个月"
+      },
+      {
+        "description": "已约定保证期间不应触发",
+        "input": "甲方为乙方提供保证担保，保证期间为主债务届满之日起2年",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-ip-patent-employee-reward",
+    "category": "职务发明奖励",
+    "description": "职务发明创造应给予发明人奖励（专利法第15条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国专利法",
+        "article": "第十五条",
+        "effectiveDate": "2021-06-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "职务发明",
+        "发明创造"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "职务发明创造应给予发明人奖励和报酬（专利法第15条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：职务发明是否约定了发明人奖励？"
+    },
+    "evaluator": "boundary/evaluators/ip-patent-employee-reward.ts",
+    "testCases": [
+      {
+        "description": "职务发明未约定奖励应触发",
+        "input": "本职务发明创造由公司申请专利，未约定发明人奖励",
+        "expectedTrigger": true,
+        "expectedMessage": "奖励"
+      },
+      {
+        "description": "职务发明已约定奖励不应触发",
+        "input": "本职务发明创造公司给予发明人奖励和报酬",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-consumer-personal-info-protection",
+    "category": "个人信息保护",
+    "description": "收集个人信息应遵循最小必要原则（个人信息保护法第5条+第6条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国个人信息保护法",
+        "article": "第五条",
+        "effectiveDate": "2021-11-01"
+      },
+      "caveat": "第六条要求最小必要原则，不得过度收集"
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "收集"
+        ],
+        [
+          "身份证",
+          "银行",
+          "通讯录",
+          "位置",
+          "人脸",
+          "指纹",
+          "行踪"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "收集敏感个人信息应遵循最小必要原则，不得过度收集（个人信息保护法第5条、第6条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：收集的个人信息是否遵循最小必要原则？"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "收集身份证和通讯录应触发",
+        "input": "注册App需收集用户身份证号和通讯录",
+        "expectedTrigger": true,
+        "expectedMessage": "最小必要"
+      },
+      {
+        "description": "仅收集手机号不应触发",
+        "input": "注册App仅收集用户手机号用于验证",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-corporate-capital-contribution",
+    "category": "出资义务",
+    "description": "股东应按期足额缴纳出资（公司法第28条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国公司法",
+        "article": "第二十八条",
+        "effectiveDate": "2024-07-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "出资"
+        ],
+        [
+          "未到位",
+          "延期",
+          "欠缴",
+          "未缴纳",
+          "未缴足"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "股东应按期足额缴纳出资，未到位需承担相应责任（公司法第28条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：是否存在出资未到位的情况？延期出资是否经股东会同意？",
+      "matchedEntityTypes": [
+        "amount"
+      ]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "出资未到位应触发",
+        "input": "股东认缴出资100万元，但出资未到位",
+        "expectedTrigger": true,
+        "expectedMessage": "出资"
+      },
+      {
+        "description": "按时足额出资不应触发",
+        "input": "股东已按期足额缴纳认缴出资100万元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-dispute-limitation-check",
+    "category": "诉讼时效适用",
+    "description": "人民法院不得主动适用诉讼时效（民法典第193条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第一百九十三条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "法院",
+          "人民法院"
+        ],
+        [
+          "诉讼时效"
+        ],
+        [
+          "认定",
+          "裁定",
+          "驳回"
+        ],
+        [
+          "过期",
+          "已过",
+          "届满"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "人民法院不得主动适用诉讼时效，应由被告提出抗辩（民法典第193条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请确认：诉讼时效是否由被告主动提出抗辩？"
+    },
+    "evaluator": "boundary/evaluators/dispute-limitation-check.ts",
+    "testCases": [
+      {
+        "description": "法院主动认定时效过期应触发",
+        "input": "法院认定诉讼时效已过，裁定驳回",
+        "expectedTrigger": true,
+        "expectedMessage": "主动适用"
+      },
+      {
+        "description": "被告提出时效抗辩不应触发",
+        "input": "被告提出诉讼时效抗辩，法院审查后驳回原告请求",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-formation-offer-acceptance",
+    "category": "要约",
+    "description": "要约内容应当具体确定（民法典第472条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第四百七十二条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "要约"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "要约内容应具体确定，缺少价格/金额/数量等关键要素（民法典第472条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：要约内容是否具体确定？"
+    },
+    "evaluator": "boundary/evaluators/contract-formation-offer-acceptance.ts",
+    "testCases": [
+      {
+        "description": "要约缺少价格应触发",
+        "input": "本要约为购买商品的意思表示，但未约定价格和数量",
+        "expectedTrigger": true,
+        "expectedMessage": "具体确定"
+      },
+      {
+        "description": "要约内容完整不应触发",
+        "input": "本要约约定购买100件商品，单价50元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-simultaneous-performance",
+    "category": "同时履行",
+    "description": "一方未履行前对方有权拒绝其履行请求（民法典第525条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第五百二十五条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "同时履行",
+        "同时交付"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "同时履行抗辩权：一方未履行时对方有权拒绝（民法典第525条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：双方是否应同时履行？一方未履行时对方是否有权拒绝？"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "同时履行一方未履行应触发",
+        "input": "双方应同时履行交货与付款义务，但一方未交付",
+        "expectedTrigger": true,
+        "expectedMessage": "同时履行"
+      },
+      {
+        "description": "先后履行顺序明确不应触发",
+        "input": "甲方先交付货物，乙方后支付货款",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-contract-termination-notice",
+    "category": "合同解除通知",
+    "description": "解除合同应当通知对方（民法典第565条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第五百六十五条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "解除合同",
+        "解除协议"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "解除合同应通知对方，合同自通知到达对方时解除（民法典第565条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：合同解除是否已通知对方？"
+    },
+    "evaluator": "boundary/evaluators/contract-termination-notice.ts",
+    "testCases": [
+      {
+        "description": "解除合同未通知应触发",
+        "input": "一方解除合同协议，但未通知对方",
+        "expectedTrigger": true,
+        "expectedMessage": "通知"
+      },
+      {
+        "description": "解除合同已通知不应触发",
+        "input": "一方解除合同并已书面通知对方",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-ip-copyright-ownership",
+    "category": "著作权归属",
+    "description": "著作权归属约定不得排除实际创作者权利（著作权法第11条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国著作权法",
+        "article": "第十一条",
+        "effectiveDate": "2021-06-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "著作权",
+          "版权"
+        ],
+        [
+          "归属",
+          "所有"
+        ],
+        [
+          "公司",
+          "单位",
+          "组织",
+          "机构"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "著作权归属约定可能排除了实际创作者的权利，请审查（著作权法第11条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：著作权归属约定是否排除了实际创作者的权利？"
+    },
+    "evaluator": "boundary/evaluators/ip-copyright-ownership.ts",
+    "testCases": [
+      {
+        "description": "著作权全归公司未提作者应触发",
+        "input": "本作品著作权归属公司所有",
+        "expectedTrigger": true,
+        "expectedMessage": "著作权归属"
+      },
+      {
+        "description": "著作权归属明确含作者权利不应触发",
+        "input": "本作品作者享有署名权，著作权其他权利归单位",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-ip-patent-employee-invention",
+    "category": "职务发明申请权",
+    "description": "职务发明创造申请专利的权利属于单位（专利法第6条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国专利法",
+        "article": "第六条",
+        "effectiveDate": "2021-06-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "职务发明"
+        ],
+        [
+          "个人申请",
+          "自行申请"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "职务发明创造申请专利的权利属于单位，个人不得自行申请（专利法第6条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：发明创造是否属于职务发明？申请专利的权利归属是否正确？"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "职务发明个人申请应触发",
+        "input": "本职务发明由发明人个人申请专利",
+        "expectedTrigger": true,
+        "expectedMessage": "申请专利的权利"
+      },
+      {
+        "description": "职务发明单位申请不应触发",
+        "input": "本职务发明由单位申请专利",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-ip-trademark-registration",
+    "category": "商标注册",
+    "description": "使用未注册商标无专用权保护（商标法第4条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国商标法",
+        "article": "第四条",
+        "effectiveDate": "2019-11-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "商标"
+        ],
+        [
+          "使用"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "使用未注册商标不违法，但无法获得商标专用权保护，建议申请注册（商标法第4条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "提醒：使用未注册商标不违法，但无法获得商标专用权保护。是否需要申请注册？"
+    },
+    "evaluator": "boundary/evaluators/ip-trademark-registration.ts",
+    "testCases": [
+      {
+        "description": "使用商标未注册应触发",
+        "input": "公司在产品上使用品牌商标进行销售",
+        "expectedTrigger": true,
+        "expectedMessage": "注册"
+      },
+      {
+        "description": "已申请商标注册不应触发",
+        "input": "公司已申请注册品牌商标",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-consumer-safety-liability",
+    "category": "产品缺陷责任",
+    "description": "产品缺陷致损生产者应承担赔偿责任（消费者权益保护法第48条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国消费者权益保护法",
+        "article": "第四十八条",
+        "effectiveDate": "2014-03-15"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "产品缺陷",
+          "缺陷"
+        ],
+        [
+          "免责",
+          "不承担",
+          "不负责",
+          "不负责任"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "产品缺陷致损的生产者责任不可免责（消费者权益保护法第48条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：产品是否存在缺陷？缺陷致损的生产者责任不可免责"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "产品缺陷免责应触发",
+        "input": "本产品存在缺陷，但公司不承担任何责任",
+        "expectedTrigger": true,
+        "expectedMessage": "产品缺陷"
+      },
+      {
+        "description": "产品缺陷承担赔偿不应触发",
+        "input": "产品缺陷致损，公司依法承担赔偿责任",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-housing-landlord-maintenance",
+    "category": "出租人修缮义务",
+    "description": "出租人默认承担租赁物维修义务（民法典第712条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国民法典",
+        "article": "第七百一十二条",
+        "effectiveDate": "2021-01-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywordGroups": [
+        [
+          "租赁"
+        ],
+        [
+          "维修",
+          "修缮"
+        ],
+        [
+          "出租人不承担",
+          "自行维修",
+          "租客负责",
+          "承租人自行"
+        ]
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "出租人默认承担维修义务，但合同可另有约定（民法典第712条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "提醒：出租人默认承担维修义务，但合同可另有约定。请检查是否有特别约定"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "出租人不承担维修应触发",
+        "input": "租赁合同约定出租人不承担维修义务，租客自行维修",
+        "expectedTrigger": true,
+        "expectedMessage": "维修义务"
+      },
+      {
+        "description": "出租人承担维修不应触发",
+        "input": "租赁物由出租人负责维修",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-corporate-shareholder-rights",
+    "category": "股东会决议",
+    "description": "股东会决议程序应合规，股东有权请求撤销（公司法第22条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国公司法",
+        "article": "第二十二条",
+        "effectiveDate": "2024-07-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "股东会决议",
+        "董事会决议"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "股东会决议程序应合规，违规决议股东有权请求撤销（公司法第22条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "请人工审查：股东会决议程序是否合规？股东是否有权请求撤销？"
+    },
+    "evaluator": "boundary/evaluators/corporate-shareholder-rights.ts",
+    "testCases": [
+      {
+        "description": "股东会决议程序问题应触发",
+        "input": "股东会决议未经法定程序表决通过",
+        "expectedTrigger": true,
+        "expectedMessage": "决议"
+      },
+      {
+        "description": "正常决议不应触发",
+        "input": "股东会决议经合法程序表决通过",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "legal-dispute-arbitration-agreement",
+    "category": "仲裁协议",
+    "description": "仲裁应当有明确的仲裁协议和仲裁机构（仲裁法第4条）",
+    "severity": "info",
+    "applicability": {
+      "jurisdiction": "PRC"
+    },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国仲裁法",
+        "article": "第四条",
+        "effectiveDate": "1995-09-01"
+      }
+    },
+    "automationLevel": "semi",
+    "trigger": {
+      "keywords": [
+        "仲裁"
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "仲裁需有明确仲裁协议，请确认仲裁机构约定是否明确（仲裁法第4条）",
+      "requireHumanReview": true,
+      "humanJudgmentPrompt": "提醒：合同中的仲裁条款即为仲裁协议。请确认仲裁机构约定是否明确"
+    },
+    "evaluator": "boundary/evaluators/dispute-arbitration-agreement.ts",
+    "testCases": [
+      {
+        "description": "提及仲裁但无协议应触发",
+        "input": "双方约定通过仲裁解决纠纷",
+        "expectedTrigger": true,
+        "expectedMessage": "仲裁协议"
+      },
+      {
+        "description": "明确仲裁协议和机构不应触发",
+        "input": "双方签订仲裁协议，约定由北京仲裁委员会仲裁",
+        "expectedTrigger": false
+      }
+    ]
+  }
+]

@@ -1,11 +1,11 @@
 <template>
-  <div class="dialog-panel" :class="{ collapsed: isCollapsed }" :style="{ width: isCollapsed ? '24px' : panelWidth + 'px' }">
-    <div class="dialog-toggle" @click="isCollapsed = !isCollapsed">
+  <div class="dialog-panel" :class="{ collapsed: isCollapsed, docked }" :style="docked ? undefined : { width: isCollapsed ? '24px' : panelWidth + 'px' }">
+    <div v-if="!docked" class="dialog-toggle" @click="isCollapsed = !isCollapsed">
       <span v-if="isCollapsed" class="toggle-expand">▶</span>
       <span v-else class="toggle-collapse">◀</span>
       <span v-if="isCollapsed" class="toggle-label">展开</span>
     </div>
-    <div class="resize-handle" v-if="!isCollapsed" @mousedown="startResize"></div>
+    <div class="resize-handle" v-if="!isCollapsed && !docked" @mousedown="startResize"></div>
     <div class="dialog-inner" v-if="!isCollapsed">
       <div class="dialog-main">
       <div class="dialog-header">
@@ -643,7 +643,7 @@ import { usePipelineStore } from '@/domains/pipeline'
 import { getAllCheckpoints, removeCheckpoint, getCheckpoint } from '@/domains/pipeline'
 import { saveCustomManifest, loadCustomManifests, removeCustomManifest } from '@/data/l2Manifests'
 import { useWorkflowLogStore } from '@/domains/app'
-import { getBudgetMode, setBudgetMode as setBudgetModeFn, getSessionSpent } from '@/kernel'
+import { getBudgetMode, setBudgetMode as setBudgetModeFn, getSessionSpent } from '@/services/tokenBudget'
 import ZolWidget from '@/components/ZolWidget.vue'
 
 const dialogStore = useDialogStore()
@@ -658,6 +658,16 @@ const memoryStore = useMemoryStore()
 const knowledgeStore = useKnowledgeStore()
 const skillStore = useSkillStore()
 const configStore = useConfigStore()
+
+// R16 工作台：docked=true 时以静态布局嵌入中栏（无 fixed 定位/拖拽/折叠），星图模式默认 false
+const props = defineProps<{ docked?: boolean }>()
+
+const emit = defineEmits<{
+  openMcp: []
+  cameraFlyTo: [nodeId: string]
+  panelWidthChanged: [width: number]
+  openPreview: [msg: DialogMessage]
+}>()
 
 const isCollapsed = ref(false)
 const inputText = ref('')
@@ -730,13 +740,6 @@ watch([panelWidth, isCollapsed], () => {
   document.documentElement.style.setProperty('--dialog-panel-width', `${isCollapsed.value ? 24 : panelWidth.value}px`)
   emit('panelWidthChanged', effectiveWidth)
 }, { immediate: true })
-
-const emit = defineEmits<{
-  openMcp: []
-  cameraFlyTo: [nodeId: string]
-  panelWidthChanged: [width: number]
-  openPreview: [msg: DialogMessage]
-}>()
 
 function openPipelineWindow() {
   window.electronAPI?.openPipelineWindow?.()
@@ -1726,6 +1729,20 @@ function onAssignGroup(projectId: string, groupId: string) {
   user-select: none;
 }
 .dialog-panel.collapsed { transition: width 0.3s; }
+
+/* R16 工作台中栏：静态布局，占满父容器；min-height:0 允许内部 .messages 滚动而非撑破面板 */
+.dialog-panel.docked {
+  position: static;
+  z-index: auto;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  top: auto;
+  bottom: auto;
+  left: auto;
+}
 
 .resize-handle {
   position: absolute;

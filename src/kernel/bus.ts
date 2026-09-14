@@ -65,6 +65,10 @@ export class HoloEventBus {
     return Array.from(this.handlers.keys())
   }
 
+  listStreamHandlers(): string[] {
+    return Array.from(this.streamHandlers.keys())
+  }
+
   listListeners(): Map<string, number> {
     const result = new Map<string, number>()
     for (const [ch, set] of this.listeners) {
@@ -78,6 +82,10 @@ export class HoloEventBus {
       console.warn(`[bus] overwriting stream handler for channel: ${channel}`)
     }
     this.streamHandlers.set(channel, handler)
+  }
+
+  removeStreamHandler(channel: string): void {
+    this.streamHandlers.delete(channel)
   }
 
   requestStream<T = any>(channel: string, payload?: any): StreamHandle<T> {
@@ -95,10 +103,150 @@ export class HoloEventBus {
   }
 
   clear(): void {
+    if (!isTestEnvironment()) {
+      console.error('[bus] clear() is only allowed in test environments (spec M3: ledger would desync)')
+    }
     this.handlers.clear()
     this.listeners.clear()
     this.streamHandlers.clear()
   }
+}
+
+function isTestEnvironment(): boolean {
+  try {
+    if (typeof process !== 'undefined' && process.env && (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true')) {
+      return true
+    }
+  } catch { /* ignore */ }
+  return false
+}
+
+/** M3: 幂等释放句柄 */
+export interface Disposer {
+  dispose(): void
+}
+
+export function makeDisposer(fn: () => void): Disposer {
+  let disposed = false
+  return {
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      try {
+        fn()
+      } catch (e) {
+        console.error('[bus] disposer error:', e)
+      }
+    }
+  }
+}
+
+/** M3: 通道台账——按 owner 归集 Disposer，卸载时容错全量执行 */
+export class BusLedger {
+  private entries = new Map<string, Set<Disposer>>()
+
+  add(ownerId: string, disposer: Disposer): void {
+    let set = this.entries.get(ownerId)
+    if (!set) {
+      set = new Set()
+      this.entries.set(ownerId, set)
+    }
+    set.add(disposer)
+  }
+
+  /** 容错执行并清空该 owner 的全部 disposer，返回执行数 */
+  runAll(ownerId: string): number {
+    const set = this.entries.get(ownerId)
+    if (!set) return 0
+    const count = set.size
+    for (const d of set) {
+      d.dispose()
+    }
+    this.entries.delete(ownerId)
+    return count
+  }
+
+  has(ownerId: string): boolean {
+    return this.entries.has(ownerId)
+  }
+
+  size(ownerId: string): number {
+    return this.entries.get(ownerId)?.size ?? 0
+  }
+
+  ownerIds(): string[] {
+    return Array.from(this.entries.keys())
+  }
+}
+
+const PLUGIN_CHANNEL_PREFIX = 'plugin:'
+
+/** M3: 插件命名空间总线——通道自动加 plugin:<id>: 前缀，注册即入台账 */
+export class NamespacedBus {
+  constructor(
+    private readonly ownerId: string,
+    private readonly bus: HoloEventBus,
+    private readonly ledger: BusLedger
+  ) {}
+
+  fullChannel(channel: string): string {
+    return `${PLUGIN_CHANNEL_PREFIX}${this.ownerId}:${channel}`
+  }
+
+  private track(fullName: string, release: () => void): Disposer {
+    const disposer = makeDisposer(release)
+    this.ledger.add(this.ownerId, disposer)
+    return disposer
+  }
+
+  registerHandler(channel: string, handler: HandlerFn): Disposer {
+    const fullName = this.fullChannel(channel)
+    this.bus.registerHandler(fullName, handler)
+    return this.track(fullName, () => this.bus.removeHandler(fullName))
+  }
+
+  on(channel: string, handler: HandlerFn): Disposer {
+    const fullName = this.fullChannel(channel)
+    const unsubscribe = this.bus.on(fullName, handler)
+    return this.track(fullName, unsubscribe)
+  }
+
+  registerStreamHandler(channel: string, handler: StreamHandlerFn): Disposer {
+    const fullName = this.fullChannel(channel)
+    this.bus.registerStreamHandler(fullName, handler)
+    return this.track(fullName, () => this.bus.removeStreamHandler(fullName))
+  }
+
+  emit(channel: string, payload?: unknown): void {
+    this.bus.emit(this.fullChannel(channel), payload)
+  }
+
+  request<T = any>(channel: string, payload?: any): T {
+    return this.bus.request<T>(this.fullChannel(channel), payload)
+  }
+
+  requestAsync<T = any>(channel: string, payload?: any): Promise<T> {
+    return this.bus.requestAsync<T>(this.fullChannel(channel), payload)
+  }
+}
+
+/** M3.4: 孤儿扫描——plugin: 前缀通道的 owner 不在激活集则告警，不自动删除 */
+export function scanOrphanChannels(bus: HoloEventBus, activeOwnerIds: Set<string>): string[] {
+  const channels: string[] = [
+    ...bus.listHandlers(),
+    ...Array.from(bus.listListeners().keys()),
+    ...bus.listStreamHandlers(),
+  ]
+  const orphans: string[] = []
+  for (const channel of channels) {
+    if (!channel.startsWith(PLUGIN_CHANNEL_PREFIX)) continue
+    const owner = channel.split(':')[1]
+    if (owner && !activeOwnerIds.has(owner)) {
+      console.warn(`[bus] orphan-channel: ${channel} (owner '${owner}' not in registry)`)
+      orphans.push(channel)
+    }
+  }
+  return orphans
 }
 
 type StreamHandlerFn = (payload: any, callbacks: StreamCallbacks) => void | (() => void)

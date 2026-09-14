@@ -54,7 +54,7 @@ import { useKnowledgeStore } from '@/domains/knowledge'
 import { useMemoryStore } from '@/domains/memory'
 import { useNotificationStore } from '@/domains/app'
 import { buildExportData, exportToZip, parseImportPreview, applyImport } from '@/domains/data'
-import { getTotalUsedMB, getUsageLevel } from '@/domains/data'
+import { getTotalUsedMB } from '@/domains/data'
 
 const configStore = useConfigStore()
 const dialogStore = useDialogStore()
@@ -77,12 +77,12 @@ function formatMB(mb: number): string {
   return `${mb.toFixed(2)}MB`
 }
 
-function updateStorage() {
-  const totalMB = getTotalUsedMB()
+async function updateStorage() {
+  const totalMB = await getTotalUsedMB()
   const maxMB = 5
   storageUsed.value = formatMB(totalMB)
   storagePercent.value = Math.min(100, (totalMB / maxMB) * 100)
-  storageLevel.value = getUsageLevel(totalMB)
+  storageLevel.value = totalMB < 3.0 ? 'green' : totalMB < 4.0 ? 'orange' : 'red'
 }
 
 onMounted(updateStorage)

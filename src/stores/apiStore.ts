@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ApiConfig, ModelInfo, CircuitBreakerState, ProviderConfig, ModelGatewayAdapter, ModelTier, StreamChunk, StreamCallbacks } from '@/models'
+import type { DetectedDomain } from '@/models'
 import { storeGet, storeSet } from '@/services/secureStore'
 import { debugLog } from '@/services/debugLog'
 import { checkBudget } from '@/services/tokenBudget'
@@ -324,6 +325,10 @@ export const useApiStore = defineStore('api', () => {
     return 'general'
   }
 
+  function toDetectedDomain(d: string): DetectedDomain {
+    return d === 'legal' || d === 'finance' || d === 'hr' ? d : 'general'
+  }
+
   function recordOutcome(
     userContent: string,
     decision: RoutingDecision,
@@ -398,7 +403,7 @@ export const useApiStore = defineStore('api', () => {
     const routingInput: RouteInput = {
       text: userContent,
       taskType: routingOptions?.taskType,
-      domain,
+      domain: toDetectedDomain(routingOptions?.domain || detectDomain(messages)),
       callerId: routingOptions?.callerId,
       cacheHint: cacheHitTier ? { hit: true, tier: cacheHitTier } : undefined,
       historicalTokenAvg: getHistoricalTokenAvg(routingOptions?.taskType)
@@ -638,7 +643,7 @@ export const useApiStore = defineStore('api', () => {
     const routingInput: RouteInput = {
       text: userContent,
       taskType: routingOptions?.taskType,
-      domain,
+      domain: toDetectedDomain(routingOptions?.domain || detectDomain(messages)),
       callerId: routingOptions?.callerId,
       historicalTokenAvg: getHistoricalTokenAvg(routingOptions?.taskType)
     }

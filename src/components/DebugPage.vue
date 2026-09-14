@@ -164,8 +164,8 @@
 import { ref, watch, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import { useDebugStore } from '@/domains/debug'
 import type { ProbeSource, ConsoleLogEntry, ConsoleCategory } from '@/models'
-import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/kernel'
-import { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS } from '@/kernel'
+import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/services/strategySelector'
+import { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS } from '@/services/smartRouter'
 
 const debugStore = useDebugStore()
 const inputExpanded = ref(false)

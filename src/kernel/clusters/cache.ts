@@ -13,8 +13,8 @@ export async function lookup(queryText: string, domain?: string, context?: Kerne
     hit: true,
     responseText: result.entry?.responseText,
     tier: result.entry?.tier,
-    promptTokens: result.entry?.promptTokens,
-    completionTokens: result.entry?.completionTokens,
+    promptTokens: result.entry?.tokenUsage.promptTokens,
+    completionTokens: result.entry?.tokenUsage.completionTokens,
     similarity: result.similarity,
     entryId: result.entry?.id,
   }

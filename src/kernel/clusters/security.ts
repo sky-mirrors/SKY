@@ -1,5 +1,6 @@
 import type { SecurityCheckInput, SecurityCheckResult, KernelContext } from '../types'
 import { shouldValidate, isPathUnsafe, isUrlUnsafe, dualEngineValidate, buildActionManifest } from '@/services/dualEngineValidator'
+import { shouldTrigger } from '@/services/factGuard'
 
 export async function check(input: SecurityCheckInput, context?: KernelContext): Promise<SecurityCheckResult> {
   if (input.targetPath && isPathUnsafe(input.targetPath)) {
@@ -31,7 +32,6 @@ export async function check(input: SecurityCheckInput, context?: KernelContext):
 }
 
 export function shouldFactCheck(manifestRoles: string[], contextText: string): boolean {
-  const { shouldTrigger } = require('@/services/factGuard')
   return shouldTrigger(manifestRoles, contextText)
 }
 

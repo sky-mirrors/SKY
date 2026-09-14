@@ -205,7 +205,7 @@ describe('semanticCache', () => {
       expect(result.hit).toBe(true)
     })
 
-    it('hits when no domain specified for lookup', async () => {
+    it('misses when lookup has no domain but entry has one (spec M10: strict match)', async () => {
       await store({
         queryText: '通用查询',
         responseText: '通用回答',
@@ -213,6 +213,18 @@ describe('semanticCache', () => {
         promptTokens: 100,
         completionTokens: 200,
         domain: 'legal'
+      })
+      const result = await lookup('通用查询')
+      expect(result.hit).toBe(false)
+    })
+
+    it('hits when neither entry nor lookup has a domain', async () => {
+      await store({
+        queryText: '通用查询',
+        responseText: '通用回答',
+        tier: 'standard',
+        promptTokens: 100,
+        completionTokens: 200
       })
       const result = await lookup('通用查询')
       expect(result.hit).toBe(true)

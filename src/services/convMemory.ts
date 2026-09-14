@@ -103,8 +103,8 @@ export function detectChallenge(userInput: string, lastAssistantContent: string)
   }
 
   const numberPattern = /\d+\.?\d*/g
-  const userNums = userInput.match(numberPattern) || []
-  const aiNums = lastAssistantContent.match(numberPattern) || []
+  const userNums: string[] = userInput.match(numberPattern) || []
+  const aiNums: string[] = lastAssistantContent.match(numberPattern) || []
   if (userNums.length > 0 && aiNums.length > 0) {
     for (const n of userNums) {
       if (aiNums.includes(n)) continue

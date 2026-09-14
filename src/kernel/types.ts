@@ -211,7 +211,7 @@ export interface IOPort {
   storeWrite(key: string, value: string): Promise<void>
   storeDelete(key: string): Promise<void>
   vectorWriteBin(key: string, base64Data: string): Promise<boolean>
-  vectorReadBin(key: string): Promise<string | null>
+  vectorReadBin(key: string): Promise<ArrayBuffer | Uint8Array | null>
   vectorListKeys(): Promise<string[]>
   shellExec(command: string, cwd?: string): Promise<{ stdout: string; stderr: string; code: number }>
   fileWrite(path: string, content: string): Promise<boolean>
@@ -224,7 +224,10 @@ export interface IOPort {
   mcpListTools(id: string): Promise<Array<{ name: string; description: string }>>
   mcpCallTool(id: string, toolName: string, args: Record<string, unknown>): Promise<unknown>
   llmChatCompletion(params: unknown): Promise<unknown>
-  llmChatCompletionStream(params: unknown): Promise<unknown>
+  llmChatCompletionStream(
+    params: unknown,
+    callbacks?: { onChunk: (chunk: unknown) => void; onDone: (final: unknown) => void; onError: (err: string) => void }
+  ): Promise<unknown>
   llmListModels(params: unknown): Promise<unknown>
   safeStorageEncrypt(value: string): Promise<string>
   safeStorageDecrypt(value: string): Promise<string>

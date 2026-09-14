@@ -12,6 +12,16 @@ const LOG_FILE_KEY = 'debug-probe-log'
 
 const TAG_EXTRACT = /^\[([^\]]+)\]/
 
+// 模块加载时绑定原始 console（capture 启动前），dev 下 emitEvent 镜像到真实 console 供主进程 console-message 钩子落盘
+const meta = import.meta as unknown as { env?: Record<string, unknown> }
+const DEV_MIRROR = meta.env?.DEV === true
+const RAW_CONSOLE: Record<string, (...args: unknown[]) => void> = {
+  log: console.log.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+}
+
 function extractTag(text: string): string | undefined {
   const m = TAG_EXTRACT.exec(text)
   return m ? m[1] : undefined
@@ -83,6 +93,10 @@ export const useDebugStore = defineStore('debug', () => {
       detail,
     }
     consoleLogs.value.push(entry)
+    if (DEV_MIRROR) {
+      const fn = RAW_CONSOLE[level] ?? RAW_CONSOLE.log
+      fn(`[probe][${level}][${category}] ${text}`, detail ?? '')
+    }
     if (level === 'error' && !frozen.value) {
       frozen.value = true
     }

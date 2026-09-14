@@ -160,6 +160,8 @@ export interface KnowledgeEntry {
   createdAt: number
   ownerType?: 'global' | 'session' | 'pipeline' | 'group' | 'conversation'
   ownerId?: string
+  partition?: 'kernel' | 'pack' | 'user'
+  partitionId?: string
 }
 
 export interface ConversationMemory {
@@ -1070,11 +1072,15 @@ export interface RuleWithStatus {
 }
 
 export interface ConstraintFeedbackEntry {
-  id: string
   constraintId: string
-  userFeedback: 'correct' | 'false_positive' | 'missed'
-  inputSnapshot: string
   timestamp: number
+  reviewer?: string
+  action?: string
+  fromStatus?: RuleStatus | null
+  toStatus?: RuleStatus | null
+  comment?: string
+  isFalsePositive?: boolean
+  documentId?: string
 }
 
 export interface FactConflict {

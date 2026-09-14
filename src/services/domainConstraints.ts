@@ -12,6 +12,51 @@ import type {
 import { extractEntities } from './nerExtractor'
 
 const ACTIVE_CONSTRAINTS: DomainConstraint[] = []
+const EXTERNAL_CONSTRAINT_IDS = new Set<string>()
+
+/**
+ * 规格书 8.8（Phase 2 适配器，P3.5/R12 修订）：pack 约束注入 runConstraints 管道。
+ * - P3.5 起内置约束退出生产注入路径，本管道是约束库唯一装载入口；
+ * - 同 id 先装载者优先、后到跳过并告警（避免双重拦截）；
+ * - 注入仅接受已按 DSL 引擎编译完成的 DomainConstraint 对象；
+ * - 返回 { injected, skipped } 供加载器记录并对账。
+ */
+export function injectExternalConstraints(constraints: DomainConstraint[]): {
+  injected: string[]
+  skipped: Array<{ id: string; reason: string }>
+} {
+  const injected: string[] = []
+  const skipped: Array<{ id: string; reason: string }> = []
+  for (const c of constraints) {
+    if (ACTIVE_CONSTRAINTS.some(existing => existing.id === c.id)) {
+      skipped.push({ id: c.id, reason: 'duplicate-id' })
+      continue
+    }
+    ACTIVE_CONSTRAINTS.push(c)
+    EXTERNAL_CONSTRAINT_IDS.add(c.id)
+    injected.push(c.id)
+  }
+  return { injected, skipped }
+}
+
+/** 规格书 8.8：pack 卸载时摘除其注入的约束（仅经 injectExternalConstraints 装载的 id 可摘除）。 */
+export function removeExternalConstraints(ids: string[]): number {
+  let removed = 0
+  for (const id of ids) {
+    if (!EXTERNAL_CONSTRAINT_IDS.has(id)) continue
+    const idx = ACTIVE_CONSTRAINTS.findIndex(c => c.id === id)
+    if (idx >= 0) {
+      ACTIVE_CONSTRAINTS.splice(idx, 1)
+      removed++
+    }
+    EXTERNAL_CONSTRAINT_IDS.delete(id)
+  }
+  return removed
+}
+
+export function getExternalConstraintIds(): string[] {
+  return [...EXTERNAL_CONSTRAINT_IDS]
+}
 
 function createConstraint(
   id: string,
@@ -93,6 +138,10 @@ function hasKeyword(text: string, keywords: string[]): boolean {
   return keywords.some(kw => text.includes(kw))
 }
 
+/**
+ * P3.5（R12）：以下内置约束数组已退出生产注入路径（不再自动装入 ACTIVE_CONSTRAINTS），
+ * 仅保留导出供 packEquivalence 等价验收测试作回归基线对照；生产装载一律经 pack 管线。
+ */
 export const LEGAL_CONSTRAINTS: DomainConstraint[] = [
   createConstraint(
     'legal-labor-contract-written',
@@ -3163,44 +3212,27 @@ export const FINANCE_CONSTRAINTS: DomainConstraint[] = [
   )
 ]
 
-function initConstraintStore(): void {
-  if (ACTIVE_CONSTRAINTS.length > 0) return
-  for (const c of [...LEGAL_CONSTRAINTS, ...FINANCE_CONSTRAINTS]) {
-    const validation = validateConstraintTestCases(c)
-    if (validation.valid) {
-      c.status = (c.automationLevel === 'full' && c.reviewType === 'auto') ? 'active' : 'testing'
-    }
-    ACTIVE_CONSTRAINTS.push(c)
-  }
-}
-
 export function getAllConstraints(): DomainConstraint[] {
-  initConstraintStore()
   return [...ACTIVE_CONSTRAINTS]
 }
 
 export function getConstraintsByDomain(domain: DomainConstraint['domain']): DomainConstraint[] {
-  initConstraintStore()
   return ACTIVE_CONSTRAINTS.filter(c => c.domain === domain)
 }
 
 export function getConstraintsByAutomationLevel(level: DomainConstraint['automationLevel']): DomainConstraint[] {
-  initConstraintStore()
   return ACTIVE_CONSTRAINTS.filter(c => c.automationLevel === level)
 }
 
 export function getActiveConstraints(): DomainConstraint[] {
-  initConstraintStore()
   return ACTIVE_CONSTRAINTS.filter(c => c.status === 'active')
 }
 
 export function getConstraintById(id: string): DomainConstraint | undefined {
-  initConstraintStore()
   return ACTIVE_CONSTRAINTS.find(c => c.id === id)
 }
 
 export function updateConstraintStatus(id: string, status: RuleStatus): boolean {
-  initConstraintStore()
   const constraint = ACTIVE_CONSTRAINTS.find(c => c.id === id)
   if (!constraint) return false
   constraint.status = status
@@ -3209,7 +3241,6 @@ export function updateConstraintStatus(id: string, status: RuleStatus): boolean 
 }
 
 export function approveConstraint(id: string, reviewerName: string): boolean {
-  initConstraintStore()
   const constraint = ACTIVE_CONSTRAINTS.find(c => c.id === id)
   if (!constraint) return false
   constraint.reliability.source.verifiedBy = reviewerName
@@ -3220,7 +3251,6 @@ export function approveConstraint(id: string, reviewerName: string): boolean {
 }
 
 export function recordConstraintTrigger(id: string, isFalsePositive: boolean): void {
-  initConstraintStore()
   const constraint = ACTIVE_CONSTRAINTS.find(c => c.id === id)
   if (!constraint) return
   constraint.triggerCount++
@@ -3255,7 +3285,6 @@ export function runConstraints(
   context: ConstraintCheckContext,
   domain?: DomainConstraint['domain']
 ): ConstraintResult[] {
-  initConstraintStore()
   const constraints = domain
     ? ACTIVE_CONSTRAINTS.filter(c => c.domain === domain)
     : ACTIVE_CONSTRAINTS
@@ -3341,7 +3370,6 @@ export function validateAllConstraints(): {
   invalid: number
   details: { id: string; valid: boolean; errors: string[]; passedTests: number; failedTests: number }[]
 } {
-  initConstraintStore()
   const details = ACTIVE_CONSTRAINTS.map(c => {
     const result = validateConstraintTestCases(c)
     return { id: c.id, ...result }

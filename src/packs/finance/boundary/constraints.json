@@ -1,0 +1,222 @@
+[
+  {
+    "id": "finance-invoice-amount-match",
+    "category": "发票金额",
+    "description": "发票金额应与合同/订单金额一致",
+    "severity": "warning",
+    "applicability": { "jurisdiction": "PRC" },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "regulation",
+        "name": "中华人民共和国发票管理办法",
+        "article": "第二十一条",
+        "effectiveDate": "2023-12-01"
+      },
+      "caveat": "仅检查金额数值"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywordGroups": [["合同金额", "合同总价"], ["发票金额", "开票金额"]]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "合同金额与发票金额不一致（差{{capture[0]}}元），请核实",
+      "matchedEntityTypes": ["amount"]
+    },
+    "evaluator": "boundary/evaluators/invoice-amount-match.ts",
+    "testCases": [
+      {
+        "description": "发票金额与合同金额不一致应触发",
+        "input": "合同金额50000元，发票金额48000元",
+        "expectedTrigger": true,
+        "expectedMessage": "金额不一致"
+      },
+      {
+        "description": "金额一致不应触发",
+        "input": "合同金额50000元，发票金额50000元",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "finance-tax-rate-vat",
+    "category": "增值税率",
+    "description": "增值税率应符合法定标准（当前13%/9%/6%）",
+    "severity": "warning",
+    "applicability": { "jurisdiction": "PRC" },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "law",
+        "name": "中华人民共和国增值税法",
+        "article": "第二条",
+        "effectiveDate": "2026-01-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": ["增值税", "VAT"],
+      "numericCapture": [
+        {
+          "pattern": "(?<![0-9.])(?!(?:13|0|1|3|5|6|9)(?:\\.0+)?\\s*%)(\\d+(?:\\.\\d+)?)\\s*%",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 0
+        }
+      ]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "增值税率{{capture[0]}}%不是法定标准税率（法定税率：13%/9%/6%及简易征收率5%/3%/1%）",
+      "matchedEntityTypes": ["percentage"]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "增值税率20%应触发",
+        "input": "增值税税率为20%",
+        "expectedTrigger": true,
+        "expectedMessage": "增值税率"
+      },
+      {
+        "description": "增值税率13%不应触发",
+        "input": "增值税税率为13%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "finance-payment-terms-limit",
+    "category": "付款期限",
+    "description": "企业间付款期限一般不超过60天（中小企业保护条例）",
+    "severity": "info",
+    "applicability": { "jurisdiction": "PRC" },
+    "reliability": {
+      "confidence": "low",
+      "source": {
+        "type": "regulation",
+        "name": "保障中小企业款项支付条例",
+        "article": "第八条",
+        "effectiveDate": "2020-09-01"
+      },
+      "caveat": "适用主体为机关/事业单位/大型企业向中小企业付款"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "numericCapture": [
+        {
+          "pattern": "付款期限[为约]?\\s*(\\d+)\\s*天",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 60
+        }
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "付款期限{{capture[0]}}天，超过60天（保障中小企业款项支付条例第8条）"
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "付款期90天应触发",
+        "input": "付款期限为90天",
+        "expectedTrigger": true,
+        "expectedMessage": "付款期限"
+      },
+      {
+        "description": "付款期30天不应触发",
+        "input": "付款期限为30天",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "finance-depreciation-rate",
+    "category": "折旧率",
+    "description": "固定资产折旧年限和折旧率应在合理范围",
+    "severity": "info",
+    "applicability": { "jurisdiction": "PRC" },
+    "reliability": {
+      "confidence": "medium",
+      "source": {
+        "type": "standard",
+        "name": "企业会计准则第4号——固定资产",
+        "article": "第十七条",
+        "effectiveDate": "2007-01-01"
+      },
+      "caveat": "不同资产类别折旧年限不同"
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": ["折旧"],
+      "numericCapture": [
+        {
+          "pattern": "(?<![\\d.])((?:\\d{3,}|[6-9]\\d|5[1-9])(?:\\.\\d+)?|50\\.\\d*[1-9]\\d*)\\s*%",
+          "captureGroup": 1,
+          "compare": ">",
+          "threshold": 50
+        }
+      ]
+    },
+    "action": {
+      "severity": "info",
+      "messageTemplate": "年折旧率{{capture[0]}}%偏高，请核实资产类别与折旧年限是否合理（企业会计准则第4号）",
+      "matchedEntityTypes": ["percentage"]
+    },
+    "evaluator": null,
+    "testCases": [
+      {
+        "description": "年折旧率80%应触发",
+        "input": "设备年折旧率为80%",
+        "expectedTrigger": true,
+        "expectedMessage": "折旧率"
+      },
+      {
+        "description": "年折旧率10%不应触发",
+        "input": "设备年折旧率为10%",
+        "expectedTrigger": false
+      }
+    ]
+  },
+  {
+    "id": "finance-large-transaction-flag",
+    "category": "大额交易",
+    "description": "大额交易需按规定报告（金融机构大额交易报告标准）",
+    "severity": "warning",
+    "applicability": { "jurisdiction": "PRC" },
+    "reliability": {
+      "confidence": "high",
+      "source": {
+        "type": "regulation",
+        "name": "金融机构大额交易和可疑交易报告管理办法",
+        "article": "第五条",
+        "effectiveDate": "2022-07-01"
+      }
+    },
+    "automationLevel": "full",
+    "trigger": {
+      "keywords": ["转账", "汇款", "支付"]
+    },
+    "action": {
+      "severity": "warning",
+      "messageTemplate": "单笔{{capture[0]}}达到大额交易报告标准（50万元以上），需按规定报告",
+      "matchedEntityTypes": ["amount"]
+    },
+    "evaluator": "boundary/evaluators/large-transaction-flag.ts",
+    "testCases": [
+      {
+        "description": "单笔转账60万应触发",
+        "input": "单笔转账金额为60万元",
+        "expectedTrigger": true,
+        "expectedMessage": "大额交易"
+      },
+      {
+        "description": "单笔转账5万不应触发",
+        "input": "单笔转账金额为5万元",
+        "expectedTrigger": false
+      }
+    ]
+  }
+]

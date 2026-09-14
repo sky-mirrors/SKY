@@ -137,7 +137,7 @@ export function saveExecutionFingerprint(
 ): void {
   const filteredResults: Record<number, string> = {}
   for (const [k, v] of Object.entries(results)) {
-    if (!sideEffectSteps?.has(Number(k))) filteredResults[k] = v
+    if (!sideEffectSteps?.has(Number(k))) filteredResults[Number(k)] = v
   }
   const existing = fingerprintStore.findIndex(f => f.manifestId === manifestId && f.inputHash === inputFingerprint)
   if (existing >= 0) fingerprintStore.splice(existing, 1)

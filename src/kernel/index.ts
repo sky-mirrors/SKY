@@ -1,3 +1,4 @@
+//类型导入
 import type {
   KernelContext, KernelResult, DispatchOptions,
   RouteInput, RouteResult,
@@ -5,18 +6,27 @@ import type {
   SecurityCheckInput, SecurityCheckResult,
   BudgetCheckInput, BudgetCheckResult, BudgetRecordInput,
   FactCheckInput, FactCheckResult,
-  LLMPort, PersistencePort, IOPort, ModelTier,
+  LLMPort, PersistencePort, IOPort,
 } from './types'
+import type { ModelTier } from '@/models'
 import { localStoragePersistence, createNamespacedPersistence } from './facades/persistence'
 import { electronIOPort } from './facades/io'
+//5个能力簇
 import * as routeCluster from './clusters/route'
 import * as cacheCluster from './clusters/cache'
 import * as securityCluster from './clusters/security'
 import * as budgetCluster from './clusters/budget'
 import * as factCluster from './clusters/fact'
+//llm注册表操作
 import { registerLLM, getLLM, unregisterLLM } from './plugins/llm'
+//事件总线及实例
 import { HoloEventBus, globalBus } from './bus'
+//全局簇注册表，支持热替换
+import { globalClusterRegistry } from './clusters/registry'
 
+
+
+//内核接口
 export interface HoloKernel {
   dispatch(input: string, options: DispatchOptions, context?: KernelContext): Promise<KernelResult>
   route: typeof routeCluster
@@ -31,6 +41,7 @@ export interface HoloKernel {
   destroy(): void
 }
 
+//
 export function createKernel(options?: {
   persistence?: PersistencePort
   io?: IOPort
@@ -45,10 +56,12 @@ export function createKernel(options?: {
   const kernel: HoloKernel = {
     async dispatch(input: string, options: DispatchOptions, context?: KernelContext): Promise<KernelResult> {
       const effectiveContext: KernelContext = { ...context, persistence, io }
+      // M15：请求级快照——簇热换只影响下一个请求
+      const clusters = globalClusterRegistry.snapshot()
 
       let cacheHit: CacheLookupResult | null = null
       if (!options.stream) {
-        cacheHit = await cacheCluster.lookup(input, context?.domain, effectiveContext)
+        cacheHit = await clusters.cache.lookup(input, context?.domain, effectiveContext)
         if (cacheHit.hit && cacheHit.responseText) {
           return {
             success: true,
@@ -81,9 +94,9 @@ export function createKernel(options?: {
         manifestMaxTier: context?.manifestMaxTier,
         cacheHint: cacheHit?.hit ? { hit: true, tier: cacheHit.tier } : undefined,
       }
-      const routeResult = routeCluster.route(routeInput, effectiveContext)
+      const routeResult = clusters.route.route(routeInput, effectiveContext)
 
-      const budgetResult = budgetCluster.check({
+      const budgetResult = clusters.budget.check({
         estimatedTokens: routeResult.estimatedTokens,
         requestedTier: routeResult.tier,
       }, effectiveContext)
@@ -110,7 +123,7 @@ export function createKernel(options?: {
 
       let securityResult: SecurityCheckResult | undefined
       if (!options.skipSecurity && options.messages === undefined) {
-        securityResult = await securityCluster.check({
+        securityResult = await clusters.security.check({
           action: 'llm_generate',
           userInput: input,
         }, effectiveContext)
@@ -160,7 +173,7 @@ export function createKernel(options?: {
             promptTokens = response.promptTokens
             completionTokens = response.completionTokens
 
-            await cacheCluster.store({
+            await clusters.cache.store({
               queryText: input,
               responseText: responseText,
               tier: effectiveTier,
@@ -170,8 +183,8 @@ export function createKernel(options?: {
             }, effectiveContext)
           }
 
-          const cost = budgetCluster.estimateCost(effectiveTier, promptTokens)
-          budgetCluster.record({
+          const cost = clusters.budget.estimateCost(effectiveTier, promptTokens)
+          clusters.budget.record({
             tier: effectiveTier,
             promptTokens,
             completionTokens,
@@ -181,8 +194,8 @@ export function createKernel(options?: {
 
           let factResult: FactCheckResult | undefined
           if (!options.skipFactCheck && options.manifestRoles && responseText) {
-            const sourceEntities = factCluster.extractEntitiesFromText(input)
-            factResult = factCluster.check({
+            const sourceEntities = clusters.fact.extractEntitiesFromText(input)
+            factResult = clusters.fact.check({
               llmOutput: responseText,
               sourceEntities,
               manifestRoles: options.manifestRoles,
@@ -242,11 +255,11 @@ export function createKernel(options?: {
       }
     },
 
-    route: routeCluster,
-    cache: cacheCluster,
-    security: securityCluster,
-    budget: budgetCluster,
-    fact: factCluster,
+    get route() { return globalClusterRegistry.get('route') },
+    get cache() { return globalClusterRegistry.get('cache') },
+    get security() { return globalClusterRegistry.get('security') },
+    get budget() { return globalClusterRegistry.get('budget') },
+    get fact() { return globalClusterRegistry.get('fact') },
 
     registerLLM(port: LLMPort): void {
       registerLLM(port)
@@ -264,13 +277,11 @@ export function createKernel(options?: {
   return kernel
 }
 
-export type { HoloKernel, KernelContext, KernelResult, DispatchOptions } from './types'
+export type { KernelContext, KernelResult, DispatchOptions } from './types'
 export { createNamespacedPersistence } from './facades/persistence'
 export { registerLLM, getLLM } from './plugins/llm'
 export { HoloEventBus, globalBus } from './bus'
 export { createReadOnlyContext } from './context'
 export type { ReadOnlyKernelContext } from './context'
-export { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/services/strategySelector'
-export { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS, initSmartRouter } from '@/services/smartRouter'
-export { getBudgetMode, setBudgetMode, getSessionSpent } from '@/services/tokenBudget'
-export { initSemanticCache } from '@/services/semanticCache'
+export { ClusterRegistry, globalClusterRegistry } from './clusters/registry'
+export type { ClusterKind, ClusterImpls } from './clusters/registry'

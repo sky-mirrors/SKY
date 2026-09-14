@@ -51,6 +51,7 @@ export interface AdaptiveThresholds {
 }
 
 interface FlatRoutingThresholds {
+  [key: string]: number
   inputLength_trivial: number
   inputLength_simple: number
   inputLength_moderate: number

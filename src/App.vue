@@ -9,7 +9,8 @@
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换浅色模式' : configStore.theme === 'light' ? '切换护眼模式' : '切换深色模式'">{{ configStore.theme === 'dark' ? '☀️' : configStore.theme === 'light' ? '🌿' : '🌙' }}</span>
         <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心">🔔<span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
         <span class="settings-btn" @click="settingsPageRef?.open()" title="设置">⚙️</span>
-        <span class="view-toggle" @click="toggleViewMode" :title="viewMode === 'starmap' ? '切换到结果预览' : '切换到星图'">{{ viewMode === 'starmap' ? '📊' : '🌌' }}</span>
+        <span class="view-toggle" v-if="uiMode === 'starmap'" @click="toggleViewMode" :title="viewMode === 'starmap' ? '切换到结果预览' : '切换到星图'">{{ viewMode === 'starmap' ? '📊' : '🌌' }}</span>
+        <span class="view-toggle" @click="toggleMainMode" :title="uiMode === 'workbench' ? '切换到星图模式' : '切换到工作台模式'">{{ uiMode === 'workbench' ? '🌌' : '🛠' }}</span>
       </div>
       <div class="titlebar-controls">
         <button class="tb-btn tb-minimize" @click="minimizeWindow">─</button>
@@ -17,6 +18,16 @@
         <button class="tb-btn tb-close" @click="closeWindow">✕</button>
       </div>
     </div>
+    <!-- R16 工作台模式（默认）：左导航 + 中对话 + 右运行时面板 + 状态栏 -->
+    <WorkbenchShell
+      v-if="uiMode === 'workbench'"
+      @open-mcp="onOpenMcp"
+      @camera-fly-to="onCameraFlyTo"
+      @open-preview="openPreview"
+      @open-api-settings="apiSettingsRef?.open(apiStore.config.baseUrl)"
+    />
+    <!-- 星图模式：原有全部悬浮层（整体门控，工作台下卸载释放 GPU） -->
+    <template v-if="uiMode === 'starmap'">
     <DialogPanel @open-mcp="onOpenMcp" @camera-fly-to="onCameraFlyTo" @panel-width-changed="onPanelWidthChanged" @open-preview="openPreview" />
     <FilterBar />
     <StarMap
@@ -25,11 +36,6 @@
       @node-click="onNodeClick"
       @node-hover="onNodeHover"
       @ready="onStarMapReady"
-    />
-    <ResultPreviewStage
-      v-if="viewMode === 'preview'"
-      :message="previewMessage"
-      @close="configStore.setViewMode('starmap')"
     />
     <DebugProbePanel />
     <div class="node-tooltip" v-if="tooltipInfo" :style="{ left: tooltipInfo.screenX + 12 + 'px', top: tooltipInfo.screenY - 28 + 'px' }">
@@ -46,13 +52,6 @@
       @resume-context="onResumeContext"
       @clear-context="onClearContext"
     />
-    <ApiSettings ref="apiSettingsRef" @saved="onApiSaved" />
-    <Notification ref="notificationRef" />
-    <NotificationCenter ref="notificationCenterRef" />
-    <CommandPalette ref="commandPaletteRef" />
-    <SettingsPage ref="settingsPageRef" />
-    <OnboardingWizard ref="onboardingWizardRef" />
-    <L0Modal ref="l0ModalRef" @skill-installed="onSkillInstalled" @mcp-connected="onMcpConnected" />
     <div class="kernel-status-orb" @click="showKernelDetail = !showKernelDetail">
       <span class="orb-dot" :class="memoryWarning ? 'warning' : kernelState"></span>
       <span class="orb-label">{{ memoryWarning ? '内存!' : kernelLabel }}</span>
@@ -67,6 +66,20 @@
       <div class="kd-row"><span>向量索引</span><span>{{ vectorIndexStatus }}</span></div>
       <div class="kd-row" v-if="memoryUsage"><span>内存</span><span>{{ memoryUsage }}</span></div>
     </div>
+    </template>
+    <!-- 公共层：预览/弹窗/设置（跨模式共享） -->
+    <ResultPreviewStage
+      v-if="viewMode === 'preview'"
+      :message="previewMessage"
+      @close="configStore.setViewMode('starmap')"
+    />
+    <ApiSettings ref="apiSettingsRef" @saved="onApiSaved" />
+    <Notification ref="notificationRef" />
+    <NotificationCenter ref="notificationCenterRef" />
+    <CommandPalette ref="commandPaletteRef" />
+    <SettingsPage ref="settingsPageRef" />
+    <OnboardingWizard ref="onboardingWizardRef" />
+    <L0Modal ref="l0ModalRef" @skill-installed="onSkillInstalled" @mcp-connected="onMcpConnected" />
     <div class="history-snapshot" v-if="showHistorySnapshot" @click.self="showHistorySnapshot = false">
       <div class="snapshot-panel">
         <h4>{{ snapshotEntry?.toolName }} — 历史快照</h4>
@@ -100,6 +113,7 @@ import CommandPalette from './components/CommandPalette.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import OnboardingWizard from './components/OnboardingWizard.vue'
 import DialogPanel from './components/DialogPanel.vue'
+import WorkbenchShell from './components/workbench/WorkbenchShell.vue'
 import L0Modal from './components/L0Modal.vue'
 import FilterBar from './components/FilterBar.vue'
   import { useNodeStore } from '@/domains/node'
@@ -121,6 +135,8 @@ import ResultPreviewStage from '@/components/ResultPreviewStage.vue'
 import { initFileContextWatch } from '@/domains/node'
 import { debugLog } from '@/domains/debug'
 import { createKernel, globalBus } from '@/kernel'
+import { initKernelRuntime, kernelRegistry } from '@/host/kernelRuntime'
+import { initPackRuntime, packLoader } from '@/host/packRuntime'
 import { vault } from '@/vault'
 import { registerApiHandlers } from '@/domains/api/handlers'
 import { registerAppHandlers } from '@/domains/app/handlers'
@@ -158,7 +174,19 @@ const starMapRef = ref()
 const showKernelDetail = ref(false)
 const dialogPanelWidth = ref(configStore.config.dialogPanelWidth ?? 460)
 const viewMode = computed(() => configStore.viewMode)
+const uiMode = computed(() => configStore.uiMode)
 const previewMessage = ref<DialogMessage | null>(null)
+
+// R16：工作台↔星图主模式切换；离开星图时清 starMapRef（星图已卸载，防止探针/DAG 定时器调用失效场景 API）
+watch(uiMode, mode => {
+  if (mode === 'workbench') {
+    starMapRef.value = undefined
+  }
+})
+
+function toggleMainMode() {
+  configStore.setUiMode(uiMode.value === 'workbench' ? 'starmap' : 'workbench')
+}
 
 const kernelState = ref<'loaded' | 'degraded' | 'loading'>('loading')
 const embedderStatus = ref('加载中...')
@@ -435,11 +463,12 @@ function launchL2Tool(node: ToolNode) {
       advanceStepSelection()
     })?.then((results) => {
       const lastKey = `step${steps.length - 1}`
-      if (results[lastKey]) {
+      const lastResult = results?.[lastKey]
+      if (lastResult) {
         advanceStepSelection()
         nodeStore.selectNode(node.id)
         notificationRef.value?.show(`${node.name} 执行完成，结果已生成`, 3000)
-        addHistoryEntry(node, '', results[lastKey], true)
+        addHistoryEntry(node, '', lastResult, true)
       }
     }).catch((err) => {
       nodeStore.selectNode(node.id)
@@ -719,7 +748,19 @@ onMounted(async () => {
   dialogStore.initSession()
   workflowLogStore.loadFromStorage()
 
+  // R16：工作台模式下 StarMap 不挂载，首启引导由工作台直接打开（星图模式的引导仍由 onStarMapReady 触发）
+  if (configStore.isFirstLaunch && configStore.uiMode === 'workbench') {
+    onboardingWizardRef.value?.open()
+  }
+
   const kernel = createKernel()
+  initKernelRuntime().catch(err => console.error('[kernel-runtime] 初始化失败:', err))
+  initPackRuntime().catch(err => console.error('[pack-runtime] 初始化失败:', err))
+
+  // P3.6 手动 dev 演练入口：控制台经 window.__holoHotplug 操作换内核 / pack 热重载 / override 演示
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { __holoHotplug: unknown }).__holoHotplug = { kernelRegistry, packLoader }
+  }
   registerApiHandlers(globalBus)
   registerAppHandlers(globalBus)
   registerConfigHandlers(globalBus)
@@ -791,11 +832,11 @@ onMounted(async () => {
 
   debugStore.activate()
   try {
-    const { initSemanticCache } = await import('@/kernel')
+    const { initSemanticCache } = await import('@/services/semanticCache')
     initSemanticCache()
   } catch { /* non-critical */ }
   try {
-    const { initSmartRouter } = await import('@/kernel')
+    const { initSmartRouter } = await import('@/services/smartRouter')
     initSmartRouter()
   } catch { /* non-critical */ }
   debugStore.updateEnvironment({

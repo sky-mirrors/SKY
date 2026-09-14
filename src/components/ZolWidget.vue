@@ -33,7 +33,9 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS, getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS, getBudgetMode, getSessionSpent } from '@/kernel'
+import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/services/strategySelector'
+import { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS } from '@/services/smartRouter'
+import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
 
 const expanded = ref(false)
 

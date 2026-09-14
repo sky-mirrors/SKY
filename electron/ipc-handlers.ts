@@ -11,6 +11,10 @@ import extract from 'extract-zip'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
 import * as jschardet from 'jschardet'
 import * as iconv from 'iconv-lite'
+// R16 修复：原为 CJS require('./vault')——electron-vite 打包不解析相对路径 CJS require，
+// 运行时 out/main 仅有单文件 bundle 导致 MODULE_NOT_FOUND；改为静态 ESM import 由 rollup 打入
+import { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList, vaultReadVector, vaultWriteVector, vaultDeleteVector, vaultListVectors, vaultGetStats } from './vault'
+import { migrateToVault, isMigrationComplete } from './vault-migration'
 
 let mainWindow: BrowserWindow | null = null
 let watchDir: string | null = null
@@ -955,8 +959,6 @@ export function setupIpc(win: BrowserWindow | null) {
     return app.getPath('userData')
   })
 
-  const { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList, vaultReadVector, vaultWriteVector, vaultDeleteVector, vaultListVectors, vaultGetStats } = require('./vault')
-  const { migrateToVault, isMigrationComplete } = require('./vault-migration')
   openVault()
 
   ipcMain.handle('vault:read', (_event, namespace: string, key: string) => {
