@@ -91,7 +91,20 @@ export const useMemoryStore = defineStore('memory', () => {
 
   const conversations = ref<ConversationMemory[]>(loadConversations())
 
-  function addDialogMessage(_msg: Omit<DialogMessage, 'id' | 'timestamp'>) {
+  const MAX_SESSION_MESSAGES = 200
+
+  function addDialogMessage(msg: Omit<DialogMessage, 'id' | 'timestamp'>) {
+    // P1-41：此前实现丢弃 payload（`_msg` 未使用），对话消息从未落会话记忆
+    const entry: DialogMessage = {
+      ...msg,
+      id: `dm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: Date.now()
+    }
+    if (!sessionMemory.value.messages) sessionMemory.value.messages = []
+    sessionMemory.value.messages.push(entry)
+    if (sessionMemory.value.messages.length > MAX_SESSION_MESSAGES) {
+      sessionMemory.value.messages.splice(0, sessionMemory.value.messages.length - MAX_SESSION_MESSAGES)
+    }
     sessionMemory.value.updatedAt = Date.now()
     saveSessionToStorage()
   }

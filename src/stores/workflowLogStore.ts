@@ -68,6 +68,11 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
     return logs.value.find(l => l.id === logId)
   }
 
+  function clearLogs() {
+    logs.value = []
+    saveToStorage()
+  }
+
   function saveToStorage() {
     const toSave = logs.value.slice(0, 50)
     vault.writeThrough('workflow', 'holo-workflow-logs', JSON.stringify(toSave))
@@ -80,6 +85,9 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
     }
   }
 
+  // 启动即加载持久化日志（此前 loadFromStorage 零调用方，重启后时间线恒空）
+  loadFromStorage()
+
   return {
     logs,
     createLog,
@@ -88,6 +96,7 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
     activateEdge,
     completeLog,
     getLog,
+    clearLogs,
     loadFromStorage
   }
 })

@@ -58,6 +58,7 @@ function userRequestedFile(input: string): boolean {
 
 import { useSessionStore } from './sessionStore'
 import { debugLog } from '@/services/debugLog'
+import { newTraceId } from '@/services/trace'
 
 function loadSummaries(): { period: string; summary: string; from: number; to: number }[] {
   const raw = vault.readCache('dialog', 'holo-conv-summaries')
@@ -107,6 +108,9 @@ export const useDialogStore = defineStore('dialog', () => {
   const pendingMacroManifestId = ref<string | null>(null)
 
   const lastDecisionContext = ref<DecisionContext | null>(null)
+
+  // §5.2 统一 traceId：每次用户请求入口生成，随 bus payload 传播至 probe/cost/audit/log-event
+  const activeTraceId = ref('')
 
   const transientHint = ref('')
   let _hintTimer: ReturnType<typeof setTimeout> | null = null
@@ -205,7 +209,8 @@ export const useDialogStore = defineStore('dialog', () => {
     globalBus.emit('memory:add-dialog-message', {
       role: 'user',
       type: 'text',
-      content
+      content,
+      traceId: activeTraceId.value || undefined
     })
     saveToStorage()
   }
@@ -235,7 +240,8 @@ export const useDialogStore = defineStore('dialog', () => {
       type: card ? 'workflow_card' : log ? 'tool_log' : 'text',
       content,
       workflowCard: card,
-      toolLog: log
+      toolLog: log,
+      traceId: activeTraceId.value || undefined
     })
     saveToStorage()
   }
@@ -844,9 +850,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       isProcessing.value = false
       return ''
     }
+    // §5.2：用户请求入口生成 traceId（须在 addUserMessage 之前，消息落记忆时携带）
+    activeTraceId.value = newTraceId()
     addUserMessage(content)
     try {
-      globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: `[Dialog] 用户发送消息: ${content.substring(0, 100)}` })
+      globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: `[Dialog] 用户发送消息: ${content.substring(0, 100)}`, traceId: activeTraceId.value })
     } catch { /* non-critical */ }
     if (awaitingRiskConfirm.value) {
       isProcessing.value = false
@@ -2539,6 +2547,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     messages,
     mode,
     isProcessing,
+    activeTraceId,
     refreshFunnelMainFlag,
     currentEngine,
     pendingPlan,

@@ -320,6 +320,7 @@ export interface SessionMemory {
   id: string
   createdAt: number
   updatedAt: number
+  messages?: DialogMessage[]
 }
 
 export interface ProjectMemory {
@@ -803,6 +804,7 @@ export interface ConsoleLogEntry {
   tag?: string
   category?: ConsoleCategory
   detail?: string
+  traceId?: string
 }
 
 export interface ProbeSnapshot {
@@ -822,6 +824,7 @@ export interface ProbeSnapshot {
   timestamp: number
   durationMs: number
   tokenUsage?: { promptTokens: number; completionTokens: number; totalTokens: number; estimatedCostCny: number }
+  traceId?: string
 }
 
 export interface DebugSession {

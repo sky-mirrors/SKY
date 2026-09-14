@@ -5,6 +5,8 @@ import { compileToChain } from './promptTranslator'
 import { debugLog } from '@/services/debugLog'
 import { globalBus } from '@/kernel/bus'
 import { beautify } from './resultBeautifier'
+import { newTraceId, getCurrentTraceId } from '@/services/trace'
+import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 
 const handlerRegistry: Map<string, NodeHandler> = new Map()
 
@@ -224,6 +226,8 @@ export async function executePipeline(
   onProgress?: (stepId: string, msg: string) => void,
   resumeFromCheckpoint: boolean = false
 ): Promise<Record<string, string>> {
+  // §5.2：pipeline 启动是 traceId 生成入口之一
+  newTraceId()
   const gateway = globalBus.request<ModelGatewayAdapter>('llm:get-gateway', {})
 
   const pipelineAbortController = new AbortController()
@@ -238,9 +242,41 @@ export async function executePipeline(
 
   const sorted = topologicalSort(dagNodes)
 
+  // P1-43：工作流时间线生命周期（无 pinia 环境(测试)时静默降级）
+  let wfLogId: string | null = null
+  const wfUpdate = (stepId: string, status: 'pending' | 'running' | 'completed' | 'failed') => {
+    if (!wfLogId) return
+    try {
+      useWorkflowLogStore().updateNodeStatus(
+        wfLogId,
+        stepId,
+        status,
+        status === 'running' ? Date.now() : undefined,
+        (status === 'completed' || status === 'failed') ? Date.now() : undefined
+      )
+    } catch { /* ignore */ }
+  }
+  const wfComplete = (status: 'completed' | 'failed') => {
+    if (!wfLogId) return
+    try {
+      useWorkflowLogStore().completeLog(wfLogId, status)
+    } catch { /* ignore */ }
+  }
+  try {
+    const wfStore = useWorkflowLogStore()
+    const wfEdges: [string, string, 'data' | 'control'][] = []
+    for (const n of dagNodes) {
+      for (const dep of n.deps) {
+        wfEdges.push([dep, n.id, pipeline.mode === 'serial' ? 'control' : 'data'])
+      }
+    }
+    wfLogId = wfStore.createLog(pipeline.id, dagNodes.map(n => n.id), wfEdges).id
+  } catch { /* 非关键 */ }
+
   let completedSteps: string[] = []
   const results: Record<string, Record<string, unknown>> = {}
   const stringResults: Record<string, string> = {}
+  let pipelineFailed = false
 
   if (resumeFromCheckpoint) {
     const cp = loadCheckpoint(pipeline.id)
@@ -267,6 +303,7 @@ export async function executePipeline(
       const fallback = `Tool ${step.toolId} not registered`
       stringResults[step.outputKey] = fallback
       results[step.outputKey] = { response: fallback }
+      wfUpdate(stepId, 'failed')
       completedSteps.push(stepId)
       continue
     }
@@ -292,6 +329,7 @@ export async function executePipeline(
     }
 
     try {
+      wfUpdate(stepId, 'running')
       const result = await handler.run(ctx)
       results[step.outputKey] = result
       const resultKeys = Object.keys(result)
@@ -309,6 +347,7 @@ export async function executePipeline(
       }
 
       completedSteps.push(stepId)
+      wfUpdate(stepId, 'completed')
       saveCheckpoint({
         pipelineId: pipeline.id,
         completedSteps: [...completedSteps],
@@ -319,7 +358,9 @@ export async function executePipeline(
 
       try {
         const source: ProbeSource = step.toolId === 'l1-model-gateway' ? 'llm' : step.toolId === 'l1-workspace-memory' ? 'knowledge' : 'mcp'
-        globalBus.emit('debug:log-probe', {
+        const traceId = getCurrentTraceId()
+        // P1-39：payload 须为 { snapshot } 包装——bridge 只认 payload.snapshot
+        globalBus.emit('debug:log-probe', { snapshot: {
           id: `probe-pipe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           stepNum: stepIndex,
           manifestId: `pipeline-${pipeline.id}`,
@@ -329,14 +370,18 @@ export async function executePipeline(
           inputSnapshot: input,
           outputSnapshot: stringResults[step.outputKey] || '',
           timestamp: Date.now(),
-          durationMs: 0
-        })
+          durationMs: 0,
+          ...(traceId ? { traceId } : {})
+        } })
       } catch { /* non-critical */ }
 
       onProgress?.(stepId, `✓ ${step.toolId}`)
     } catch (err) {
+      pipelineFailed = true
+      wfUpdate(stepId, 'failed')
       try {
-        globalBus.emit('debug:log-probe', {
+        const traceId = getCurrentTraceId()
+        globalBus.emit('debug:log-probe', { snapshot: {
           id: `probe-pipe-err-${Date.now()}`,
           stepNum: stepIndex,
           manifestId: `pipeline-${pipeline.id}`,
@@ -347,8 +392,9 @@ export async function executePipeline(
           outputSnapshot: '',
           timestamp: Date.now(),
           durationMs: 0,
-          errorStack: err instanceof Error ? err.stack : undefined
-          })
+          errorStack: err instanceof Error ? err.stack : undefined,
+          ...(traceId ? { traceId } : {})
+        } })
       } catch { /* non-critical */ }
       onProgress?.(stepId, `✗ ${step.toolId}: ${String(err)}`)
       stringResults[step.outputKey] = `Error: ${String(err)}`
@@ -357,8 +403,10 @@ export async function executePipeline(
   }
 
     clearCheckpoint(pipeline.id)
+    wfComplete('completed')
     return stringResults
   } finally {
+    if (pipelineFailed) wfComplete('failed')
     globalBus.emit('debug:clear-abort', {})
   }
 }

@@ -1601,8 +1601,8 @@ function exportWorkflowLogs() {
 }
 
 function clearWorkflowLogs() {
-  workflowLogStore.logs.splice(0, workflowLogStore.logs.length)
-  try { localStorage.setItem('holo-workflow-logs', '[]') } catch { /* ignore */ }
+  // P1-43：经 store action 清空并同步 vault 持久层（旧实现直写 localStorage 键与 vault 命名空间不一致）
+  workflowLogStore.clearLogs()
   dialogStore.addSystemNotice('🗑️ 工作流日志已清空')
 }
 

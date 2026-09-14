@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord } from '@/models'
+import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord, ModelTier } from '@/models'
 import { debugLog } from '@/services/debugLog'
 import { recordLlmCost, getBudgetStatus as getBudgetStatusFromService, initBudgetSystem, getCostBreakdownByTier, getCostBreakdownByCategory } from '@/services/tokenBudget'
 import { calculateCost } from '@/services/tokenPricing'
@@ -82,7 +82,7 @@ export const useDebugStore = defineStore('debug', () => {
     return logs
   })
 
-  function emitEvent(level: ConsoleLogLevel, category: ConsoleCategory, text: string, detail?: string) {
+  function emitEvent(level: ConsoleLogLevel, category: ConsoleCategory, text: string, detail?: string, traceId?: string) {
     const entry: ConsoleLogEntry = {
       id: `ev-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       level,
@@ -91,6 +91,7 @@ export const useDebugStore = defineStore('debug', () => {
       tag: extractTag(text),
       category,
       detail,
+      traceId,
     }
     consoleLogs.value.push(entry)
     if (DEV_MIRROR) {
@@ -117,15 +118,20 @@ export const useDebugStore = defineStore('debug', () => {
 
   let _skipNextCapture = false
 
-  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number, category?: string) {
+  function toModelTier(tier?: string): ModelTier {
+    if (tier === 'nano' || tier === 'mini' || tier === 'pro') return tier
+    return 'standard'
+  }
+
+  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number, category?: string, tier?: string, traceId?: string) {
     _skipNextCapture = true
     totalTokenUsage.value.promptTokens += promptTokens
     totalTokenUsage.value.completionTokens += completionTokens
     totalTokenUsage.value.totalTokens += totalTokens
     const cost = calculateCost(promptTokens, completionTokens, 0)
     totalTokenUsage.value.estimatedCostCny += cost.totalCost
-    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}, cost=${cost.totalCost.toFixed(4)}CNY`)
-    recordLlmCost('standard', promptTokens, completionTokens, 0, category || 'llm')
+    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}, cost=${cost.totalCost.toFixed(4)}CNY${traceId ? ` [traceId=${traceId.substring(0, 8)}]` : ''}`, undefined, traceId)
+    recordLlmCost(toModelTier(tier), promptTokens, completionTokens, 0, category || 'llm')
     refreshBudgetStatus()
   }
 

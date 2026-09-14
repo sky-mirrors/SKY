@@ -11,6 +11,8 @@ import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, ge
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
 import { vault } from '@/vault'
+import { getCurrentTraceId } from '@/services/trace'
+import { globalBus } from '@/kernel/bus'
 
 interface AnthropicResponse {
   content?: { text?: string }[]
@@ -373,6 +375,20 @@ export const useApiStore = defineStore('api', () => {
 
     const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
     let cacheHitTier: ModelTier | undefined
+    // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string) => {
+      try {
+        const traceId = getCurrentTraceId()
+        globalBus.emit('debug:record-cost', {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+          tier,
+          category,
+          ...(traceId ? { traceId } : {})
+        })
+      } catch { /* non-critical */ }
+    }
     if (cacheEligible && getCacheConfig().enabled) {
       try {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
@@ -382,6 +398,7 @@ export const useApiStore = defineStore('api', () => {
           if (cacheResult.hit && cacheResult.entry) {
             cacheHitTier = cacheResult.entry.tier
             debugLog(`[chatCompletion:cache] HIT, saved ${cacheResult.savedTokens} tokens, ¥${cacheResult.savedCost.toFixed(4)}`)
+            emitRecordCost({ promptTokens: 0, completionTokens: 0, totalTokens: 0 }, cacheHitTier, 'cache')
             return {
               content: cacheResult.entry.responseText,
               toolCalls: [],
@@ -460,6 +477,7 @@ export const useApiStore = defineStore('api', () => {
           }
         }
         recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+        emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
         return ipcResult
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -564,6 +582,7 @@ export const useApiStore = defineStore('api', () => {
           }
         }
         recordOutcome(userContent, decision, effectiveTier, ct, budgetResult.estimatedCost, routingOptions?.taskType)
+        emitRecordCost({ promptTokens: pt, completionTokens: ct, totalTokens: pt + ct }, effectiveTier, 'llm')
         return anthropicResult
       }
 
@@ -602,6 +621,7 @@ export const useApiStore = defineStore('api', () => {
         }
       }
       recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+      emitRecordCost(usage, effectiveTier, 'llm')
       return directResult
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)

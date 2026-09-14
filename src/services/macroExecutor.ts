@@ -21,6 +21,8 @@ import { runRuleEngine, buildRuleContext } from './ruleEngine'
 import type { RuleEngineResult } from './ruleEngine'
 import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } from './dagCheckpoint'
 import { debugLog } from '@/services/debugLog'
+import { getCurrentTraceId } from '@/services/trace'
+import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 
 const STEP_TIMEOUT_MS: Record<string, number> = {
   nano: 8000,
@@ -49,15 +51,22 @@ function probeStep(
   durationMs: number,
   extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>
 ) {
+  // P1-39：get-step-cost 请求与探针发布分离——请求失败（无 handler）不再吞掉整个探针
+  let tokenUsage: NonNullable<ProbeSnapshot['tokenUsage']> | undefined
   try {
     const stepCost = globalBus.request<{ promptTokens: number; completionTokens: number; estimatedCostCny: number } | undefined>('debug:get-step-cost', { stepNum })
-    const tokenUsage = stepCost ? {
-      promptTokens: stepCost.promptTokens,
-      completionTokens: stepCost.completionTokens,
-      totalTokens: stepCost.promptTokens + stepCost.completionTokens,
-      estimatedCostCny: stepCost.estimatedCostCny
-    } : undefined
-    globalBus.emit('debug:log-probe', {
+    if (stepCost) {
+      tokenUsage = {
+        promptTokens: stepCost.promptTokens,
+        completionTokens: stepCost.completionTokens,
+        totalTokens: stepCost.promptTokens + stepCost.completionTokens,
+        estimatedCostCny: stepCost.estimatedCostCny
+      }
+    }
+  } catch { /* 可选链路：step-cost 不可用不影响探针 */ }
+  try {
+    const traceId = getCurrentTraceId()
+    const snapshot: ProbeSnapshot = {
       id: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       stepNum,
       manifestId,
@@ -69,8 +78,11 @@ function probeStep(
       timestamp: Date.now(),
       durationMs,
       tokenUsage,
+      ...(traceId ? { traceId } : {}),
       ...extra
-    })
+    }
+    // P1-39：payload 须为 { snapshot } 包装——bridge 只认 payload.snapshot，旧扁平结构两分支均不命中
+    globalBus.emit('debug:log-probe', { snapshot })
   } catch { /* non-critical */ }
 }
 
@@ -511,6 +523,22 @@ export async function executeStep(
 
     let result = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
 
+    // P1-42：宏副作用/工具调用审计埋点（经 bus 桥落 memoryStore.addAuditLog）
+    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'create_docx' || step.tool === 'create_directory' || step.tool.includes('___')) {
+      try {
+        const isMcp = step.tool.includes('___')
+        const traceId = getCurrentTraceId()
+        globalBus.emit('memory:add-audit-log', {
+          userId: 'local',
+          action: isMcp ? 'mcp_tool_call' : 'macro_step_exec',
+          toolId: step.tool,
+          fileName: step.tool === 'file_write' ? String(resolvedArgs.path || resolvedArgs.file_path || '') : undefined,
+          mcpId: isMcp ? step.tool.split('___')[0] : undefined,
+          details: `S${step.step} ${step.tool} args=${JSON.stringify(resolvedArgs).substring(0, 200)}${traceId ? ` [traceId=${traceId.substring(0, 8)}]` : ''}`
+        })
+      } catch { /* non-critical */ }
+    }
+
     if (step.tool === 'shell_exec') {
       const cmd = String(resolvedArgs.command || '')
       const fileMatch = cmd.match(/writeFileSync\(\s*['"]([^'"]+)['"]/)
@@ -782,6 +810,45 @@ export async function executeMacro(
     debugLog(`[MacroExecutor] 数据流警告: ${warnList}`)
   }
 
+  // P1-43：工作流时间线生命周期——createLog → updateNodeStatus(随步回调) → completeLog
+  // nodeId 用 `S{step}:{tool}` 前缀防同名工具 first-match 冲突
+  let wfLogId: string | null = null
+  const wfNodeId = (stepNum: number, tool: string) => `S${stepNum}:${tool}`
+  const wfUpdate = (stepNum: number, tool: string, status: 'pending' | 'running' | 'completed' | 'failed') => {
+    if (!wfLogId) return
+    try {
+      useWorkflowLogStore().updateNodeStatus(
+        wfLogId,
+        wfNodeId(stepNum, tool),
+        status,
+        status === 'running' ? Date.now() : undefined,
+        (status === 'completed' || status === 'failed') ? Date.now() : undefined
+      )
+    } catch { /* 非关键：无 pinia 环境(测试)时跳过 */ }
+  }
+  const wfComplete = (status: 'completed' | 'failed') => {
+    if (!wfLogId) return
+    try {
+      useWorkflowLogStore().completeLog(wfLogId, status)
+    } catch { /* ignore */ }
+  }
+  try {
+    const wfStore = useWorkflowLogStore()
+    const wfNodes = steps.map(s => wfNodeId(s.step, s.tool))
+    const wfEdges: [string, string, 'data' | 'control'][] = []
+    for (const s of steps) {
+      for (const dep of s.depends_on || []) {
+        const depStep = steps.find(x => x.step === dep)
+        wfEdges.push([depStep ? wfNodeId(depStep.step, depStep.tool) : `S${dep}:unknown`, wfNodeId(s.step, s.tool), 'data'])
+      }
+    }
+    wfLogId = wfStore.createLog(manifest.identity.id, wfNodes, wfEdges).id
+  } catch { /* 非关键：时间线不可用时静默降级 */ }
+  const stepToolOf = (stepNum: number) => steps.find(s => s.step === stepNum)?.tool || ''
+  const stepStartCb = (stepNum: number, tool: string) => { wfUpdate(stepNum, tool, 'running'); onStepStart?.(stepNum, tool) }
+  const stepDoneCb = (stepNum: number, result: string) => { wfUpdate(stepNum, stepToolOf(stepNum), 'completed'); onStepDone?.(stepNum, result) }
+  const stepFailedCb = (stepNum: number, error: string) => { wfUpdate(stepNum, stepToolOf(stepNum), 'failed'); onStepFailed?.(stepNum, error) }
+
   const executionId = `exec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
   const sideEffects: import('@/models').SideEffectRecord[] = []
   let queryFingerprint = ''
@@ -816,7 +883,7 @@ export async function executeMacro(
           const ruleResult = runRuleEngine(manifest.ruleBasedFallback, ruleCtx)
           if (ruleResult.matched) {
             finalResults[step.step] = ruleResult.output
-            onStepDone?.(step.step, ruleResult.output)
+            stepDoneCb(step.step, ruleResult.output)
             savedTokens += 2000
             lineage.push({ step: step.step, source: 'rule_engine', tool: step.tool, ruleId: ruleResult.matchedRuleId })
             ruleMatched = true
@@ -825,11 +892,12 @@ export async function executeMacro(
         if (!ruleMatched) {
           if (cached.results[step.step]) {
             finalResults[step.step] = cached.results[step.step]
+            wfUpdate(step.step, step.tool, 'completed')
             onStepReuse?.(step.step)
             savedTokens += 2000
             lineage.push({ step: step.step, source: 'auto_compiled', tool: step.tool })
           } else {
-            const { done, result } = await executeStep(step, manifest, userInput, finalResults, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+            const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
             if (done && result) finalResults[step.step] = result
             lineage.push({ step: step.step, source: tierToLineage(step.modelTier), tool: step.tool, tier: step.modelTier })
           }
@@ -839,10 +907,11 @@ export async function executeMacro(
         const hasSideEffect = SIDE_EFFECT_TOOLS.has(step.tool)
         if (!hasSideEffect && cached.results[step.step]) {
           finalResults[step.step] = cached.results[step.step]
+          wfUpdate(step.step, step.tool, 'completed')
           onStepReuse?.(step.step)
           lineage.push({ step: step.step, source: 'cache_reuse', tool: step.tool })
         } else {
-          const { done, result } = await executeStep(step, manifest, userInput, finalResults, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+          const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
           if (done && result) finalResults[step.step] = result
           lineage.push({ step: step.step, source: 'tool_call', tool: step.tool })
         }
@@ -857,6 +926,7 @@ export async function executeMacro(
       } catch { /* ignore */ }
     }
     const lastStep = steps[steps.length - 1]
+    wfComplete('completed')
     return { results: finalResults, lastResult: finalResults[lastStep.step] || '执行完成(编译缓存)', savedTokens, lineage }
   }
 
@@ -889,6 +959,7 @@ export async function executeMacro(
     if (cached?.results[reuseStep.step]) {
       results[reuseStep.step] = cached.results[reuseStep.step]
       stepDone.set(reuseStep.step, true)
+      wfUpdate(reuseStep.step, reuseStep.tool, 'completed')
       onStepReuse?.(reuseStep.step)
       savedTokens += reuseStep.tool === 'llm_generate' ? 2000 : 500
       lineage.push({ step: reuseStep.step, source: 'cache_reuse', tool: reuseStep.tool })
@@ -915,6 +986,7 @@ export async function executeMacro(
       if (!stepDone.has(num)) {
         results[num] = rv
         stepDone.set(num, true)
+        wfUpdate(num, steps.find(s => s.step === num)?.tool || '', 'completed')
         lineage.push({ step: num, source: 'replay_reuse', tool: steps.find(s => s.step === num)?.tool || 'unknown' })
       }
     }
@@ -972,6 +1044,7 @@ export async function executeMacro(
             if (takeoverResult) {
               stepDone.set(step.step, true)
               results[step.step] = takeoverResult
+              wfUpdate(step.step, step.tool, 'completed')
               lineage.push({ step: step.step, source: 'tool_call' as const, tool: step.tool })
               continue
             }
@@ -979,7 +1052,7 @@ export async function executeMacro(
         }
       } catch { /* ignore */ }
 
-      const execResult = await executeStep(step, manifest, userInput, results, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
       if (execResult.done && execResult.result) {
         stepDone.set(step.step, true)
         results[step.step] = execResult.result
@@ -996,7 +1069,7 @@ export async function executeMacro(
     } else {
       const execResults = await Promise.all(
         readySteps.map(async (step) => {
-      const execResult = await executeStep(step, manifest, userInput, results, onStepStart, onStepDone, onStepFailed, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
           return { step, execResult }
         })
       )
@@ -1012,7 +1085,7 @@ export async function executeMacro(
           }
         } else {
           stepFailed.set(step.step, true)
-          if (execution.dagPlan.fallbackStrategy === 'ask_user') return { results, lastResult: '执行中断', savedTokens, lineage }
+          if (execution.dagPlan.fallbackStrategy === 'ask_user') { wfComplete('failed'); return { results, lastResult: '执行中断', savedTokens, lineage } }
         }
       }
     }
@@ -1055,6 +1128,7 @@ export async function executeMacro(
   const lastStep = steps.filter(s => !skipSteps.has(s.step))
   const finalStep = lastStep[lastStep.length - 1]
   const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
+  wfComplete(stepFailed.size > 0 ? 'failed' : 'completed')
   globalBus.emit('debug:clear-abort', {})
   return { results, lastResult, savedTokens, lineage }
 }
