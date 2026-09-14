@@ -40,6 +40,10 @@ interface ElectronAPI {
   pipelineWindowClose: () => void
   pipelineToggleFloat: (isFloat: boolean) => void
   onPipelineNodeAdded: (callback: (data: { toolId: string; toolName: string; toolLevel: string }) => void) => () => void
+  pipelineRunRequest: (data: { nodes: { id: string; toolId: string; toolName: string; params: Record<string, string>; outputKey: string }[]; edges: unknown[] }) => void
+  onPipelineRunEvent: (callback: (data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) => void) => () => void
+  onPipelineRunRequest: (callback: (data: { nodes: { id: string; toolId: string; toolName: string; params: Record<string, string>; outputKey: string }[]; edges: unknown[] }) => void) => () => void
+  pipelineRunProgress: (data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) => void
   storeSyncToPipeline: (data: { storeId: string; state: Record<string, unknown> }) => void
   storeSyncToMain: (data: { storeId: string; state: Record<string, unknown> }) => void
   onStoreApplyUpdate: (callback: (data: { storeId: string; state: Record<string, unknown> }) => void) => () => void
@@ -105,9 +109,14 @@ interface ElectronAPI {
   debugWindowMinimize: () => void
   debugWindowMaximize: () => void
   debugWindowClose: () => void
+  benchmarkWindowMinimize: () => void
+  benchmarkWindowMaximize: () => void
+  benchmarkWindowClose: () => void
+  ruleReviewWindowMinimize: () => void
+  ruleReviewWindowMaximize: () => void
+  ruleReviewWindowClose: () => void
   debugToggleFloat: (isFloat: boolean) => void
   storeSyncToDebug: (data: { storeId: string; state: Record<string, unknown> }) => void
-  ipcRendererSend: (channel: string, ...args: unknown[]) => void
 }
 
 interface Window {

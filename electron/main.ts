@@ -1,6 +1,5 @@
-const DEBUG = process.env.HOLO_DEBUG === '1'
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 
 let pendingPipelineNodes: { toolId: string; toolName: string; toolLevel: string }[] = []
@@ -59,6 +58,17 @@ app.whenReady().then(async () => {
     if (pw) { pw.webContents.send('store:applyUpdate', data) }
   })
 
+  // P1-26：流水线窗口"运行当前画布"——转发到主窗口执行（内核/LLM 网关只在主窗口注册）
+  ipcMain.on('pipeline:runRequest', (_event, data: unknown) => {
+    const mw = getMainWindow()
+    if (mw) { mw.webContents.send('pipeline:run', data) }
+  })
+
+  ipcMain.on('pipeline:runProgress', (_event, data: unknown) => {
+    const pw = getPipelineWindow()
+    if (pw) { pw.webContents.send('pipeline:runEvent', data) }
+  })
+
   ipcMain.on('store:syncToMain', (_event, data: { storeId: string; state: Record<string, unknown> }) => {
     const mw = getMainWindow()
     if (mw) { mw.webContents.send('store:applyUpdate', data) }
@@ -78,7 +88,8 @@ app.whenReady().then(async () => {
   let debugWindowReady = false
   let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []
 
-  ipcMain.on('debug:ready', () => {
+  // P1-35：debug 窗 ready 由主进程 did-finish-load 判定（替代原渲染层 ipcRendererSend 死链）
+  setOnDebugWindowReady(() => {
     debugWindowReady = true
     const dw = getDebugWindow()
     if (dw) {
@@ -134,10 +145,6 @@ app.whenReady().then(async () => {
   })
   ipcMain.on('benchmark:window:close', () => { getBenchmarkWindow()?.close() })
 
-  ipcMain.on('benchmark:ready', () => {
-    DEBUG && console.log('[BenchmarkWindow] Ready')
-  })
-
   ipcMain.on('open:rule-review-window', () => {
     createRuleReviewWindow()
   })
@@ -148,10 +155,6 @@ app.whenReady().then(async () => {
     if (rrw) { rrw.isMaximized() ? rrw.unmaximize() : rrw.maximize() }
   })
   ipcMain.on('rule-review:window:close', () => { getRuleReviewWindow()?.close() })
-
-  ipcMain.on('rule-review:ready', () => {
-    DEBUG && console.log('[RuleReviewWindow] Ready')
-  })
 
   registerGlobalShortcuts()
 

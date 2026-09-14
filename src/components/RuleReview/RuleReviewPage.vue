@@ -8,6 +8,12 @@
           <span class="stat-counts">{{ stat.active }}/{{ stat.total }} active</span>
         </span>
       </div>
+      <!-- P1-37：无边框窗口补窗口控制（复制 DebugWindowPage 模式） -->
+      <div class="titlebar-actions">
+        <button class="tb-btn" @click="onMinimize" title="最小化">─</button>
+        <button class="tb-btn" @click="onMaximize" title="最大化/还原">□</button>
+        <button class="tb-btn tb-close" @click="onClose" title="关闭">✕</button>
+      </div>
     </header>
     <div class="page-body">
       <aside class="sidebar">
@@ -27,6 +33,18 @@ import RuleList from './RuleList.vue'
 import RuleDetail from './RuleDetail.vue'
 
 const ruleStore = useRuleStore()
+
+function onMinimize() {
+  window.electronAPI?.ruleReviewWindowMinimize()
+}
+
+function onMaximize() {
+  window.electronAPI?.ruleReviewWindowMaximize()
+}
+
+function onClose() {
+  window.electronAPI?.ruleReviewWindowClose()
+}
 
 onMounted(() => {
   ruleStore.loadRules()
@@ -50,6 +68,36 @@ onMounted(() => {
   background: rgba(13, 13, 43, 0.8);
   border-bottom: 1px solid #2a2a5e;
   flex-shrink: 0;
+  /* P1-37：无边框窗口拖拽区 */
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.titlebar-actions {
+  display: flex;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
+.tb-btn {
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: #8888bb;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.tb-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e0e0ff;
+}
+.tb-close:hover {
+  background: rgba(220, 60, 60, 0.5);
+  color: #fff;
 }
 .page-title {
   font-size: 16px;

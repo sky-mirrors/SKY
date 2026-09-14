@@ -7,9 +7,12 @@ const pinia = createPinia()
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let pendingSyncs: { storeId: string; state: Record<string, unknown> }[] = []
+// P1-36：应用远端 store 更新期间抑制本地 $subscribe 回传，防止主窗↔子窗同步回环
+let applyingRemoteUpdate = false
 
 pinia.use(({ store }) => {
   store.$subscribe((_mutation, state) => {
+    if (applyingRemoteUpdate) return
     const entry = { storeId: store.$id, state: JSON.parse(JSON.stringify(state)) }
     const existing = pendingSyncs.findIndex(s => s.storeId === store.$id)
     if (existing >= 0) {
@@ -38,14 +41,15 @@ if (window.electronAPI?.onStoreApplyUpdate) {
       for (const k of allowedKeys) {
         if (k in data.state) filtered[k] = data.state[k]
       }
-      targetStore.$patch(filtered)
+      applyingRemoteUpdate = true
+      try {
+        targetStore.$patch(filtered)
+      } finally {
+        applyingRemoteUpdate = false
+      }
     }
   })
 }
 
 app.use(pinia)
 app.mount('#benchmark-app')
-
-if (window.electronAPI?.ipcRendererSend) {
-  window.electronAPI.ipcRendererSend('benchmark:ready')
-}

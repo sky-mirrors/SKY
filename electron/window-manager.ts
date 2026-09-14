@@ -123,9 +123,14 @@ export function createPipelineWindow(): BrowserWindow {
 }
 
 let onDebugWindowClosed: (() => void) | null = null
+let onDebugWindowReady: (() => void) | null = null
 
 export function setOnDebugWindowClosed(cb: () => void) {
   onDebugWindowClosed = cb
+}
+
+export function setOnDebugWindowReady(cb: () => void) {
+  onDebugWindowReady = cb
 }
 
 export function createDebugWindow(): BrowserWindow {
@@ -157,6 +162,11 @@ export function createDebugWindow(): BrowserWindow {
       shell.openExternal(details.url)
     }
     return { action: 'deny' }
+  })
+
+  // P1-35：ready 协议统一走主进程 did-finish-load（与 pipeline 窗一致），不再依赖渲染层手动上报
+  debugWindow.webContents.on('did-finish-load', () => {
+    onDebugWindowReady?.()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

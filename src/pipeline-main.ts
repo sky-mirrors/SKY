@@ -5,8 +5,12 @@ import PipelinePage from './components/PipelinePage.vue'
 const app = createApp(PipelinePage)
 const pinia = createPinia()
 
+// P1-36：应用远端 store 更新期间抑制本地 $subscribe 回传，防止主窗↔子窗同步回环
+let applyingRemoteUpdate = false
+
 pinia.use(({ store }) => {
   store.$subscribe((_mutation, state) => {
+    if (applyingRemoteUpdate) return
     window.electronAPI?.storeSyncToMain({
       storeId: store.$id,
       state: JSON.parse(JSON.stringify(state))
@@ -23,7 +27,12 @@ if (window.electronAPI?.onStoreApplyUpdate) {
       for (const k of allowedKeys) {
         if (k in data.state) filtered[k] = data.state[k]
       }
-      targetStore.$patch(filtered)
+      applyingRemoteUpdate = true
+      try {
+        targetStore.$patch(filtered)
+      } finally {
+        applyingRemoteUpdate = false
+      }
     }
   })
 }

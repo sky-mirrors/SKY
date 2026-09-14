@@ -472,7 +472,8 @@ function onExportAudit() {
   URL.revokeObjectURL(url)
 }
 
-defineExpose({ open, close })
+// P1-47：暴露 visible 供 App.vue Esc 链判断弹层是否打开
+defineExpose({ open, close, visible })
 </script>
 
 <style scoped>

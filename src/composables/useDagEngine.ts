@@ -405,6 +405,12 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      // P1-27：绑定在 window 上，输入框/文本域/可编辑元素内按键必须早退，
+      // 否则在属性面板输入退格即摧毁选中节点+边
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+      }
       if (selectedNodeId.value) {
         nodes.value = nodes.value.filter(n => n.id !== selectedNodeId.value)
         edges.value = edges.value.filter(

@@ -16,7 +16,8 @@
           <button class="action-btn" @click="onAutoLayout" title="自动布局">⬡</button>
           <button class="action-btn" @click="onClearAll" title="清空画布">🗑</button>
           <button class="action-btn primary" @click="onSaveAsMacro" title="保存为宏">💾 保存为宏</button>
-          <button class="action-btn" @click="onRunPipeline" title="运行流水线">▶ 运行</button>
+          <button class="action-btn primary" @click="onRunPipeline" :disabled="isRunning" title="运行当前画布">▶ 运行</button>
+          <span class="run-status" v-if="runStatus">{{ runStatus }}</span>
         </div>
       </div>
       <div class="pipeline-canvas-area">
@@ -72,7 +73,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useDagEngine } from '@/composables/useDagEngine'
-import { usePipelineStore } from '@/domains/pipeline'
 import { DagNode, DagEdge, L2ToolManifest, L2DagStep, L2ToolIdentity, L2ToolVisual, L2ToolRouting, L2ToolExecution, L2ToolCacheMeta } from '@/models'
 import ToolSelector from '@/components/ToolSelector.vue'
 
@@ -83,6 +83,19 @@ const showSaveModal = ref(false)
 const macroName = ref('')
 const macroKeywords = ref('')
 const macroSummary = ref('')
+const isRunning = ref(false)
+const runStatus = ref('')
+let runStatusTimer: ReturnType<typeof setTimeout> | null = null
+let runOrder: string[] = []
+
+function showRunStatus(text: string) {
+  runStatus.value = text
+  if (runStatusTimer) clearTimeout(runStatusTimer)
+  runStatusTimer = setTimeout(() => {
+    runStatus.value = ''
+    runStatusTimer = null
+  }, 4000)
+}
 
 const selectedNode = computed(() => dag.getSelectedNode())
 
@@ -133,6 +146,9 @@ function onAutoLayout() {
 }
 
 function onClearAll() {
+  // D-11：破坏性操作需确认且不可撤销
+  if (dag.nodes.value.length === 0 && dag.edges.value.length === 0) return
+  if (!window.confirm(`确定清空画布？将删除 ${dag.nodes.value.length} 个节点和 ${dag.edges.value.length} 条连线（不可撤销）`)) return
   dag.clearAll()
 }
 
@@ -242,15 +258,64 @@ async function confirmSaveMacro() {
 }
 
 function onRunPipeline() {
-  if (dag.nodes.value.length === 0) return
+  // P1-26：执行当前画布（拓扑序节点 → 主窗口代跑），而非存储的历史 pipeline
+  if (isRunning.value) return
+  if (dag.nodes.value.length === 0) {
+    showRunStatus('画布为空，请先添加节点')
+    return
+  }
+  const sorted = dag.topologicalSort()
+  if (sorted.length < dag.nodes.value.length) {
+    showRunStatus('检测到循环依赖，环中节点将被跳过')
+  }
   for (const n of dag.nodes.value) {
     n.status = 'pending'
   }
   dag.scheduleRender()
-  const pipelineStore = usePipelineStore()
-  const pipeline = pipelineStore.pipelines.find(p => p.dagNodes && p.dagNodes.length > 0)
-  if (pipeline) {
-    pipelineStore.startPipeline(pipeline.id)
+  runOrder = sorted.map(n => n.id)
+  isRunning.value = true
+  showRunStatus('已提交主窗口执行…')
+  window.electronAPI?.pipelineRunRequest?.({
+    nodes: sorted.map(n => ({
+      id: n.id,
+      toolId: n.toolId,
+      toolName: n.toolName,
+      params: n.params,
+      outputKey: n.outputKey
+    })),
+    edges: dag.edges.value
+  })
+}
+
+function onRunEvent(data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) {
+  if (data.type === 'progress' && data.stepId) {
+    const idx = parseInt(data.stepId.replace(/^step-/, ''), 10)
+    const nodeId = runOrder[idx]
+    const node = nodeId ? dag.nodes.value.find(n => n.id === nodeId) : null
+    if (node) {
+      const msg = data.msg || ''
+      if (msg.startsWith('✓')) node.status = 'done'
+      else if (msg.startsWith('✗')) node.status = 'failed'
+      else node.status = 'running'
+      dag.scheduleRender()
+    }
+    if (data.msg) showRunStatus(data.msg)
+  } else if (data.type === 'done') {
+    isRunning.value = false
+    for (const n of dag.nodes.value) {
+      if (n.status === 'running') n.status = 'done'
+      else if (n.status === 'pending') n.status = 'skipped'
+    }
+    dag.scheduleRender()
+    showRunStatus('执行完成')
+  } else if (data.type === 'error') {
+    isRunning.value = false
+    for (const n of dag.nodes.value) {
+      if (n.status === 'running') n.status = 'failed'
+      else if (n.status === 'pending') n.status = 'skipped'
+    }
+    dag.scheduleRender()
+    showRunStatus(`执行失败: ${data.error || '未知错误'}`)
   }
 }
 
@@ -258,21 +323,31 @@ function onResize() {
   dag.resize()
 }
 
+let unsubNodeAdded: (() => void) | null = null
+let unsubRunEvent: (() => void) | null = null
+
 onMounted(() => {
   dag.resize()
   window.addEventListener('resize', onResize)
   window.addEventListener('keydown', dag.onKeyDown)
 
   if (window.electronAPI?.onPipelineNodeAdded) {
-    window.electronAPI.onPipelineNodeAdded((data: { toolId: string; toolName: string; toolLevel: string }) => {
+    unsubNodeAdded = window.electronAPI.onPipelineNodeAdded((data: { toolId: string; toolName: string; toolLevel: string }) => {
       onAddNodeFromSelector(data)
     })
+  }
+  if (window.electronAPI?.onPipelineRunEvent) {
+    unsubRunEvent = window.electronAPI.onPipelineRunEvent(onRunEvent)
   }
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
   window.removeEventListener('keydown', dag.onKeyDown)
+  // A6-2(c)：IPC 监听随组件卸载注销，避免跨 mount 累积
+  unsubNodeAdded?.()
+  unsubRunEvent?.()
+  if (runStatusTimer) clearTimeout(runStatusTimer)
 })
 </script>
 
@@ -359,6 +434,20 @@ onUnmounted(() => {
 .toolbar-actions {
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+.run-status {
+  font-size: 10px;
+  color: #8cffb0;
+  background: rgba(60, 160, 100, 0.12);
+  border: 1px solid rgba(80, 200, 140, 0.25);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .action-btn {

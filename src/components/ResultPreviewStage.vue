@@ -20,7 +20,7 @@
           </template>
         </div>
         <div v-if="editingBlockIdx !== idx" class="block-content" v-html="block.html"></div>
-        <textarea v-else class="block-editor" v-model="editText" @keydown.escape="cancelEdit"></textarea>
+        <textarea v-else class="block-editor" v-model="editText" @keydown.escape.stop="cancelEdit"></textarea>
         <span v-if="block.isModified" class="modified-badge">已修改</span>
       </div>
     </div>
@@ -54,6 +54,9 @@ import DOMPurify from 'dompurify'
 
 interface PreviewBlock {
   node: MarkdownNodeWithRange
+  /** 该块在完整文档中的绝对行区间 [startLine, endLine)（saveEdit 后自行维护，不随重解析漂移） */
+  docStartLine: number
+  docEndLine: number
   originalMarkdown: string
   html: string
   isEditing: boolean
@@ -124,6 +127,8 @@ function rebuildBlocks() {
     const html = DOMPurify.sanitize(renderToHtml({ type: 'document', children: [node] }))
     blocks.push({
       node,
+      docStartLine: node.startLine,
+      docEndLine: node.endLine,
       originalMarkdown: rawMd,
       html,
       isEditing: false,
@@ -146,28 +151,46 @@ function cancelEdit() {
   editText.value = ''
 }
 
-function saveEdit(idx: number) {
-  if (!props.message) return
-  const block = astBlocks.value[idx]
-  const newMd = editText.value
-  if (newMd === block.originalMarkdown) {
-    block.isModified = false
-    block.currentMarkdown = newMd
-  } else {
-    block.isModified = true
-    block.currentMarkdown = newMd
+  function saveEdit(idx: number) {
+    if (!props.message) return
+    const block = astBlocks.value[idx]
+    const newMd = editText.value
+    // P1-48：文档绝对行区间必须在重解析前捕获——updatedDoc 是片段级解析，
+    // 其 startLine/endLine 相对片段而非完整文档，直接用于 splice 会写错位置
+    const startLine = block.docStartLine
+    const endLine = block.docEndLine
+    if (newMd === block.originalMarkdown) {
+      block.isModified = false
+      block.currentMarkdown = newMd
+    } else {
+      block.isModified = true
+      block.currentMarkdown = newMd
+    }
+    const updatedDoc = parseMarkdownAstWithRanges(newMd)
+    block.html = DOMPurify.sanitize(renderToHtml({ type: 'document', children: updatedDoc.children }))
+    block.node = updatedDoc.children[0] || block.node
+
+    const newMdLines = newMd.split('\n')
+    const delta = newMdLines.length - (endLine - startLine)
+    const fullLines = props.message.content.split('\n')
+    fullLines.splice(startLine, endLine - startLine, ...newMdLines)
+    dialogStore.updateMessageContent(props.message.id, fullLines.join('\n'))
+
+    // updateMessageContent 不触发重建（watch 只监听 message.id），后续块的行号需按 delta 平移
+    block.docStartLine = startLine
+    block.docEndLine = startLine + newMdLines.length
+    if (delta !== 0) {
+      for (const other of astBlocks.value) {
+        if (other !== block && other.docStartLine >= endLine) {
+          other.docStartLine += delta
+          other.docEndLine += delta
+        }
+      }
+    }
+
+    editingBlockIdx.value = null
+    editText.value = ''
   }
-  const updatedDoc = parseMarkdownAstWithRanges(newMd)
-  block.html = DOMPurify.sanitize(renderToHtml({ type: 'document', children: updatedDoc.children }))
-  block.node = updatedDoc.children[0] || block.node
-
-  const fullLines = props.message.content.split('\n')
-  fullLines.splice(block.node.startLine, block.node.endLine - block.node.startLine, ...newMd.split('\n'))
-  dialogStore.updateMessageContent(props.message.id, fullLines.join('\n'))
-
-  editingBlockIdx.value = null
-  editText.value = ''
-}
 
 watch(() => props.message?.id, () => {
   rebuildBlocks()

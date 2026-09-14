@@ -9,7 +9,7 @@
             v-model="query"
             class="cmd-input"
             placeholder="搜索技能、设置、操作…"
-            @keydown.escape="close"
+            @keydown.escape.stop="close"
             @keydown.enter="onEnter"
             @keydown.up.prevent="moveUp"
             @keydown.down.prevent="moveDown"
@@ -177,7 +177,8 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
 })
 
-defineExpose({ open, close })
+// P1-47：暴露 visible 供 App.vue Esc 链判断弹层是否打开（避免关闭组件后 Esc 冒泡触发相机重置）
+defineExpose({ open, close, visible })
 </script>
 
 <style scoped>

@@ -14,7 +14,17 @@
       </div>
       <div class="wb-rt-card warn" v-else-if="dialogStore.awaitingCandidatePick">
         <div class="wb-rt-card-head">⏸ 等待候选选择</div>
-        <div class="wb-rt-card-body">{{ dialogStore.pendingCandidateList.length }} 个候选</div>
+        <!-- P1-46：候选列表补可点击按钮（此前只显示数量，只能靠输入编号） -->
+        <div class="wb-rt-card-body">
+          <button
+            v-for="(c, i) in dialogStore.pendingCandidateList"
+            :key="c.manifestId"
+            class="wb-rt-candidate-btn"
+            :disabled="dialogStore.isProcessing"
+            @click="dialogStore.pickCandidate(i)"
+          >{{ i + 1 }}. {{ c.manifestName }}（{{ (c.score * 100).toFixed(0) }}%）</button>
+          <div class="wb-rt-candidate-hint">点击候选，或在输入框回复编号</div>
+        </div>
       </div>
       <div class="wb-rt-card warn" v-else-if="dialogStore.awaitingIntentConfirm">
         <div class="wb-rt-card-head">⏸ 等待意图确认</div>
@@ -259,6 +269,20 @@ function openDebugWindow() {
 .wb-rt-card.warn { border-color: rgba(230, 180, 80, 0.35); }
 .wb-rt-card-head { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .wb-rt-card-body { color: var(--rt-text-dim); display: flex; flex-direction: column; gap: 2px; }
+.wb-rt-candidate-btn {
+  text-align: left;
+  background: rgba(80, 120, 255, 0.08);
+  border: 1px solid rgba(80, 120, 255, 0.3);
+  border-radius: 4px;
+  color: var(--rt-text, #ccd2ee);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.wb-rt-candidate-btn:hover:not(:disabled) { background: rgba(80, 120, 255, 0.22); }
+.wb-rt-candidate-btn:disabled { opacity: 0.5; cursor: default; }
+.wb-rt-candidate-hint { font-size: 10px; opacity: 0.6; margin-top: 4px; }
 .wb-rt-card.wb-rt-card { flex-direction: column; align-items: stretch; }
 .wb-rt-card .wb-rt-dot { align-self: auto; }
 

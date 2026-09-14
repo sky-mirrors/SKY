@@ -861,6 +861,20 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       isProcessing.value = false
       return ''
     }
+    // P1-46：候选工具选择期无专属输入通道——纯数字输入映射候选编号；其他输入则放弃候选、按新请求处理
+    if (awaitingCandidatePick.value) {
+      const trimmed = content.trim()
+      const num = Number(trimmed)
+      if (trimmed !== '' && !Number.isNaN(num)) {
+        isProcessing.value = false
+        // 此刻 addUserMessage 已把编号当消息追加，取倒数第二条还原原始请求
+        const originalInput = messages.value.filter(m => m.role === 'user').slice(-2)[0]?.content || ''
+        return pickCandidate(num - 1, originalInput)
+      }
+      awaitingCandidatePick.value = false
+      pendingCandidateList.value = []
+      addSystemNotice('ℹ️ 已放弃候选选择，按新请求处理')
+    }
     isProcessing.value = true
 
     await yieldToUI()
@@ -2150,19 +2164,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     translatedIntent.value = null
 
     if (manifest && (manifest.execution.mode === 'macro' || manifest.execution.mode === 'chain') && manifest.execution.dagPlan) {
-      const plan: TaskPlan = {
-        intent: ti.intent,
-        needs: manifest.routing.keywords.slice(0, 3),
-        steps: manifest.execution.dagPlan.steps.map(s => ({
-          step: s.step,
-          description: s.description,
-          tool: s.tool,
-          depends_on: s.depends_on,
-          params: { ...s.params, ...ti.params },
-          expectedOutput: s.expectedOutput,
-          fallback: s.fallback
-        }))
-      }
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
       try {
@@ -2190,6 +2191,40 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       }
     }
 
+    // A5-9：直调模式此前为死路（仅 confirmPlan 有直调分支）——补齐 resolveDirectPrompt + chat-completion
+    if (manifest && manifest.execution.mode === 'direct' && manifest.execution.directCall) {
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'working' })
+      try {
+        const directInfo = resolveDirectPrompt(manifest, {
+          inputText: ti.originalInput,
+          context: ti.params ? JSON.stringify(ti.params) : ti.originalInput
+        })
+        if (directInfo) {
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
+          const finalText = stripHtml(beautify(resp.content || '(无输出)'))
+          addAssistantMessage(finalText)
+          globalBus.emit('node:mark-task-chain-complete', {})
+          isProcessing.value = false
+          return finalText
+        }
+        addSystemNotice('❌ 直调模板无法解析（必填槽位未满足），请重新描述需求')
+      } catch (err) {
+        const errStr = String(err)
+        addSystemNotice(`❌ 直调失败（${classifyError(errStr)}）`)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `直调失败: ${errStr}`, detail: errStr })
+        globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'error' })
+      }
+      isProcessing.value = false
+      return ''
+    }
+
+    // 兜底：manifest 缺失或执行模式未覆盖时明示失败，不再静默无响应
+    if (!manifest) {
+      addSystemNotice('❌ 工具未找到，请重新描述需求')
+    } else {
+      addSystemNotice(`❌ 工具 ${manifest.identity.name} 的执行模式 ${manifest.execution.mode} 暂不支持确认后执行`)
+    }
     isProcessing.value = false
     return ''
   }
@@ -2210,19 +2245,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     slotClarification.value = null
 
     if (manifest && (manifest.execution.mode === 'macro' || manifest.execution.mode === 'chain') && manifest.execution.dagPlan) {
-      const plan: TaskPlan = {
-        intent: sc.manifestName,
-        needs: manifest.routing.keywords.slice(0, 3),
-        steps: manifest.execution.dagPlan.steps.map(s => ({
-          step: s.step,
-          description: s.description,
-          tool: s.tool,
-          depends_on: s.depends_on,
-          params: { ...s.params, ...filledSlots },
-          expectedOutput: s.expectedOutput,
-          fallback: s.fallback
-        }))
-      }
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
       const lastUserMsg = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
@@ -2251,6 +2273,41 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       }
     }
 
+    // A5-9：直调模式此前为死路——补齐 resolveDirectPrompt + chat-completion
+    if (manifest && manifest.execution.mode === 'direct' && manifest.execution.directCall) {
+      const lastUserMsg = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'working' })
+      try {
+        const directInfo = resolveDirectPrompt(manifest, {
+          inputText: lastUserMsg,
+          context: filledSlots ? JSON.stringify(filledSlots) : lastUserMsg
+        })
+        if (directInfo) {
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
+          const finalText = stripHtml(beautify(resp.content || '(无输出)'))
+          addAssistantMessage(finalText)
+          globalBus.emit('node:mark-task-chain-complete', {})
+          isProcessing.value = false
+          return finalText
+        }
+        addSystemNotice('❌ 直调模板无法解析（必填槽位未满足），请重新描述需求')
+      } catch (err) {
+        const errStr = String(err)
+        addSystemNotice(`❌ 直调失败（${classifyError(errStr)}）`)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `直调失败: ${errStr}`, detail: errStr })
+        globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'error' })
+      }
+      isProcessing.value = false
+      return ''
+    }
+
+    // 兜底：manifest 缺失或执行模式未覆盖时明示失败，不再静默无响应
+    if (!manifest) {
+      addSystemNotice('❌ 工具未找到，请重新描述需求')
+    } else {
+      addSystemNotice(`❌ 工具 ${manifest.identity.name} 的执行模式 ${manifest.execution.mode} 暂不支持填参后执行`)
+    }
     isProcessing.value = false
     return ''
   }
@@ -2261,7 +2318,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     addSystemNotice('❌ 已取消，请重新描述需求')
   }
 
-  async function pickCandidate(index: number): Promise<string> {
+  async function pickCandidate(index: number, originalInput?: string): Promise<string> {
     const list = pendingCandidateList.value
     if (index < 0 || index >= list.length) {
       addSystemNotice('❌ 无效选择，请输入正确编号')
@@ -2282,19 +2339,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     if (manifest.execution.mode === 'macro' || manifest.execution.mode === 'chain') {
       if (manifest.execution.dagPlan) {
-        const plan: TaskPlan = {
-          intent: manifest.identity.name,
-          needs: manifest.routing.keywords.slice(0, 3),
-          steps: manifest.execution.dagPlan.steps.map(s => ({
-            step: s.step, description: s.description, tool: s.tool,
-            depends_on: s.depends_on, params: s.params,
-            expectedOutput: s.expectedOutput, fallback: s.fallback
-          }))
-        }
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
         addSystemNotice(`🟢 RaaP匹配：${manifest.identity.name}（用户选择，置信度${(picked.score * 100).toFixed(0)}%）`)
-        const lastUserMsg = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
+        // P1-46：编号拦截路径传入原始请求；按钮点击路径回退最后一条用户消息
+        const lastUserMsg = originalInput || messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
         try {
           const macroResult = await executeMacro(manifest, { inputText: lastUserMsg })
           addSystemNotice('✅ 执行完成')
@@ -2310,21 +2359,31 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         }
       }
     } else if (manifest.execution.mode === 'direct' && manifest.execution.directCall) {
-      const plan: TaskPlan = {
-        intent: manifest.identity.name,
-        needs: manifest.routing.keywords.slice(0, 3),
-        steps: [{ step: 1, description: manifest.identity.name, tool: 'llm_generate', depends_on: [], params: { prompt: manifest.execution.directCall.promptTemplate }, expectedOutput: manifest.identity.name + '输出' }]
-      }
+      // A5-9：用户已明确选择候选，无需再走 pendingPlan 确认回合——直接 resolveDirectPrompt + chat-completion
+      const lastUserMsg = originalInput || messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
+      addSystemNotice(`🟢 RaaP直调：${manifest.identity.name}（用户选择，置信度${(picked.score * 100).toFixed(0)}%）`)
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
-      addSystemNotice(`🟢 RaaP直调：${manifest.identity.name}（用户选择，置信度${(picked.score * 100).toFixed(0)}%）`)
-      pendingPlan.value = plan
-      pendingContent.value = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
-      pendingMacroManifestId.value = manifest.identity.id
-      acquirePausePoint('confirmation')
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'working' })
+      try {
+        const directInfo = resolveDirectPrompt(manifest, { inputText: lastUserMsg, context: lastUserMsg })
+        if (directInfo) {
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
+          const finalText = stripHtml(beautify(resp.content || '(无输出)'))
+          addAssistantMessage(finalText)
+          globalBus.emit('node:mark-task-chain-complete', {})
+          isProcessing.value = false
+          return finalText
+        }
+        addSystemNotice('❌ 直调模板无法解析（必填槽位未满足），请重新描述需求')
+      } catch (err) {
+        const errStr = String(err)
+        addSystemNotice(`❌ 直调失败（${classifyError(errStr)}）`)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `直调失败: ${errStr}`, detail: errStr })
+        globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'error' })
+      }
       isProcessing.value = false
-      const planSummary = `📋 **任务分析 (直调)**\n意图：${plan.intent}\n\n确认执行？`
-      addSystemNotice(planSummary)
       return ''
     }
 

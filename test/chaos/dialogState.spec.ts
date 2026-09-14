@@ -143,6 +143,7 @@ vi.stubGlobal('window', {
 })
 
 import { useDialogStore } from '@/stores/dialogStore'
+import { resolveDirectPrompt } from '@/services/macroExecutor'
 
 function createStore() {
   const pinia = createPinia()
@@ -560,5 +561,92 @@ describe('dialogStore 混沌工程 - 7暂停点状态机', () => {
       expect(() => store.requestTakeover(-1)).not.toThrow()
       expect(store.awaitingTakeover).toBe(true)
     })
+  })
+})
+
+describe('P1-46/A5-9 候选选择流：数字拦截与直调执行', () => {
+  const directManifest = {
+    identity: { id: 'm-direct', name: '直调工具' },
+    execution: { mode: 'direct', directCall: { promptTemplate: '模板 {input}' } }
+  } as any
+
+  let store: ReturnType<typeof useDialogStore>
+
+  beforeEach(() => {
+    vault.clearCache()
+    globalBus.clear()
+    store = createStore()
+    globalBus.registerHandler('node:get-l2-manifest', () => directManifest)
+    globalBus.registerHandler('api:chat-completion', async () => ({ content: '直调结果' }))
+    vi.mocked(resolveDirectPrompt).mockReturnValue({ prompt: 'resolved prompt', maxTokens: 128 } as any)
+    // sendMessage 后续流程会经 yieldToUI（requestAnimationFrame），node 环境需打桩
+    vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => setTimeout(() => cb(0), 0) as unknown as number)
+  })
+
+  it('数字输入映射候选编号：执行直调并落 assistant 消息（原始请求透传，不误取编号）', async () => {
+    store.addUserMessage('帮我总结报告')
+    store.pendingCandidateList = [
+      { manifestId: 'm-direct', manifestName: '直调工具', score: 0.8 },
+      { manifestId: 'm-other', manifestName: '其他工具', score: 0.5 }
+    ]
+    store.awaitingCandidatePick = true
+
+    const ret = await store.sendMessage('1')
+    expect(ret).toBe('beautified')
+    expect(store.awaitingCandidatePick).toBe(false)
+    expect(store.pendingCandidateList).toEqual([])
+    expect(store.isProcessing).toBe(false)
+    // 原始请求从倒数第二条还原，编号消息不得作为直调输入
+    expect(vi.mocked(resolveDirectPrompt).mock.calls[0]?.[1]).toMatchObject({ inputText: '帮我总结报告' })
+    const last = store.messages[store.messages.length - 1]
+    expect(last.role).toBe('assistant')
+    expect(last.content).toBe('beautified')
+  })
+
+  it('非数字输入：放弃候选选择，按新请求继续', async () => {
+    globalBus.registerHandler('api:is-ready', () => false)
+    globalBus.registerHandler('api:get-config', () => ({}))
+    store.addUserMessage('原始请求')
+    store.pendingCandidateList = [{ manifestId: 'm-direct', manifestName: '直调工具', score: 0.8 }]
+    store.awaitingCandidatePick = true
+
+    const ret = await store.sendMessage('换个工具试试')
+    expect(ret).toBe('')
+    expect(store.awaitingCandidatePick).toBe(false)
+    expect(store.pendingCandidateList).toEqual([])
+    const notices = store.messages.filter(m => m.role === 'system')
+    expect(notices.some(n => n.content.includes('已放弃候选选择'))).toBe(true)
+  })
+
+  it('confirmTranslatedIntent 直调模式：确认后执行 chat-completion，不再静默返回', async () => {
+    store.translatedIntent = { intent: '总结', manifestId: 'm-direct', params: {}, originalInput: '原文内容' }
+    store.awaitingIntentConfirm = true
+    const ret = await store.confirmTranslatedIntent()
+    expect(ret).toBe('beautified')
+    expect(store.translatedIntent).toBeNull()
+    expect(store.awaitingIntentConfirm).toBe(false)
+    const last = store.messages[store.messages.length - 1]
+    expect(last.role).toBe('assistant')
+    expect(last.content).toBe('beautified')
+  })
+
+  it('submitSlotFill 直调模式：填参后执行 chat-completion，不再静默返回', async () => {
+    store.slotClarification = { manifestId: 'm-direct', manifestName: '直调工具', slots: [] }
+    store.awaitingSlotFill = true
+    const ret = await store.submitSlotFill({ topic: 'x' })
+    expect(ret).toBe('beautified')
+    expect(store.slotClarification).toBeNull()
+    expect(store.awaitingSlotFill).toBe(false)
+    const last = store.messages[store.messages.length - 1]
+    expect(last.role).toBe('assistant')
+  })
+
+  it('pickCandidate 直调模式：直接执行，不再进入 pendingPlan 二次确认回合', async () => {
+    store.pendingCandidateList = [{ manifestId: 'm-direct', manifestName: '直调工具', score: 0.9 }]
+    store.awaitingCandidatePick = true
+    const ret = await store.pickCandidate(0)
+    expect(ret).toBe('beautified')
+    expect(store.awaitingConfirmation).toBe(false)
+    expect(store.pendingPlan).toBeNull()
   })
 })

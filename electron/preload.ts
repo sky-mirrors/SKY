@@ -132,6 +132,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('pipeline:nodeAdded', handler)
   },
 
+  // P1-26：流水线窗口"运行当前画布"——请求主窗口执行，并接收进度事件
+  pipelineRunRequest: (data: { nodes: { id: string; toolId: string; toolName: string; params: Record<string, string>; outputKey: string }[]; edges: unknown[] }) =>
+    ipcRenderer.send('pipeline:runRequest', data),
+
+  onPipelineRunEvent: (callback: (data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) => callback(data)
+    ipcRenderer.on('pipeline:runEvent', handler)
+    return () => ipcRenderer.removeListener('pipeline:runEvent', handler)
+  },
+
+  // P1-26：主窗口侧——接收画布执行请求，回传进度
+  onPipelineRunRequest: (callback: (data: { nodes: { id: string; toolId: string; toolName: string; params: Record<string, string>; outputKey: string }[]; edges: unknown[] }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { nodes: { id: string; toolId: string; toolName: string; params: Record<string, string>; outputKey: string }[]; edges: unknown[] }) => callback(data)
+    ipcRenderer.on('pipeline:run', handler)
+    return () => ipcRenderer.removeListener('pipeline:run', handler)
+  },
+
+  pipelineRunProgress: (data: { type: 'progress' | 'done' | 'error'; stepId?: string; msg?: string; results?: Record<string, string>; error?: string }) =>
+    ipcRenderer.send('pipeline:runProgress', data),
+
   storeSyncToPipeline: (data: { storeId: string; state: Record<string, unknown> }) =>
     ipcRenderer.send('store:syncToPipeline', data),
 

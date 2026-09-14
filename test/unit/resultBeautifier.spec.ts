@@ -243,4 +243,46 @@ describe('resultBeautifier', () => {
       expect(parsed.slides[0].bullets).toEqual(['bullet 1', 'bullet 2'])
     })
   })
+
+  describe('P1-48 ResultPreviewStage.saveEdit 行号不变式', () => {
+    it('片段单独解析的行号相对片段自身，同一内容嵌入文档后为文档绝对行号', () => {
+      const fragment = '第一段内容'
+      const fragAst = parseMarkdownAstWithRanges(fragment)
+      expect(fragAst.children[0].startLine).toBe(0)
+      expect(fragAst.children[0].endLine).toBe(1)
+
+      const doc = '# 标题\n\n' + fragment + '\n\n- 列表项'
+      const docAst = parseMarkdownAstWithRanges(doc)
+      const para = docAst.children.find(c => c.type === 'paragraph')!
+      // 文档中该段不在行 0——saveEdit 若用片段重解析的相对行号 splice 必然写错位置
+      expect(para.startLine).toBe(2)
+      expect(doc.split('\n').slice(para.startLine, para.endLine).join('\n')).toBe(fragment)
+    })
+
+    it('saveEdit 算法：编辑前捕获的绝对区间 splice + delta 平移后，后续块区间仍精确对齐', () => {
+      const doc = '# 标题\n\n第一段\n\n```js\ncode line\n```'
+      const lines = doc.split('\n')
+      const ast = parseMarkdownAstWithRanges(doc)
+      const blocks = ast.children.map(n => ({ startLine: n.startLine, endLine: n.endLine }))
+      expect(blocks.length).toBe(3)
+
+      // 编辑第一个块：'# 标题'（1 行）替换为 3 行
+      const editIdx = 0
+      const newMd = '# 新标题\n副标题行1\n副标题行2'
+      const newLines = newMd.split('\n')
+      const delta = newLines.length - (blocks[editIdx].endLine - blocks[editIdx].startLine)
+
+      const updated = [...lines]
+      updated.splice(blocks[editIdx].startLine, blocks[editIdx].endLine - blocks[editIdx].startLine, ...newLines)
+
+      // 后续块按 delta 平移后，切片内容必须与编辑前逐字一致
+      for (let i = editIdx + 1; i < blocks.length; i++) {
+        const shiftedStart = blocks[i].startLine + delta
+        const shiftedEnd = blocks[i].endLine + delta
+        const shiftedText = updated.slice(shiftedStart, shiftedEnd).join('\n')
+        const originalText = lines.slice(blocks[i].startLine, blocks[i].endLine).join('\n')
+        expect(shiftedText).toBe(originalText)
+      }
+    })
+  })
 })

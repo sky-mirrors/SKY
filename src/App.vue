@@ -126,7 +126,7 @@ import { useMcpStore } from '@/domains/mcp'
 import { useDialogStore } from '@/domains/dialog'
 import { useNotificationStore } from '@/domains/app'
 import { useWorkflowLogStore } from '@/domains/app'
-import { ToolNode, JobRole, HistoryEntry, L2ToolManifest, DialogMessage, ChatMessage } from '@/models'
+import { ToolNode, JobRole, HistoryEntry, L2ToolManifest, DialogMessage, ChatMessage, Pipeline } from '@/models'
 import { executePipeline } from '@/domains/pipeline'
 import { usePipelineStore, registerPipelineExecutor } from '@/domains/pipeline'
 import { useDebugStore } from '@/domains/debug'
@@ -684,6 +684,15 @@ function onKeyDown(e: KeyboardEvent) {
       notificationCenterRef.value?.close()
       return
     }
+    // P1-47：补齐 L0 / API 设置弹层的 Esc 关闭（此前 Esc 会穿透到相机重置）
+    if (l0ModalRef.value?.visible) {
+      l0ModalRef.value?.close()
+      return
+    }
+    if (apiSettingsRef.value?.visible) {
+      apiSettingsRef.value?.close()
+      return
+    }
     if (viewMode.value === 'preview') {
       configStore.setViewMode('starmap')
       return
@@ -738,6 +747,31 @@ onMounted(async () => {
   apiStore.loadFromStorage()
   pipelineStore.loadFromStorage()
   registerPipelineExecutor(executePipeline)
+
+  // P1-26：接收流水线窗口"运行当前画布"请求——内核/LLM 网关只在主窗口注册，画布执行必须由主窗口代跑。
+  // 节点顺序即拓扑序（流水线窗口发送前已排序），executePipeline 按 serial 链式执行；进度事件回传流水线窗口。
+  window.electronAPI?.onPipelineRunRequest?.((data) => {
+    const nodes = data.nodes
+    if (!Array.isArray(nodes) || nodes.length === 0) return
+    const transientPipeline: Pipeline = {
+      id: `canvas-run-${Date.now()}`,
+      name: '画布运行',
+      steps: nodes.map(n => ({ toolId: n.toolId, params: n.params, outputKey: n.outputKey })),
+      mode: 'serial',
+      createdAt: Date.now(),
+      attachedEntryIds: []
+    }
+    executePipeline(transientPipeline, (stepId, msg) => {
+      window.electronAPI?.pipelineRunProgress?.({ type: 'progress', stepId, msg })
+    })
+      .then((results) => {
+        window.electronAPI?.pipelineRunProgress?.({ type: 'done', results })
+      })
+      .catch((err) => {
+        window.electronAPI?.pipelineRunProgress?.({ type: 'error', error: String(err) })
+      })
+  })
+
   nodeStore.loadHistory()
   memoryStore.loadFromStorage()
   knowledgeStore.loadFromStorage()
