@@ -12,6 +12,8 @@ interface MigrationResult {
 export async function migrateToVault(localStorageData: Record<string, string>, storeDir: string, vectorDir: string): Promise<MigrationResult> {
   let migrated = 0
   let errors = 0
+  // P1-4：记录失败条目，partial 时写入 vault_meta 供诊断与重试
+  const failedKeys: string[] = []
 
   const db = openVault()
 
@@ -90,6 +92,7 @@ export async function migrateToVault(localStorageData: Record<string, string>, s
         migrated++
       } catch (e) {
         errors++
+        failedKeys.push(fullKey)
       }
     }
   })
@@ -104,7 +107,7 @@ export async function migrateToVault(localStorageData: Record<string, string>, s
           const key = file.replace('.json', '')
           insertKv.run('store', key, content, Date.now())
           migrated++
-        } catch { errors++ }
+        } catch { errors++; failedKeys.push(`store:${file}`) }
       }
     } catch { /* store dir read error */ }
   }
@@ -124,12 +127,19 @@ export async function migrateToVault(localStorageData: Record<string, string>, s
           }
           vaultWriteVector('vector', key, metadata, binData)
           migrated++
-        } catch { errors++ }
+        } catch { errors++; failedKeys.push(`vector:${bin}`) }
       }
     } catch { /* vector dir read error */ }
   }
 
-  vaultSetMeta('migration_complete', new Date().toISOString())
+  // P1-4：errors>0 时禁止写 migration_complete——完成标志会让失败条目永不重试，
+  // 且渲染层据 success 清理源数据后失败条目即永久丢失。upsert 幂等，重试安全。
+  if (errors === 0) {
+    vaultSetMeta('migration_complete', new Date().toISOString())
+  } else {
+    vaultSetMeta('migration_partial', new Date().toISOString())
+    vaultSetMeta('migration_failed_keys', JSON.stringify(failedKeys.slice(0, 200)))
+  }
   vaultSetMeta('migration_count', String(migrated))
   vaultSetMeta('migration_errors', String(errors))
 

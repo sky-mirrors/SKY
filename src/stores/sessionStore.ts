@@ -81,7 +81,8 @@ export const useSessionStore = defineStore('session', () => {
     if (activeSessionId.value) {
       const prev = sessions.value.find(s => s.id === activeSessionId.value)
       if (prev) {
-        prev.messages = currentMessages
+        // P0-8：显式断开数组别名——存入会话的永远是拷贝，防止跨会话引用注入
+        prev.messages = currentMessages.map(m => ({ ...m }))
         prev.updatedAt = Date.now()
       }
     }
@@ -132,7 +133,8 @@ export const useSessionStore = defineStore('session', () => {
   function updateActiveMessages(messages: DialogMessage[]): void {
     const session = sessions.value.find(s => s.id === activeSessionId.value)
     if (!session) return
-    session.messages = messages
+    // P0-8：按拷贝写入，杜绝 dialogStore 的活动数组与会话存储按引用共享
+    session.messages = messages.map(m => ({ ...m }))
     session.updatedAt = Date.now()
     saveSessions(sessions.value)
   }

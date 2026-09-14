@@ -364,7 +364,7 @@
                 <span v-if="s.attachedEntryIds && s.attachedEntryIds.length > 0" class="sess-att-badge">📎{{ s.attachedEntryIds.length }}</span>
               </div>
               <div class="sess-actions" @click.stop>
-                <button class="sess-act sess-del" title="删除" @click="sessionStore.deleteSession(s.id)">✕</button>
+                <button class="sess-act sess-del" title="删除" @click="dialogStore.deleteSession(s.id)">✕</button>
               </div>
             </div>
           </div>

@@ -137,7 +137,6 @@ import { debugLog } from '@/domains/debug'
 import { createKernel, globalBus } from '@/kernel'
 import { initKernelRuntime, kernelRegistry } from '@/host/kernelRuntime'
 import { initPackRuntime, packLoader } from '@/host/packRuntime'
-import { vault } from '@/vault'
 import { registerApiHandlers } from '@/domains/api/handlers'
 import { registerAppHandlers } from '@/domains/app/handlers'
 import { registerConfigHandlers } from '@/domains/config/handlers'
@@ -824,7 +823,7 @@ onMounted(async () => {
     },
     listModels: async () => apiStore.config.models.map(m => ({ id: m.id, name: m.name }))
   })
-  await vault.syncFromVault()
+  // P0-7：vault 同步已前移至 main.ts（mount 之前），此处不再重复同步
 
   window._holoStarMapDblClickCommand = (command: string) => {
     dialogStore.sendMessage(command)

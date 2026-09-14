@@ -2488,6 +2488,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     saveToStorage()
   }
 
+  // P0-8：删除会话必须经 dialogStore 路由——直接调 sessionStore.deleteSession 时，
+  // messages 仍持有被删会话的消息数组引用，下一次 saveToStorage 会把旧数组
+  // 按引用注入新指向的相邻会话并持久化（历史被覆盖）。
+  function deleteSession(sessionId: string): void {
+    const sessionStore = useSessionStore()
+    const wasActive = sessionStore.activeSessionId === sessionId
+    sessionStore.deleteSession(sessionId)
+    if (wasActive) {
+      const next = sessionStore.activeSession
+      // 显式拷贝断别名：绝不与被删会话的旧数组共享引用
+      messages.value = next?.messages ? next.messages.map(m => ({ ...m })) : []
+      clearAllPausePoints()
+      isProcessing.value = false
+    }
+    saveToStorage()
+  }
+
   function newSession(name?: string): void {
     const sessionStore = useSessionStore()
     sessionStore.updateActiveMessages(messages.value)
@@ -2572,6 +2589,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     initSession,
     syncToSession,
     switchSession,
+    deleteSession,
     newSession,
     clearCurrentSession,
     exportCurrentSession,
