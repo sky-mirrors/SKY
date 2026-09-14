@@ -117,9 +117,17 @@
               <td>{{ progress.optimizedStats?.errors ?? 0 }}</td>
               <td>-</td>
             </tr>
-          </tbody>
-        </table>
-      </div>
+           </tbody>
+         </table>
+       </div>
+
+       <div class="bm-methodology" v-if="progress.report?.methodology?.length">
+         <div class="panel-title">对比口径说明</div>
+         <ul class="methodology-list">
+           <li v-for="(note, idx) in progress.report.methodology" :key="idx">{{ note }}</li>
+         </ul>
+       </div>
+
 
       <div class="bm-log" v-if="logLines.length > 0">
         <div class="panel-title">执行日志</div>
@@ -352,6 +360,9 @@ function onClose(): void { window.electronAPI?.benchmarkWindowClose() }
 .savings-bad { color: #ff8888; }
 
 .bm-log { margin-top: 8px; }
+.bm-methodology { margin-top: 8px; }
+.methodology-list { margin: 4px 0 0; padding-left: 16px; list-style: disc; }
+.methodology-list li { font-size: 10px; color: rgba(180, 200, 220, 0.75); line-height: 1.7; }
 .panel-title { font-size: 10px; color: #66bbff; font-weight: bold; padding: 5px 0; border-bottom: 1px solid rgba(100,200,255,0.1); text-transform: uppercase; letter-spacing: 1px; }
 .log-list {
   max-height: 200px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace;

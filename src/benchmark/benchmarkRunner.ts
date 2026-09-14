@@ -1,11 +1,22 @@
 import { useApiStore } from '@/stores/apiStore'
 import { useNodeStore } from '@/stores/nodeStore'
 import { tryL0Skill, tryL05QuickMatch, checkL1Capability } from '@/services/l0SkillRouter'
-import { computeInputFingerprint, findCachedExecution, getTierConfig, saveExecutionFingerprint } from '@/services/scheduleOptimizer'
+import { computeInputFingerprint, getTierConfig } from '@/services/scheduleOptimizer'
 import type { BenchmarkStats, BenchmarkReport } from './statsTracker'
 import { createStatsTracker } from './statsTracker'
 import { getTestCases, type TestCase } from './testCases'
 import { debugLog } from '@/services/debugLog'
+
+// P1-33：benchmark 不得读写生产指纹库（scheduleOptimizer 的模块级 store 与 macroExecutor 共享，
+// 伪造 stepHash/同串结果会污染真实执行的缓存命中与 autoCompile 统计）。
+// 基准运行期间使用 runner 实例内的隔离缓存，与生产数据完全隔离。
+interface BenchFingerprint {
+  manifestId: string
+  inputHash: string
+  results: Record<number, string>
+}
+
+const BENCH_MAX_FINGERPRINTS = 50
 
 export interface BenchmarkProgress {
   phase: 'idle' | 'baseline' | 'optimized' | 'report' | 'done' | 'error'
@@ -41,6 +52,20 @@ export function createBenchmarkRunner(): BenchmarkRunner {
 
   const baselineTracker = createStatsTracker()
   const optimizedTracker = createStatsTracker()
+
+  // P1-33：runner 实例级隔离指纹缓存（读/写均不触达 scheduleOptimizer 生产库）
+  const benchFingerprints: BenchFingerprint[] = []
+  function findBenchCached(manifestId: string, inputHash: string): BenchFingerprint | null {
+    return benchFingerprints.find(f => f.manifestId === manifestId && f.inputHash === inputHash) || null
+  }
+  function saveBenchFingerprint(manifestId: string, inputHash: string, results: Record<number, string>): void {
+    const existing = benchFingerprints.findIndex(f => f.manifestId === manifestId && f.inputHash === inputHash)
+    if (existing >= 0) benchFingerprints.splice(existing, 1)
+    benchFingerprints.push({ manifestId, inputHash, results })
+    if (benchFingerprints.length > BENCH_MAX_FINGERPRINTS) {
+      benchFingerprints.splice(0, benchFingerprints.length - BENCH_MAX_FINGERPRINTS)
+    }
+  }
 
   async function directLlmCall(input: string, tier: string, tracker: ReturnType<typeof createStatsTracker>): Promise<string> {
     const apiStore = useApiStore()
@@ -104,7 +129,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
 
       if (m.execution.dagPlan) {
         const inputFingerprint = computeInputFingerprint({ inputText: input })
-        const cached = findCachedExecution(m.identity.id, inputFingerprint)
+        const cached = findBenchCached(m.identity.id, inputFingerprint)
         if (cached) {
           tracker.recordCacheHit('fingerprint')
           debugLog(`[Benchmark:Optimized] Fingerprint cache hit: ${m.identity.id}`)
@@ -114,20 +139,15 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         }
 
         debugLog(`[Benchmark:Optimized] L0.5 multi-step manifest: ${m.identity.id}, executing...`)
+        const stepResults: Record<number, string> = {}
         let lastResult = ''
         for (const step of m.execution.dagPlan.steps) {
           const tier = step.modelTier || 'standard'
           const prompt = String(step.params.prompt || input)
           lastResult = await directLlmCall(prompt, tier, tracker)
+          stepResults[step.step] = lastResult
         }
-        const inputFp = computeInputFingerprint({ inputText: input })
-        const stepHashes: Record<number, string> = {}
-        const results: Record<number, string> = {}
-        for (const step of m.execution.dagPlan.steps) {
-          results[step.step] = lastResult
-          stepHashes[step.step] = String(Date.now())
-        }
-        saveExecutionFingerprint(m.identity.id, inputFp, stepHashes, results)
+        saveBenchFingerprint(m.identity.id, inputFingerprint, stepResults)
         return lastResult
       }
     }

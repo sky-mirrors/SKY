@@ -15,8 +15,8 @@ import * as jschardet from 'jschardet'
 import * as iconv from 'iconv-lite'
 // R16 修复：原为 CJS require('./vault')——electron-vite 打包不解析相对路径 CJS require，
 // 运行时 out/main 仅有单文件 bundle 导致 MODULE_NOT_FOUND；改为静态 ESM import 由 rollup 打入
-import { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList, vaultReadVector, vaultWriteVector, vaultDeleteVector, vaultListVectors, vaultGetStats } from './vault'
-import { migrateToVault, isMigrationComplete } from './vault-migration'
+// B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
+import { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
 
 let mainWindow: BrowserWindow | null = null
 let watchDir: string | null = null
@@ -1145,37 +1145,6 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.handle('vault:list', (_event, namespace?: string) => {
     return vaultList(namespace)
-  })
-
-  ipcMain.handle('vault:readVector', (_event, namespace: string, key: string) => {
-    const result = vaultReadVector(namespace, key)
-    if (!result) return null
-    return {
-      metadata: result.metadata,
-      embedding: result.embedding.toString('base64'),
-    }
-  })
-
-  ipcMain.handle('vault:writeVector', (_event, namespace: string, key: string, metadata: string, embeddingBase64: string) => {
-    const buf = Buffer.from(embeddingBase64, 'base64')
-    vaultWriteVector(namespace, key, metadata, buf)
-    return true
-  })
-
-  ipcMain.handle('vault:deleteVector', (_event, namespace: string, key: string) => {
-    vaultDeleteVector(namespace, key)
-  })
-
-  ipcMain.handle('vault:listVectors', (_event, namespace?: string) => {
-    return vaultListVectors(namespace)
-  })
-
-  ipcMain.handle('vault:migrate', async (_event, localStorageData: Record<string, string>) => {
-    return migrateToVault(localStorageData, storeDir, vectorDir)
-  })
-
-  ipcMain.handle('vault:getStats', () => {
-    return vaultGetStats()
   })
 }
 

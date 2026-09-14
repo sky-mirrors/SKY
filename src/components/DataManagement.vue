@@ -105,6 +105,29 @@ async function onImport() {
     importPreview.value = null
     return
   }
+  // B-7：dataImportZip 主进程通道此前零调用（导出走原生保存对话框、导入却只走 DOM input）。
+  // 优先用原生打开对话框完成对称的导出/导入往返，electronAPI 不可用时退回 DOM input。
+  if (window.electronAPI?.dataImportZip) {
+    try {
+      const result = await window.electronAPI.dataImportZip()
+      if (result.success && result.content) {
+        const preview = parseImportPreview(result.content)
+        if (preview) {
+          const map: Record<string, number> = {}
+          for (const item of preview.items) {
+            map[item.category] = item.count
+          }
+          importPreview.value = map
+          importContent.value = result.content
+        } else {
+          notificationStore.addNotification('tool_fail', '导入失败', '文件格式不正确')
+        }
+      }
+    } catch (err) {
+      notificationStore.addNotification('tool_fail', '导入失败', String(err))
+    }
+    return
+  }
   try {
     const input = document.createElement('input')
     input.type = 'file'

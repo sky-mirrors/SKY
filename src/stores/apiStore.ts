@@ -46,6 +46,9 @@ export const useApiStore = defineStore('api', () => {
 
   const tokenBudgetMonthly = ref<number | null>(null)
 
+  // A5-11：safeStorage 不可用/加密失败时 API key 以明文保存的显式警告标志（供 UI 提示）
+  const plaintextKeyWarning = ref(false)
+
   const isConfigured = computed(() => config.value.baseUrl.length > 0 || config.value.providers.length > 0)
   const hasActiveModel = computed(() => config.value.activeModel.length > 0)
   const isReady = computed(() => config.value.isReachable && config.value.activeModel.length > 0)
@@ -913,10 +916,23 @@ export const useApiStore = defineStore('api', () => {
     if (!key) return ''
     try {
       const available = await window.electronAPI?.safeStorageIsAvailable?.()
-      if (!available) return key
+      if (!available) {
+        // A5-11：明文落盘必须显式警告，不再静默回退
+        plaintextKeyWarning.value = true
+        debugLog('[apiStore] ⚠️ safeStorage 不可用，API key 将以明文保存到本地存储')
+        return key
+      }
       const encrypted = await window.electronAPI.safeStorageEncrypt(key)
-      return encrypted ? `enc:${encrypted}` : key
+      if (!encrypted) {
+        plaintextKeyWarning.value = true
+        debugLog('[apiStore] ⚠️ safeStorage 加密返回空，API key 将以明文保存到本地存储')
+        return key
+      }
+      plaintextKeyWarning.value = false
+      return `enc:${encrypted}`
     } catch {
+      plaintextKeyWarning.value = true
+      debugLog('[apiStore] ⚠️ safeStorage 加密异常，API key 将以明文保存到本地存储')
       return key
     }
   }
@@ -926,9 +942,13 @@ export const useApiStore = defineStore('api', () => {
     try {
       const encrypted = stored.substring(4)
       const decrypted = await window.electronAPI.safeStorageDecrypt(encrypted)
-      return decrypted || stored
+      if (decrypted) return decrypted
+      // A5-11：解密失败不再把密文当 key 回传（否则 enc:... 会被当作 Bearer 发出），按未配置处理
+      debugLog('[apiStore] ⚠️ API key 解密返回空，按未配置处理，请重新录入 API key')
+      return ''
     } catch {
-      return stored
+      debugLog('[apiStore] ⚠️ API key 解密失败，按未配置处理，请重新录入 API key')
+      return ''
     }
   }
 
@@ -959,6 +979,7 @@ export const useApiStore = defineStore('api', () => {
   return {
     config,
     circuitBreaker,
+    plaintextKeyWarning,
     isConfigured,
     hasActiveModel,
     isReady,

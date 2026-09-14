@@ -103,6 +103,11 @@ interface ElectronAPI {
   dataExportZip: (opts: { data: string; defaultName: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>
   dataImportZip: () => Promise<{ success: boolean; content?: string; filePath?: string; error?: string }>
   getUserDataPath: () => Promise<string>
+  // B-8：vault 四件套此前 exposed-but-undeclared（vector/migrate/stats 六个死通道已随 B-6 删除）
+  vaultRead: (namespace: string, key: string) => Promise<string | null>
+  vaultWrite: (namespace: string, key: string, value: string, encrypted?: boolean) => Promise<void>
+  vaultDelete: (namespace: string, key: string) => Promise<void>
+  vaultList: (namespace?: string) => Promise<string[]>
   openDebugWindow: () => void
   openBenchmarkWindow: () => void
   openRuleReviewWindow: () => void

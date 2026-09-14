@@ -20,8 +20,6 @@ const configStore = useConfigStore()
 const emit = defineEmits<{
   nodeClick: [nodeId: string, ctrlKey: boolean]
   nodeHover: [nodeId: string | null]
-  dragStart: [nodeId: string]
-  dragEnd: [fromId: string, toId: string]
   ready: [api: { startOnboarding: () => void; setDegradedVisuals: (v: boolean) => void; rebuildNode: (id: string) => void; spawnStarLogAsteroid: (entryId: string, toolName: string) => void; triggerStarLogReturn: (entryId: string) => void; flyToNode: (nodeId: string) => void; resetCamera: () => void; hoveredNodeInfo: typeof hoveredNodeInfo }]
 }>()
 

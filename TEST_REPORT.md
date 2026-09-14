@@ -151,14 +151,13 @@
 
 ---
 
-## 5. 已知未修复Bug (4)
+## 5. 已知未修复Bug (1)
 
 | # | 严重度 | 文件 | 描述 |
 |---|--------|------|------|
-| B1 | **高** | dualEngineValidator.ts:27-31 | `extractTargetFile` 正则无法提取 `node -e` 嵌套引号中的文件路径 |
-| B2 | **高** | dualEngineValidator.ts:111-113 | 双引擎验证器 LLM 失败时默认放行 |
-| B3 | **中** | dialogStore.ts (7个暂停点) | 7个 awaiting* 标志无互斥锁 |
-| B4 | **低** | feedbackStore.ts:39 | async `.then()` 未 await |
+| B3 | **中** | dialogStore.ts (7个暂停点) | 7个 awaiting* 标志无互斥锁（R7 A5-4 已补"被顶替时结算旧 Promise"，仍非完整互斥） |
+
+> 原表 B1/B2/B4 已修复：B1（extractTargetFile 引号组取错）在 R1 A4-9 修复（dualEngineValidator.ts:94-100，非捕获引号组使路径升为组1）；B2（双引擎 LLM 失败默认放行）现为 fail-closed（dualEngineValidator.ts:287-290，失败返回 `risk_level: 'medium'` 阻断）；B4（feedbackStore async 未 await）已改为 `await storeRead`。
 
 ---
 
@@ -257,14 +256,14 @@
 **仍需关注**：
 - ⚠️ dialogStore.sendMessage (890行) 仍零覆盖 — 核心对话流程
 - ⚠️ promptTranslator/pipelineExecutor/nodeStore/mcpStore 仍零覆盖
-- ⚠️ 2个高风险Bug未修复 (B1: extractTargetFile正则, B2: 双引擎默认放行)
+- ⚠️ 原 2个高风险Bug (B1/B2) 已修复；余 B3（awaiting* 标志无互斥锁，中危）待修
 - ⚠️ 覆盖率40%仍低于可发布阈值(≥60%)
 
 ### Go 前置条件 (更新)
 
 | 优先级 | 条件 | 预估工作量 | 状态 |
 |--------|------|-----------|------|
-| P0 | 修复 B1 + B2 | 0.5天 | ❌ 未完成 |
+| ~~P0~~ | ~~修复 B1 + B2~~ | ~~0.5天~~ | ✅ 已完成 |
 | P0 | dialogStore.sendMessage 测试 | 2-3天 | ❌ 未完成 |
 | P1 | promptTranslator + pipelineExecutor 测试 | 2-3天 | ❌ 未完成 |
 | P1 | mcpStore + nodeStore 测试 | 1-2天 | ❌ 未完成 |

@@ -9,8 +9,11 @@ export function registerMcpHandlers(bus: HoloEventBus) {
   })
 
   bus.registerHandler('mcp:call-tool', async (payload) => {
+    // P1-11：发送方契约不一致 —— macroExecutor 发 {mcpId}、dialogStore 发 {connectionId}，
+    // 此前只读 mcpId 导致后者恒走 undefined 抛 "MCP not connected"。统一兼容两种字段。
     const store = useMcpStore()
-    return store.callTool(payload.mcpId, payload.toolName, payload.args)
+    const mcpId = payload?.mcpId || payload?.connectionId
+    return store.callTool(mcpId, payload.toolName, payload.args)
   })
 
   bus.registerHandler('mcp:get-connections', () => {

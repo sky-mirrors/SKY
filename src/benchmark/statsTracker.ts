@@ -34,6 +34,7 @@ export interface BenchmarkReport {
     costSaved: number
     latencySaved: number
   }
+  methodology: string[]
 }
 
 const PRICE = {
@@ -140,7 +141,15 @@ export function createStatsTracker(): StatsTracker {
         tokenSaved,
         costSaved,
         latencySaved
-      }
+      },
+      // P1-34：对比口径如实披露 —— tier 仅影响 maxTokens/temperature 上限，不切换真实模型；
+      // 成本为固定单价估算，非网关真实计费；指纹缓存为基准内隔离缓存。
+      methodology: [
+        `单模型对比：基线与优化路径均使用同一 activeModel（${model}），tier 档位仅改变 maxTokens/temperature 上限，不切换真实模型`,
+        `成本为固定单价估算（输入 ¥${PRICE.inputUncached}/百万、缓存命中 ¥${PRICE.inputCached}/百万、输出 ¥${PRICE.output}/百万 tokens），非网关真实计费`,
+        '指纹缓存命中统计基于本次基准运行的隔离缓存，与生产执行缓存互相独立',
+        '延迟为本地墙钟测量，含网络往返，仅供相对比较'
+      ]
     }
   }
 

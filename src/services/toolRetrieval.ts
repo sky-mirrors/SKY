@@ -529,6 +529,22 @@ function toolIndexToItem(t: ToolIndex): MatchableItem {
   }
 }
 
+// P1-16：L2 索引条目 → manifest。优先按 id 经总线回查 nodeStore 真实清单，
+// 保证确认链路（计划展示/槽位填充）与执行链路消费同一份 dagPlan/paramMapping；
+// 回查失败（handler 未注册/清单已删除）才退回最小桩（仅够相似度排序用）。
+function buildStubL2Manifest(l2ManifestId: string, shortName: string, description: string): L2ToolManifest {
+  return { identity: { id: l2ManifestId, name: shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(shortName, description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: description, userSummary: description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [], fallbackStrategy: 'retry', maxRetries: 2 } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest
+}
+
+function resolveL2Manifest(entry: ToolIndex): L2ToolManifest {
+  if (!entry.l2ManifestId) return buildStubL2Manifest(entry.shortName, entry.shortName, entry.description)
+  try {
+    const real = globalBus.request<L2ToolManifest | null>('node:get-l2-manifest', { id: entry.l2ManifestId })
+    if (real && real.execution?.dagPlan) return real
+  } catch { /* handler 未注册（如单测环境）或清单缺失，退回桩 */ }
+  return buildStubL2Manifest(entry.l2ManifestId, entry.shortName, entry.description)
+}
+
 export async function universalMatch(
   userInput: string,
   toolIndex: ToolIndex[],
@@ -547,16 +563,9 @@ export async function universalMatch(
   }
   const items: MatchableItem[] = filteredIndex.map(t =>
     t.l2ManifestId
-      ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [], fallbackStrategy: 'retry', maxRetries: 2 } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest)
+      ? manifestToItem(resolveL2Manifest(t))
       : toolIndexToItem(t)
   )
-  const l2ManifestMap = new Map<string, Partial<L2ToolManifest>>()
-
-  for (const t of toolIndex) {
-    if (t.l2ManifestId) {
-      l2ManifestMap.set(t.fullName, {})
-    }
-  }
 
   let vectorScores: { item: MatchableItem; score: number }[] = []
   if (filteredIndex.length > 0) {
@@ -820,7 +829,7 @@ export function getTop3CandidatesUniversal(
 ): { item: MatchableItem; score: number; method: string }[] {
   const isNegated = hasNegation(userInput)
   const items = toolIndex.map(t =>
-    t.l2ManifestId ? manifestToItem({ identity: { id: t.l2ManifestId, name: t.shortName, version: '', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' }, visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' }, routing: { keywords: extractKeywordsFromDescription(t.shortName, t.description), targetRoles: [], requiredL1: [], inputType: 'text', retrievalSummary: t.description, userSummary: t.description, confidenceThreshold: 0.5 }, execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] }, dagPlan: { steps: [], fallbackStrategy: 'retry', maxRetries: 2 } }, cacheMeta: { cacheKeyTemplate: '', cacheTTL: 0, estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false } } as L2ToolManifest) : toolIndexToItem(t)
+    t.l2ManifestId ? manifestToItem(resolveL2Manifest(t)) : toolIndexToItem(t)
   )
   const kwScores = items.map(item => ({
     item,

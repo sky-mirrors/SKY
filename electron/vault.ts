@@ -80,52 +80,7 @@ export function vaultList(namespace?: string): string[] {
   return rows.map(r => r.fullKey)
 }
 
-export function vaultReadVector(namespace: string, key: string): { metadata: string; embedding: Buffer } | null {
-  const d = getDb()
-  const row = d.prepare('SELECT metadata, embedding FROM vectors WHERE namespace = ? AND key = ?').get(namespace, key) as { metadata: string; embedding: Buffer } | undefined
-  if (!row) return null
-  return { metadata: row.metadata, embedding: row.embedding }
-}
-
-export function vaultWriteVector(namespace: string, key: string, metadata: string, embedding: Buffer): void {
-  const d = getDb()
-  d.prepare(`
-    INSERT INTO vectors (namespace, key, metadata, embedding, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(namespace, key) DO UPDATE SET metadata = excluded.metadata, embedding = excluded.embedding, updated_at = excluded.updated_at
-  `).run(namespace, key, metadata, embedding, Date.now())
-}
-
-export function vaultDeleteVector(namespace: string, key: string): void {
-  getDb().prepare('DELETE FROM vectors WHERE namespace = ? AND key = ?').run(namespace, key)
-}
-
-export function vaultListVectors(namespace?: string): string[] {
-  const d = getDb()
-  if (namespace) {
-    const rows = d.prepare('SELECT key FROM vectors WHERE namespace = ?').all(namespace) as { key: string }[]
-    return rows.map(r => r.key)
-  }
-  const rows = d.prepare("SELECT namespace || ':' || key AS fullKey FROM vectors").all() as { fullKey: string }[]
-  return rows.map(r => r.fullKey)
-}
-
-export function vaultGetMeta(key: string): string | null {
-  const row = getDb().prepare('SELECT value FROM vault_meta WHERE key = ?').get(key) as { value: string } | undefined
-  return row?.value ?? null
-}
-
-export function vaultSetMeta(key: string, value: string): void {
-  getDb().prepare('INSERT OR REPLACE INTO vault_meta (key, value) VALUES (?, ?)').run(key, value)
-}
-
-export function vaultGetStats(): { tables: number; rows: number; sizeBytes: number } {
-  const d = getDb()
-  const kvCount = (d.prepare('SELECT COUNT(*) AS c FROM kv_store').get() as { c: number }).c
-  const vecCount = (d.prepare('SELECT COUNT(*) AS c FROM vectors').get() as { c: number }).c
-  const metaCount = (d.prepare('SELECT COUNT(*) AS c FROM vault_meta').get() as { c: number }).c
-  const dbPath = getDbPath()
-  let sizeBytes = 0
-  try { sizeBytes = existsSync(dbPath) ? require('fs').statSync(dbPath).size : 0 } catch { /* empty */ }
-  return { tables: 3, rows: kvCount + vecCount + metaCount, sizeBytes }
-}
+// B-6：vault vector 读写/统计/迁移辅助函数随死通道一并删除
+// （vaultReadVector/vaultWriteVector/vaultDeleteVector/vaultListVectors/
+//   vaultGetMeta/vaultSetMeta/vaultGetStats/migrateToVault —— 渲染层零调用）
+// vectors/vault_meta 表保留在 schema 中，兼容既有数据库文件。

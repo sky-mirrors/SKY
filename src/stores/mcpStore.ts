@@ -373,6 +373,43 @@ export const useMcpStore = defineStore('mcp', () => {
     mcpToolsAsNodes.value = nodes
   }
 
+  // B-5：主进程 mcp:status / mcp:tools 推送此前零订阅——MCP 进程崩溃/停止/工具变化
+  // 只更新主进程侧状态，渲染层连接状态与工具列表永不跟随更新。此处补齐订阅。
+  function bindProcessPush(): void {
+    const api = window.electronAPI
+    if (!api?.onMcpStatus || !api?.onMcpTools) return
+    api.onMcpStatus((data) => {
+      const conn = connections.value.find(c => c.id === data.id)
+      if (!conn) return
+      if (data.status === 'running') {
+        conn.isConnected = true
+        conn.lastTestedAt = Date.now()
+      } else if (data.status === 'error' || data.status === 'stopped') {
+        conn.isConnected = false
+        if (data.error) lastSpawnError.value = data.error
+      }
+      rebuildMcpNodes()
+      saveToStorage()
+    })
+    api.onMcpTools((data) => {
+      const conn = connections.value.find(c => c.id === data.id)
+      if (!conn) return
+      conn.tools = data.tools.map(t => {
+        const prev = conn.tools.find(p => p.name === t.name)
+        return {
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+          isAutoAllowed: prev?.isAutoAllowed ?? false,
+          permission: prev?.permission ?? 'execute'
+        }
+      })
+      rebuildMcpNodes()
+      saveToStorage()
+    })
+  }
+  bindProcessPush()
+
   function saveToStorage() {
     vault.writeThrough('mcp', 'holo-mcp-connections', JSON.stringify(connections.value))
   }

@@ -200,6 +200,14 @@
           </div>
         </div>
 
+        <!-- P1-24：DAG 执行中提供人工暂停入口（pauseDagAtStep 此前零调用方） -->
+        <div class="confirm-bar dag-pause-request" v-if="nodeStore.dagChainState.active && !dialogStore.dagPaused && nextDagPauseStepNum != null">
+          <div class="pause-title">⚙️ DAG执行中 — 下一待执行步骤 {{ nextDagPauseStepNum }}</div>
+          <div class="pause-actions">
+            <button class="confirm-btn warn" @click="onPauseDagRequest">⏸️ 暂停在步骤{{ nextDagPauseStepNum }}</button>
+          </div>
+        </div>
+
         <div class="confirm-bar takeover-bar" v-if="dialogStore.awaitingTakeover && dialogStore.takeoverStepNum != null">
           <div class="takeover-title">🤚 人工接管步骤{{ dialogStore.takeoverStepNum }}</div>
           <textarea class="takeover-input" v-model="takeoverText" placeholder="输入此步骤的输出结果..." rows="3"></textarea>
@@ -1109,6 +1117,20 @@ function onTakeoverRequest() {
   if (dialogStore.dagPausedStep != null) {
     dialogStore.requestTakeover(dialogStore.dagPausedStep)
   }
+}
+
+// P1-24：DAG 人工暂停入口。暂停目标取第一个 pending 步骤——
+// macroExecutor 在单就绪步骤执行前轮询暂停状态，已进入 running 的步骤无法中断。
+const nextDagPauseStepNum = computed(() => {
+  const steps = nodeStore.dagChainState.steps
+  const next = steps.find(s => s.status === 'pending')
+  return next ? next.stepNum : null
+})
+
+function onPauseDagRequest() {
+  if (nextDagPauseStepNum.value == null) return
+  const manifestId = nodeStore.dagChainState.steps[0]?.nodeId || ''
+  dialogStore.pauseDagAtStep(nextDagPauseStepNum.value, manifestId)
 }
 
 function onTakeoverSubmit() {
@@ -2281,6 +2303,7 @@ function onAssignGroup(projectId: string, groupId: string) {
 
 .dag-pause-bar {
 }
+.dag-pause-request { background: rgba(60, 90, 60, 0.08); border: 1px solid rgba(120, 200, 120, 0.25); }
 .pause-title { font-size: 13px; color: #88ccff; font-weight: 600; margin-bottom: 6px; }
 .pause-actions { display: flex; gap: 8px; }
 

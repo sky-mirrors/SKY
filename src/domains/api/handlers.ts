@@ -38,7 +38,8 @@ export function registerApiHandlers(bus: HoloEventBus) {
 
   bus.registerHandler('api:get-config', () => {
     const store = useApiStore()
-    return store.config
+    // A5-11：返回深副本，避免跨模块拿到 store 活引用逃逸篡改配置
+    return JSON.parse(JSON.stringify(store.config))
   })
 
   bus.registerHandler('api:check-connection', async () => {
@@ -48,7 +49,8 @@ export function registerApiHandlers(bus: HoloEventBus) {
 
   bus.registerHandler('api:list-models', () => {
     const store = useApiStore()
-    return store.config.models
+    // A5-11：返回副本而非 config.models 活数组
+    return [...store.config.models]
   })
 
   // P0-10：补齐死频道——executePipeline 入口的同步 request 原在此处必抛（无 handler 即 throw），

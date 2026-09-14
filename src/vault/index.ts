@@ -1,9 +1,3 @@
-interface VaultStats {
-  tables: number
-  rows: number
-  sizeBytes: number
-}
-
 interface QueuedWrite {
   ns: string
   key: string
@@ -81,35 +75,7 @@ class VaultClient {
     return api.vaultList(namespace) ?? []
   }
 
-  async readVector(namespace: string, key: string): Promise<{ metadata: string; embedding: string } | null> {
-    const api = this.electronAPI
-    return api?.vaultReadVector?.(namespace, key) ?? null
-  }
-
-  async writeVector(namespace: string, key: string, metadata: string, embeddingBase64: string): Promise<void> {
-    const api = this.electronAPI
-    if (api?.vaultWriteVector) await api.vaultWriteVector(namespace, key, metadata, embeddingBase64)
-  }
-
-  async deleteVector(namespace: string, key: string): Promise<void> {
-    const api = this.electronAPI
-    if (api?.vaultDeleteVector) await api.vaultDeleteVector(namespace, key)
-  }
-
-  async listVectors(namespace?: string): Promise<string[]> {
-    const api = this.electronAPI
-    return api?.vaultListVectors?.(namespace) ?? []
-  }
-
-  async migrate(localStorageData: Record<string, string>): Promise<{ migrated: number; errors: number }> {
-    const api = this.electronAPI
-    return api?.vaultMigrate?.(localStorageData) ?? { migrated: 0, errors: 0 }
-  }
-
-  async getStats(): Promise<VaultStats> {
-    const api = this.electronAPI
-    return api?.vaultGetStats?.() ?? { tables: 0, rows: 0, sizeBytes: 0 }
-  }
+  // B-6：vault vector/migrate/stats 包装方法随六条死通道一并删除（渲染层零调用）
 
   readCache(namespace: string, key: string): string | null {
     return this.cache.get(this.fullKeyOf(namespace, key)) ?? null
@@ -284,4 +250,4 @@ export function useVault(): VaultClient {
   return vault
 }
 
-export type { VaultClient, VaultStats }
+export type { VaultClient }

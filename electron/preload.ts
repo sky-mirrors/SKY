@@ -262,24 +262,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   vaultList: (namespace?: string) =>
     ipcRenderer.invoke('vault:list', namespace),
 
-  vaultReadVector: (namespace: string, key: string) =>
-    ipcRenderer.invoke('vault:readVector', namespace, key),
-
-  vaultWriteVector: (namespace: string, key: string, metadata: string, embeddingBase64: string) =>
-    ipcRenderer.invoke('vault:writeVector', namespace, key, metadata, embeddingBase64),
-
-  vaultDeleteVector: (namespace: string, key: string) =>
-    ipcRenderer.invoke('vault:deleteVector', namespace, key),
-
-  vaultListVectors: (namespace?: string) =>
-    ipcRenderer.invoke('vault:listVectors', namespace),
-
-  vaultMigrate: (localStorageData: Record<string, string>) =>
-    ipcRenderer.invoke('vault:migrate', localStorageData),
-
-  vaultGetStats: () =>
-    ipcRenderer.invoke('vault:getStats'),
-
   openDebugWindow: () => ipcRenderer.send('open:debug-window'),
 
   debugWindowMinimize: () => ipcRenderer.send('debug:window:minimize'),

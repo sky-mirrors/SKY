@@ -80,20 +80,6 @@
     <SettingsPage ref="settingsPageRef" />
     <OnboardingWizard ref="onboardingWizardRef" />
     <L0Modal ref="l0ModalRef" @skill-installed="onSkillInstalled" @mcp-connected="onMcpConnected" />
-    <div class="history-snapshot" v-if="showHistorySnapshot" @click.self="showHistorySnapshot = false">
-      <div class="snapshot-panel">
-        <h4>{{ snapshotEntry?.toolName }} — 历史快照</h4>
-        <div class="snapshot-section">
-          <span class="snapshot-label">输入</span>
-          <pre class="snapshot-content">{{ snapshotEntry?.input }}</pre>
-        </div>
-        <div class="snapshot-section">
-          <span class="snapshot-label">输出</span>
-          <pre class="snapshot-content">{{ snapshotEntry?.output }}</pre>
-        </div>
-        <button class="btn-close-snapshot" @click="showHistorySnapshot = false">关闭</button>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -126,7 +112,7 @@ import { useMcpStore } from '@/domains/mcp'
 import { useDialogStore } from '@/domains/dialog'
 import { useNotificationStore } from '@/domains/app'
 import { useWorkflowLogStore } from '@/domains/app'
-import { ToolNode, JobRole, HistoryEntry, L2ToolManifest, DialogMessage, ChatMessage, Pipeline } from '@/models'
+import { L2ToolManifest, DialogMessage, ChatMessage, Pipeline } from '@/models'
 import { executePipeline } from '@/domains/pipeline'
 import { usePipelineStore, registerPipelineExecutor } from '@/domains/pipeline'
 import { useDebugStore } from '@/domains/debug'
@@ -255,22 +241,11 @@ const kernelLabel = computed(() => {
 })
 const l0ModalRef = ref()
 
-const showHistorySnapshot = ref(false)
-const snapshotEntry = ref<HistoryEntry | null>(null)
-
 const detailNode = computed(() => {
   const hovered = nodeStore.hoveredNode
   const selected = nodeStore.selectedNode
   return hovered || selected
 })
-
-const relevantHistory = computed(() => {
-  const node = detailNode.value
-  if (!node) return []
-  return nodeStore.history.filter(h => h.toolId === node.id)
-})
-
-let dragHintShown = false
 
 function minimizeWindow() {
   window.electronAPI?.windowMinimize()
@@ -336,220 +311,6 @@ function onNodeClick(nodeId: string, ctrlKey: boolean) {
 function onNodeHover(_nodeId: string | null) {
 }
 
-function onLaunchTool(nodeId: string) {
-  const node = nodeStore.nodes.find(n => n.id === nodeId)
-  if (!node) return
-
-  if (node.level === 'L0') {
-    l0ModalRef.value?.open()
-    return
-  }
-
-  if (node.id === 'l1-model-gateway') {
-    apiSettingsRef.value?.open(apiStore.config.baseUrl)
-    return
-  }
-
-  if (node.id === 'l1-knowledge-feeder' || node.id === 'l1-workspace-memory' || node.id === 'l1-result-beautifier') {
-    launchL1Tool(node)
-    return
-  }
-
-  if (node.id === 'l1-task-translator' || node.id === 'l1-pipeline-builder') {
-    if (!apiStore.isReady) {
-      apiSettingsRef.value?.open(apiStore.config.baseUrl)
-      notificationRef.value?.show('此工具需要 AI 大脑，请先配置模型网关', 3000)
-      nodeStore.selectNode(nodeId)
-      return
-    }
-    launchL1Tool(node)
-    return
-  }
-
-  if (node.level === 'L2') {
-    launchL2Tool(node)
-    return
-  }
-
-  if (node.level === 'L3') {
-    const decay = nodeStore.l3DecayStates.find(s => s.nodeId === nodeId)
-    if (decay?.isCollapsed) {
-      nodeStore.reviveL3Node(nodeId)
-      notificationRef.value?.show(`${node.name} 已从星云残骸中复活`, 3000)
-      return
-    }
-    notificationRef.value?.show(`${node.name} — 社区工具暂未接入，敬请期待`, 3000)
-  }
-}
-
-function launchL1Tool(node: ToolNode) {
-  switch (node.id) {
-    case 'l1-knowledge-feeder':
-      notificationRef.value?.show('📚 知识库投喂员 — 点击对话框📚按钮查看', 3000)
-      break
-    case 'l1-task-translator':
-      notificationRef.value?.show('📝 任务翻译官 — 输入指令时自动翻译为结构化步骤', 3000)
-      break
-    case 'l1-pipeline-builder':
-      notificationRef.value?.show('🔗 流水线搭建台 — 点击对话框🔗按钮编排流程', 3000)
-      break
-    case 'l1-workspace-memory':
-      notificationRef.value?.show('🧠 工作区记忆体 — 点击对话框🧠按钮查看历史', 3000)
-      break
-    case 'l1-result-beautifier':
-      notificationRef.value?.show('📄 结果美化师 — AI回复下方一键导出', 3000)
-      break
-    default:
-      notificationRef.value?.show(`${node.name} 已启动`, 2000)
-  }
-
-  nodeStore.selectNode(node.id)
-  nodeStore.incrementToolUseCount()
-
-  if (node.parentL1Id) {
-    nodeStore.addFlowPath(node.parentL1Id, node.id)
-  }
-
-  addHistoryEntry(node, '', '工具已启动', true)
-}
-
-function launchL2Tool(node: ToolNode) {
-  const needsApi = node.apiRole && node.apiRole !== 'renderer' && node.apiRole !== 'context_preparer'
-  if (needsApi && !apiStore.isReady) {
-    apiSettingsRef.value?.open(apiStore.config.baseUrl)
-    notificationRef.value?.show('此工具需要 AI 大脑，请先配置模型网关', 3000)
-    return
-  }
-
-  if (node.comboToolIds && node.comboToolIds.length > 0) {
-    const fullPipelineIds = ['l1-task-translator', 'l1-model-gateway', ...node.comboToolIds]
-    const uniqueIds = [...new Set(fullPipelineIds)]
-
-    const steps = uniqueIds.map((toolId, idx) => ({
-      toolId,
-      params: { input: '', query: '' },
-      outputKey: `step${idx}`
-    }))
-
-    const pipeline = pipelineStore.createPipeline(
-      node.name,
-      steps,
-      'serial'
-    )
-
-    notificationRef.value?.show(`${node.name} 一键执行中...`, 3000)
-
-    for (let i = 0; i < uniqueIds.length - 1; i++) {
-      nodeStore.addFlowPath(uniqueIds[i], uniqueIds[i + 1])
-    }
-
-    let stepIdx = 0
-    function advanceStepSelection() {
-      if (stepIdx < uniqueIds.length) {
-        const toolId = uniqueIds[stepIdx]
-        nodeStore.selectNode(toolId)
-        const toolNode = nodeStore.nodes.find(n => n.id === toolId)
-        if (toolNode) {
-          notificationRef.value?.show(`▶ ${toolNode.name}`, 1500)
-        }
-        stepIdx++
-      }
-    }
-
-    advanceStepSelection()
-
-    pipelineStore.startPipeline(pipeline.id, (stepId, msg) => {
-      advanceStepSelection()
-    })?.then((results) => {
-      const lastKey = `step${steps.length - 1}`
-      const lastResult = results?.[lastKey]
-      if (lastResult) {
-        advanceStepSelection()
-        nodeStore.selectNode(node.id)
-        notificationRef.value?.show(`${node.name} 执行完成，结果已生成`, 3000)
-        addHistoryEntry(node, '', lastResult, true)
-      }
-    }).catch((err) => {
-      nodeStore.selectNode(node.id)
-      notificationRef.value?.show(`${node.name} 执行失败，请检查模型网关连接`, 3000)
-      addHistoryEntry(node, '', String(err), false)
-      nodeStore.setL0RedFlash(true)
-      nodeStore.updateCircuitBreaker({ isOpen: true, lastFailureAt: Date.now() })
-    })
-
-    const stepInterval = setInterval(() => {
-      if (stepIdx < uniqueIds.length) {
-        advanceStepSelection()
-      } else {
-        clearInterval(stepInterval)
-      }
-    }, 1500)
-  } else if (node.parentL1Id) {
-    nodeStore.selectNode(node.parentL1Id)
-    notificationRef.value?.show(`${node.name} 已启动，关联核心: ${node.parentL1Id}`, 3000)
-    nodeStore.addFlowPath(node.parentL1Id, node.id)
-
-    setTimeout(() => {
-      nodeStore.selectNode(node.id)
-    }, 1200)
-  } else {
-    notificationRef.value?.show(`${node.name} 已启动`, 2000)
-  }
-
-  nodeStore.selectNode(node.id)
-  nodeStore.incrementToolUseCount()
-
-  if (!dragHintShown && nodeStore.interaction.toolUseCount >= 5) {
-    dragHintShown = true
-    notificationRef.value?.show('拖拽到任意核心节点可自定义输出方式', 3000)
-  }
-}
-
-function addHistoryEntry(node: ToolNode, input: string, output: string, success: boolean) {
-  nodeStore.addHistoryEntry({
-    toolId: node.id,
-    toolName: node.name,
-    input: input || '(启动)',
-    output: output.substring(0, 500),
-    timestamp: Date.now(),
-    success
-  })
-
-  if (starMapRef.value) {
-    const lastEntry = nodeStore.history[0]
-    if (lastEntry) {
-      starMapRef.value.spawnStarLogAsteroid(lastEntry.id, node.name)
-    }
-  }
-}
-
-function startIngestSimulation() {
-  nodeStore.setIngestProgress({ totalChunks: 20, processedChunks: 0, isRunning: true })
-  let chunk = 0
-  const interval = setInterval(() => {
-    chunk++
-    nodeStore.setIngestProgress({ processedChunks: chunk })
-
-    const cache = {
-      id: `cache-ingest-${Date.now()}`,
-      toolId: 'l1-knowledge-feeder',
-      partialInput: `chunk ${chunk}/20`,
-      partialOutput: `已处理 ${chunk} 块`,
-      stepIndex: chunk,
-      totalSteps: 20,
-      savedAt: Date.now()
-    }
-    nodeStore.saveContextCache(cache)
-
-    if (chunk >= 20) {
-      clearInterval(interval)
-      nodeStore.setIngestProgress({ isRunning: false })
-      nodeStore.clearContextCache('l1-knowledge-feeder')
-      notificationRef.value?.show('知识库投喂完成，已切分为 20 个知识块', 3000)
-    }
-  }, 1500)
-}
-
 function checkContextResume(toolId: string) {
   const cache = nodeStore.loadContextCache(toolId)
   if (cache && cache.stepIndex < cache.totalSteps) {
@@ -588,16 +349,6 @@ function onClearContext(nodeId: string) {
   notificationRef.value?.show('上下文缓存已清除', 2000)
 }
 
-function onViewHistory(entryId: string) {
-  const entry = nodeStore.history.find(h => h.id === entryId)
-  if (!entry) return
-  snapshotEntry.value = entry
-  showHistorySnapshot.value = true
-  if (starMapRef.value) {
-    starMapRef.value.triggerStarLogReturn(entryId)
-  }
-}
-
 function onApiSaved() {
   apiStore.checkConnection().then((ok) => {
     if (ok) {
@@ -625,11 +376,6 @@ function onApiSaved() {
       starMapRef.value?.setDegradedVisuals(true)
     }
   }).catch(() => {})
-}
-
-function onJobSelected() {
-  nodeStore.applyJobRoleTemplates(configStore.currentJobRole)
-  configStore.markFirstLaunchDone()
 }
 
 function onOpenMcp() {
@@ -728,20 +474,23 @@ function onMcpConnected(mcpId: string) {
   }
 }
 
+function onHoloOpenSettings() {
+  settingsPageRef.value?.open()
+}
+
+function onHoloToggleMode() {
+  toggleViewMode()
+}
+
+function onHoloOpenNotifications() {
+  notificationCenterRef.value?.open()
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeyDown)
-
-  window.addEventListener('holo-open-settings', (() => {
-    settingsPageRef.value?.open()
-  }) as EventListener)
-
-  window.addEventListener('holo-toggle-mode', (() => {
-    toggleViewMode()
-  }) as EventListener)
-
-  window.addEventListener('holo-open-notifications', (() => {
-    notificationCenterRef.value?.open()
-  }) as EventListener)
+  window.addEventListener('holo-open-settings', onHoloOpenSettings)
+  window.addEventListener('holo-toggle-mode', onHoloToggleMode)
+  window.addEventListener('holo-open-notifications', onHoloOpenNotifications)
 
   configStore.loadFromStorage()
   apiStore.loadFromStorage()
@@ -1056,9 +805,9 @@ onMounted(async () => {
 onUnmounted(() => {
   for (const t of _appTimers) clearInterval(t)
   window.removeEventListener('keydown', onKeyDown)
-  window.removeEventListener('holo-open-settings', (() => {}) as EventListener)
-  window.removeEventListener('holo-toggle-mode', (() => {}) as EventListener)
-  window.removeEventListener('holo-open-notifications', (() => {}) as EventListener)
+  window.removeEventListener('holo-open-settings', onHoloOpenSettings)
+  window.removeEventListener('holo-toggle-mode', onHoloToggleMode)
+  window.removeEventListener('holo-open-notifications', onHoloOpenNotifications)
 })</script>
 
 <style>
@@ -1139,71 +888,6 @@ html, body, #app {
   color: rgba(255, 120, 120, 0.9);
 }
 
-.history-snapshot {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 3000;
-  backdrop-filter: blur(6px);
-}
-
-.snapshot-panel {
-  background: rgba(8, 16, 32, 0.92);
-  border: 1px solid rgba(100, 180, 255, 0.2);
-  border-radius: 8px;
-  padding: 24px;
-  max-width: 500px;
-  width: 90%;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.snapshot-panel h4 {
-  color: #cc9966;
-  font-size: 14px;
-  margin-bottom: 16px;
-  font-weight: 500;
-}
-
-.snapshot-section {
-  margin-bottom: 12px;
-}
-
-.snapshot-label {
-  color: #5a7a9a;
-  font-size: 11px;
-  display: block;
-  margin-bottom: 4px;
-}
-
-.snapshot-content {
-  background: rgba(15, 25, 45, 0.8);
-  border: 1px solid rgba(100, 180, 255, 0.1);
-  border-radius: 4px;
-  padding: 10px;
-  color: #8aacc8;
-  font-size: 11px;
-  font-family: 'Consolas', monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-.btn-close-snapshot {
-  padding: 6px 18px;
-  background: rgba(50, 120, 200, 0.25);
-  border: 1px solid rgba(100, 180, 255, 0.2);
-  border-radius: 4px;
-  color: #8ab4ff;
-  font-size: 12px;
-  cursor: pointer;
-  margin-top: 8px;
-}
 .debug-ring {
   display: inline-flex;
   align-items: center;

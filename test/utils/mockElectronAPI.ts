@@ -71,6 +71,14 @@ export interface MockElectronAPI {
   ruleReviewWindowMinimize: ReturnType<typeof vi.fn>
   ruleReviewWindowMaximize: ReturnType<typeof vi.fn>
   ruleReviewWindowClose: ReturnType<typeof vi.fn>
+  // B-9：与 preload 对齐——vault 四件套（vector/migrate/stats 六死通道已删）+ 三个此前接口缺失的方法
+  vaultRead: ReturnType<typeof vi.fn>
+  vaultWrite: ReturnType<typeof vi.fn>
+  vaultDelete: ReturnType<typeof vi.fn>
+  vaultList: ReturnType<typeof vi.fn>
+  dataExportZip: ReturnType<typeof vi.fn>
+  dataImportZip: ReturnType<typeof vi.fn>
+  getUserDataPath: ReturnType<typeof vi.fn>
 }
 
 export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = {}): MockElectronAPI {
@@ -84,7 +92,7 @@ export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = 
     openDirectory: vi.fn(noopReturn),
     getVersion: vi.fn().mockResolvedValue('1.0.0-test'),
     getPlatform: vi.fn().mockResolvedValue('win32'),
-    appHealth: vi.fn().mockResolvedValue({ ok: true }),
+    appHealth: vi.fn().mockResolvedValue({ status: 'ok', timestamp: Date.now() }),
 
     windowMinimize: vi.fn(noop),
     windowMaximize: vi.fn(noop),
@@ -94,7 +102,7 @@ export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = 
     mcpCallTool: vi.fn().mockResolvedValue('mock-mcp-tool-result'),
     mcpListTools: vi.fn().mockResolvedValue([]),
     mcpStop: vi.fn().mockResolvedValue(undefined),
-    mcpGetStatus: vi.fn().mockResolvedValue({ status: 'connected' }),
+    mcpGetStatus: vi.fn().mockResolvedValue({ status: 'running', tools: [] }),
 
     onMcpStatus: vi.fn().mockReturnValue(noop),
     onMcpTools: vi.fn().mockReturnValue(noop),
@@ -144,6 +152,7 @@ export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = 
     onStoreApplyUpdate: vi.fn().mockReturnValue(noop),
 
     llmChatCompletion: vi.fn().mockResolvedValue({
+      success: true,
       content: 'mock-llm-response',
       toolCalls: [],
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
@@ -176,6 +185,11 @@ export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = 
     dataExportZip: vi.fn().mockResolvedValue({ success: true, filePath: '/mock/export.json' }),
     dataImportZip: vi.fn().mockResolvedValue({ success: true, content: '{}', filePath: '/mock/import.json' }),
     getUserDataPath: vi.fn().mockResolvedValue('/mock/userData'),
+
+    vaultRead: vi.fn().mockResolvedValue(null),
+    vaultWrite: vi.fn().mockResolvedValue(undefined),
+    vaultDelete: vi.fn().mockResolvedValue(undefined),
+    vaultList: vi.fn().mockResolvedValue([]),
   }
 
   return { ...api, ...overrides } as MockElectronAPI

@@ -519,6 +519,32 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     return result
   }
 
+  /**
+   * P1-25：MCP 直达快速路径的 toolCalls 执行器。
+   * 此前三条快速路径只发一次带 tools 的 chat-completion 即展示，从不执行返回的
+   * toolCalls（apiStore 不代执行）→ 用户恒见 "(无输出)"。
+   * 与主执行循环同口径：逐个 executeToolCall，汇总为可读结果；无 toolCalls 返回 null。
+   */
+  async function executeMcpToolCalls(toolCalls: { id: string; name: string; arguments: string }[]): Promise<string | null> {
+    if (!toolCalls || toolCalls.length === 0) return null
+    const outputs: string[] = []
+    for (const tc of toolCalls) {
+      let args: Record<string, unknown> = {}
+      try { args = JSON.parse(tc.arguments) } catch { args = {} }
+      const shortName = tc.name.replace(/.*___/, '')
+      try {
+        const toolResult = await executeToolCall(tc.name, args)
+        outputs.push(`【${shortName}】\n${toolResult}`)
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : String(err)
+        outputs.push(`【${shortName}】\n❌ 工具调用失败（${classifyError(errStr)}）`)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具${shortName}调用失败: ${errStr}`, detail: errStr })
+      }
+      await yieldToUI()
+    }
+    return outputs.join('\n\n')
+  }
+
   function yieldToUI(): Promise<void> {
     return new Promise(resolve => {
       requestAnimationFrame(() => {
@@ -716,9 +742,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           addSystemNotice(`🎯 自动匹配工具：**${matched.name.replace(/.*___/, '')}**`)
         }
         try {
-          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matched] }) as { content?: string }
+          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matched] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           if (apiResult) {
-            addAssistantMessage(apiResult.content || '(无输出)')
+            // P1-25：执行模型返回的 toolCalls（此前从不执行 → 恒显"(无输出)"）
+            const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
+            if (toolOutput != null) {
+              addAssistantMessage(toolOutput)
+            } else {
+              addAssistantMessage(apiResult.content || '(模型未发起工具调用)')
+            }
           }
         } catch (e) {
           const errStr = e instanceof Error ? e.message : String(e)
@@ -1146,9 +1178,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 debugLog(`[Dialog] Universal匹配MCP工具: ${universalResult.item.name}，直接调用`)
                 addSystemNotice(`🎯 自动匹配工具：**${universalResult.item.name}**（置信${(universalResult.confidence * 100).toFixed(0)}%，${universalResult.matchMethod}）`)
                 try {
-                  const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] })
+                  const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
                   if (apiResult) {
-                    addAssistantMessage(apiResult)
+                    // P1-25：此前把整个 result 对象当 content 存库，且从不执行 toolCalls
+                    const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
+                    if (toolOutput != null) {
+                      addAssistantMessage(toolOutput)
+                    } else {
+                      addAssistantMessage(apiResult.content || '(模型未发起工具调用)')
+                    }
                   }
                 } catch (e) {
                   const errStr = e instanceof Error ? e.message : String(e)
@@ -1306,9 +1344,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                   if (matchedMcpTool) {
                     globalBus.emit('debug:log-probe', { level: 'info', domain: 'raap', message: `LLM仲裁选中MCP工具: ${fbItem.name}，直接调用` })
                     try {
-                      const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] })
+                      const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
                       if (apiResult) {
-                        addAssistantMessage(apiResult.content || '(无输出)')
+                        // P1-25：执行 LLM 仲裁选中的 MCP 工具调用（此前从不执行）
+                        const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
+                        if (toolOutput != null) {
+                          addAssistantMessage(toolOutput)
+                        } else {
+                          addAssistantMessage(apiResult.content || '(模型未发起工具调用)')
+                        }
                       }
                     } catch (e) {
                       const errStr = e instanceof Error ? e.message : String(e)
@@ -2403,6 +2447,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   }
 
   function requestRiskConfirm(action: import('@/models').ActionManifest): Promise<boolean> {
+    // A5-4：被新请求顶替时必须先结算旧 Promise（按拒绝，fail-closed），
+    // 否则首个调用方的 await 永久悬挂（singleton resolver 覆盖孤儿化）。
+    if (_riskResolve) {
+      const superseded = _riskResolve
+      _riskResolve = null
+      superseded(false)
+    }
     riskAction.value = action
     acquirePausePoint('riskConfirm')
     return new Promise<boolean>((resolve) => {
@@ -2411,6 +2462,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         if (_riskResolve === resolve) {
           _riskResolve = null
           awaitingRiskConfirm.value = false
+          riskAction.value = null
           resolve(false)
         }
       }, 5 * 60 * 1000)
@@ -2440,6 +2492,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   }
 
   function requestTakeover(stepNum: number): Promise<string> {
+    // A5-4：被新请求顶替时先结算旧 Promise（空结果=未接管），避免永久悬挂
+    if (_takeoverResolve) {
+      const superseded = _takeoverResolve
+      _takeoverResolve = null
+      superseded('')
+    }
     acquirePausePoint('takeover')
     takeoverStepNum.value = stepNum
     return new Promise<string>((resolve) => {
