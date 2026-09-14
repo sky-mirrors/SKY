@@ -1,5 +1,5 @@
 ﻿import { ModelTier } from '@/models'
-import { generateVector, cosineSimilarity, needsReembedding } from '@/services/embedder'
+import { generateVector, generateVectorWithMeta, cosineSimilarity, needsReembedding, isEmbedderReady } from '@/services/embedder'
 import { calculateCost } from '@/services/tokenPricing'
 import { debugLog } from '@/services/debugLog'
 import { vault } from '@/vault'
@@ -8,6 +8,8 @@ export interface SemanticCacheEntry {
   id: string
   queryHash: string
   queryEmbedding: number[]
+  /** P1-12：queryEmbedding 为伪向量时标记（旧持久化记录缺失=保守视为伪，一次性重嵌入） */
+  embeddingIsPseudo?: boolean
   queryText: string
   responseText: string
   tier: ModelTier
@@ -293,11 +295,13 @@ export async function store(entry: {
     return existing
   }
 
-  const embedding = await generateVector(entry.queryText)
+  // P1-12：记录伪向量标记，reembedAll 据此识别待重嵌入
+  const { vector: embedding, isPseudo: embeddingIsPseudo } = await generateVectorWithMeta(entry.queryText)
   const cacheEntry: SemanticCacheEntry = {
     id: `sc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     queryHash: hash,
     queryEmbedding: embedding,
+    embeddingIsPseudo,
     queryText: entry.queryText,
     responseText: entry.responseText,
     tier: entry.tier,
@@ -459,6 +463,7 @@ interface SerializedEntry {
   id: string
   queryHash: string
   queryEmbeddingB64: string
+  embeddingIsPseudo?: boolean
   queryText: string
   responseText: string
   tier: ModelTier
@@ -496,6 +501,7 @@ function serializeEntry(e: SemanticCacheEntry): SerializedEntry {
     id: e.id,
     queryHash: e.queryHash,
     queryEmbeddingB64: float32ArrayToBase64(f32),
+    embeddingIsPseudo: e.embeddingIsPseudo,
     queryText: e.queryText,
     responseText: e.responseText,
     tier: e.tier,
@@ -517,6 +523,7 @@ function deserializeEntry(s: SerializedEntry): SemanticCacheEntry | null {
       id: s.id,
       queryHash: s.queryHash,
       queryEmbedding: Array.from(f32),
+      embeddingIsPseudo: s.embeddingIsPseudo,
       queryText: s.queryText,
       responseText: s.responseText,
       tier: s.tier,
@@ -608,11 +615,15 @@ export async function initSemanticCache(): Promise<void> {
 }
 
 async function reembedAll(): Promise<void> {
+  // P1-12：embedder 未就绪时 generateVector 只会再产伪向量，重嵌入循环应整体跳过
+  if (!isEmbedderReady()) return
   let updated = 0
   for (const e of semanticArray) {
-    if (needsReembedding(e.queryEmbedding)) {
+    if (needsReembedding(e.queryEmbedding, e.embeddingIsPseudo)) {
       try {
-        e.queryEmbedding = await generateVector(e.queryText)
+        const { vector, isPseudo } = await generateVectorWithMeta(e.queryText)
+        e.queryEmbedding = vector
+        e.embeddingIsPseudo = isPseudo
         updated++
       } catch { /* keep pseudo-vector on failure */ }
     }

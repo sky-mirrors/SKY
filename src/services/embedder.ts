@@ -66,14 +66,25 @@ export function generatePseudoVector(text: string, dim: number = VECTOR_DIM): nu
   return Array.from(vec).map(v => v / norm)
 }
 
-export async function generateVector(text: string): Promise<number[]> {
+export interface VectorWithMeta {
+  vector: number[]
+  /** true = embedder 不可用时的伪向量（哈希散射），语义检索质量降级，待重嵌入 */
+  isPseudo: boolean
+}
+
+export async function generateVectorWithMeta(text: string): Promise<VectorWithMeta> {
   const emb = await getEmbedder()
   if (emb) {
     try {
-      return await emb.embed(text)
+      return { vector: await emb.embed(text), isPseudo: false }
     } catch { /* fallback */ }
   }
-  return generatePseudoVector(text)
+  return { vector: generatePseudoVector(text), isPseudo: true }
+}
+
+export async function generateVector(text: string): Promise<number[]> {
+  const meta = await generateVectorWithMeta(text)
+  return meta.vector
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {
@@ -88,6 +99,11 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom
 }
 
-export function needsReembedding(vector: number[]): boolean {
-  return vector.length !== VECTOR_DIM
+// P1-12 修复：伪向量恰为 384 维，原仅查维度恒为 false → reembedAll 与知识库
+// 迁移循环永久 no-op，伪向量被当作真实语义嵌入永久使用。
+// 新语义：维度不符 → 需重嵌入；isPseudo=true → 需重嵌入；
+// isPseudo 缺失（旧持久化记录）→ 保守视为需重嵌入（一次性迁移代价）。
+export function needsReembedding(vector: number[], isPseudo?: boolean): boolean {
+  if (vector.length !== VECTOR_DIM) return true
+  return isPseudo !== false
 }

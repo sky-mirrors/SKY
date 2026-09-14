@@ -13,6 +13,7 @@ import { readSSEStream } from '@/services/sseParser'
 import { vault } from '@/vault'
 import { getCurrentTraceId } from '@/services/trace'
 import { globalBus } from '@/kernel/bus'
+import { getPackIdForDomain } from '@/host/packRuntime'
 
 interface AnthropicResponse {
   content?: { text?: string }[]
@@ -392,9 +393,11 @@ export const useApiStore = defineStore('api', () => {
     if (cacheEligible && getCacheConfig().enabled) {
       try {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
-        if (userMsg) {
-          const domain = routingOptions?.domain || detectDomain(messages)
-          const cacheResult = await cacheLookup(userMsg, domain)
+          if (userMsg) {
+            const domain = routingOptions?.domain || detectDomain(messages)
+            // P1-13：packId 归因——domain→挂载 pack 映射，未挂载时 undefined（全局条目）
+            const packId = getPackIdForDomain(domain)
+            const cacheResult = await cacheLookup(userMsg, domain, packId)
           if (cacheResult.hit && cacheResult.entry) {
             cacheHitTier = cacheResult.entry.tier
             debugLog(`[chatCompletion:cache] HIT, saved ${cacheResult.savedTokens} tokens, ¥${cacheResult.savedCost.toFixed(4)}`)
@@ -417,6 +420,8 @@ export const useApiStore = defineStore('api', () => {
 
     const userContent = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
     const domain = routingOptions?.domain || detectDomain(messages)
+    // P1-13：packId 归因，随 store 写入条目实现 pack 级隔离/卸载失效
+    const packId = getPackIdForDomain(domain)
     const routingInput: RouteInput = {
       text: userContent,
       taskType: routingOptions?.taskType,
@@ -472,7 +477,8 @@ export const useApiStore = defineStore('api', () => {
               tier: effectiveTier,
               promptTokens: ipcResult.usage.promptTokens,
               completionTokens: ipcResult.usage.completionTokens,
-              domain
+              domain,
+              packId
             }).catch(() => {})
           }
         }
@@ -577,7 +583,8 @@ export const useApiStore = defineStore('api', () => {
               tier: effectiveTier,
               promptTokens: pt,
               completionTokens: ct,
-              domain
+              domain,
+              packId
             }).catch(() => {})
           }
         }
@@ -616,7 +623,8 @@ export const useApiStore = defineStore('api', () => {
             tier: effectiveTier,
             promptTokens: usage.promptTokens,
             completionTokens: usage.completionTokens,
-            domain
+            domain,
+            packId
           }).catch(() => {})
         }
       }
@@ -660,6 +668,8 @@ export const useApiStore = defineStore('api', () => {
 
     const userContent = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
     const domain = routingOptions?.domain || detectDomain(messages)
+    // P1-13：packId 归因（同 chatCompletion 非流式路径）
+    const packId = getPackIdForDomain(domain)
     const routingInput: RouteInput = {
       text: userContent,
       taskType: routingOptions?.taskType,
@@ -847,7 +857,8 @@ export const useApiStore = defineStore('api', () => {
                   tier: effectiveTier,
                   promptTokens: usageInfo?.promptTokens ?? 0,
                   completionTokens: usageInfo?.completionTokens ?? 0,
-                  domain
+                  domain,
+                  packId
                 }).catch(() => {})
               }
             }

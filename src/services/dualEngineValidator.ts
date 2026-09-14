@@ -58,6 +58,25 @@ function isWriteOperation(command: string): boolean {
   return /writeFileSync|writeFile|mkdir|mv |cp |rm |del |rename|truncate|unlink/i.test(command)
 }
 
+// P1-19 修复：读类命令也可能触及内网/保留地址 URL（SSRF）或系统敏感路径，
+// 原 shouldValidate 对 shell_exec 仅查 isWriteOperation 导致 curl 内网、cat /etc/passwd 全部绕过审计
+function containsDangerousUrl(command: string): boolean {
+  const urls = command.match(/https?:\/\/[^\s'"`\\]+/gi) || []
+  for (const url of urls) {
+    if (!isUrlSafe(url)) return true
+  }
+  if (/(?:file|ftp):\/\//i.test(command)) return true
+  return false
+}
+
+function readsSensitivePath(command: string): boolean {
+  const tokens = command.match(/(?:[A-Za-z]:[\\/]|\/)[^\s'"`\\]+/g) || []
+  for (const token of tokens) {
+    if (!isPathSafe(token)) return true
+  }
+  return false
+}
+
 function isHighRiskCommand(command: string): boolean {
   return /rm\s|rmSync|rmdir|unlink|unlinkSync|del\s|erase|format|shred/i.test(command)
 }
@@ -93,7 +112,8 @@ function extractUrl(params: Record<string, unknown> | undefined): string {
 export function shouldValidate(step: { tool: string; params?: Record<string, unknown> }, manifestId?: string): boolean {
   if (step.tool === 'shell_exec') {
     const cmd = String(step.params?.command || '')
-    return isWriteOperation(cmd)
+    // P1-19 修复：写操作、危险URL、敏感路径读取三类均需双引擎审计
+    return isWriteOperation(cmd) || containsDangerousUrl(cmd) || readsSensitivePath(cmd)
   }
   if (step.tool === 'file_write') return true
   if (step.tool === 'http_request') return true
@@ -101,6 +121,8 @@ export function shouldValidate(step: { tool: string; params?: Record<string, unk
   // A4-24 修复：目录创建 / docx 落盘 / MCP 工具调用纳入双引擎审计
   if (step.tool === 'create_directory') return true
   if (step.tool === 'create_docx') return true
+  // P1-17：原生目录列举（directory_tree 别名）——与 read_file 同级的读取类审计
+  if (step.tool === 'list_directory') return true
   if (step.tool.includes('___')) return true
   return false
 }
@@ -158,13 +180,13 @@ export function buildActionManifest(
     }
   }
 
-  if (step.tool === 'read_file') {
+  if (step.tool === 'read_file' || step.tool === 'list_directory') {
     const filePath = extractFilePath(step.params)
     const pathUnsafe = !isPathSafe(filePath)
     return {
       skill_id: manifestId,
       target_file: filePath,
-      operation: pathUnsafe ? '危险路径文件读取' : '文件读取',
+      operation: pathUnsafe ? '危险路径文件读取' : (step.tool === 'list_directory' ? '目录读取' : '文件读取'),
       expected_output: `读取目标: ${filePath}`,
       intent: userInput.substring(0, 200),
       isHighRisk: pathUnsafe
@@ -212,7 +234,7 @@ export async function dualEngineValidate(
   actionManifest: ActionManifest,
   userInput: string
 ): Promise<ValidationResult> {
-  const cacheKey = getValidationCacheKey(actionManifest.skill_id, actionManifest.target_file, actionManifest.operation)
+  const cacheKey = getValidationCacheKey(actionManifest.skill_id, actionManifest.target_file, actionManifest.operation, userInput)
   const cached = lookupValidationCache(cacheKey)
   if (cached) {
     try { (await import('@/stores/debugStore')).useDebugStore().emitEvent('info', 'cache', `[双引擎] 审核缓存命中: ${cacheKey.substring(0, 40)}`) } catch { /* ignore */ }

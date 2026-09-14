@@ -59,6 +59,7 @@ function userRequestedFile(input: string): boolean {
 import { useSessionStore } from './sessionStore'
 import { debugLog } from '@/services/debugLog'
 import { newTraceId } from '@/services/trace'
+import { NATIVE_TOOL_NAMES } from '@/services/toolRegistry'
 
 function loadSummaries(): { period: string; summary: string; from: number; to: number }[] {
   const raw = vault.readCache('dialog', 'holo-conv-summaries')
@@ -74,7 +75,7 @@ const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥�
 1. 你拥有通过 function calling 调用 MCP 工具和 shell_exec 工具的能力。当用户请求需要实际操作时，你【必须】调用对应工具执行，绝不许编造结果。
 2. 严禁在没有实际调用工具的情况下声称"已完成"某个操作。如果工具调用失败，如实报告失败原因。
 3. 禁止不思考就调用工具。每次调用前必须有明确的理由。
-4. 如果用户提供了附件（文件内容已包含在消息中的"=== 文件: xxx ==="标记内），【直接阅读消息中的内容即可】，【不要】再去用 file_read 工具从磁盘读取文件。附件内容已经在你的上下文中了。
+4. 如果用户提供了附件（文件内容已包含在消息中的"=== 文件: xxx ==="标记内），【直接阅读消息中的内容即可】，【不要】再去用 read_file 工具从磁盘读取文件。附件内容已经在你的上下文中了。
 5. 工具调用失败时，尝试替代方案，不要直接放弃。
 6. 每步思考不超过2句话，简洁明了。
 7. 最终回复必须基于工具返回的真实数据，不得编造。
@@ -1461,7 +1462,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     } catch { /* non-critical */ }
 
     // ===== Native tools fast path (0 LLM tokens) =====
-    const NATIVE_TOOLS = new Set(['create_docx', 'file_write', 'create_directory', 'shell_exec', 'read_file', 'llm_generate', 'http_request', 'knowledge_search'])
+    // P1-17：统一走 toolRegistry 的原生工具表（新增 list_directory）
+    const NATIVE_TOOLS = NATIVE_TOOL_NAMES
     const isAllNative = plan.steps.length > 0 && plan.steps.every(s => NATIVE_TOOLS.has(s.tool))
     if (isAllNative) {
       addSystemNotice('✅ 用户确认，直接执行原生工具...')

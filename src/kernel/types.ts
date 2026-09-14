@@ -2,6 +2,8 @@ import type { ModelTier, DetectedDomain, ChatMessage } from '@/models'
 
 export interface KernelContext {
   domain?: string
+  /** P1-13：语义缓存 pack 隔离归因；缺省时按 domain 经挂载 pack 归因 */
+  packId?: string
   jobRole?: string
   sessionId?: string
   taskType?: string
@@ -82,6 +84,8 @@ export interface CacheStoreInput {
   promptTokens: number
   completionTokens: number
   domain?: string
+  /** P1-13：写入条目的 pack 归属（不传=全局条目，pack 卸载失效语义见 semanticCache.packMatch） */
+  packId?: string
   constraintIds?: string[]
   ttl?: number
 }

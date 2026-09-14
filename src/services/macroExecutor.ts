@@ -23,6 +23,7 @@ import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } f
 import { debugLog } from '@/services/debugLog'
 import { getCurrentTraceId } from '@/services/trace'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
+import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 
 const STEP_TIMEOUT_MS: Record<string, number> = {
   nano: 8000,
@@ -118,6 +119,8 @@ export async function callToolDirectWithTier(
 ): Promise<string> {
   const isWin = window.electronAPI?.platform === 'win32'
   const defaultHome = isWin ? 'C:\\Users\\Default' : '/home/user'
+  // P1-17：计划生成器/历史清单可能携带别名（file_read/directory_tree 等），dispatch 前统一归一化
+  fullName = normalizeToolName(fullName)
 
   async function resolveFilePath(p: string): Promise<string> {
     if (p.includes('%USERPROFILE%')) {
@@ -331,6 +334,22 @@ export async function callToolDirectWithTier(
     }
   }
 
+  if (fullName === 'list_directory') {
+    // P1-17：directory_tree/list_directory 此前无原生实现，翻译器种子与官方清单
+    // （l2-weekly-report-draft-v1 步骤1）一经规划必抛"无效工具名"。
+    // 主进程 shell 白名单含 dir/ls，借此实现只读列举；敏感路径走双引擎的判定口径。
+    if (!window.electronAPI?.shellExec) throw new Error('list_directory not available')
+    const dirPath = await resolveFilePath(String(args.path || args.dirPath || ''))
+    if (!dirPath) throw new Error('list_directory: missing path')
+    const { isPathUnsafe } = await import('./dualEngineValidator')
+    if (isPathUnsafe(dirPath)) throw new Error(`list_directory: 拒绝敏感路径 ${dirPath}`)
+    const safePath = dirPath.replace(/["%&|<>^]/g, '')
+    const listCmd = isWin ? `dir /b "${safePath}"` : `ls -1 "${safePath}"`
+    const result = await window.electronAPI.shellExec({ command: listCmd, timeout: timeoutMs || 10000 })
+    if (result.success) return result.stdout || '(空目录)'
+    throw new Error(result.stderr || result.stdout || 'list_directory failed')
+  }
+
   const sepIdx = fullName.indexOf('___')
   if (sepIdx < 0) throw new Error(`无效工具名: ${fullName}`)
   const mcpIdRaw = fullName.substring(0, sepIdx)
@@ -489,7 +508,7 @@ export async function executeStep(
       groundTruthEntities = extractEntities(contextText.substring(0, 5000))
     }
 
-    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'read_file' || step.tool === 'create_directory' || step.tool === 'create_docx' || step.tool.includes('___')) {
+    if (needsDualEngineValidation(step.tool)) {
       const { shouldValidate, buildActionManifest, dualEngineValidate } = await import('./dualEngineValidator')
       if (shouldValidate(step, manifest.identity.id)) {
         const actionManifest = buildActionManifest(manifest.identity.id, step, userInput.inputText || '')
@@ -524,9 +543,9 @@ export async function executeStep(
     let result = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
 
     // P1-42：宏副作用/工具调用审计埋点（经 bus 桥落 memoryStore.addAuditLog）
-    if (step.tool === 'shell_exec' || step.tool === 'file_write' || step.tool === 'http_request' || step.tool === 'create_docx' || step.tool === 'create_directory' || step.tool.includes('___')) {
+    if (SIDE_EFFECT_TOOLS.has(step.tool) || isMcpToolName(step.tool)) {
       try {
-        const isMcp = step.tool.includes('___')
+        const isMcp = isMcpToolName(step.tool)
         const traceId = getCurrentTraceId()
         globalBus.emit('memory:add-audit-log', {
           userId: 'local',
@@ -903,7 +922,7 @@ export async function executeMacro(
           }
         }
       } else {
-        const SIDE_EFFECT_TOOLS = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
+        // P1-15：统一副作用工具集（原漏 create_docx → docx 结果被编译缓存复用但文件未重建）
         const hasSideEffect = SIDE_EFFECT_TOOLS.has(step.tool)
         if (!hasSideEffect && cached.results[step.step]) {
           finalResults[step.step] = cached.results[step.step]
@@ -917,9 +936,14 @@ export async function executeMacro(
         }
       }
     }
-    const SIDE_EFFECT_TOOLS_FINGERPRINT = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
-    const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS_FINGERPRINT.has(s.tool)).map(s => s.step))
-    saveExecutionFingerprint(manifest.identity.id, inputFingerprint, {}, finalResults, true, sideEffectStepNums)
+    const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS.has(s.tool)).map(s => s.step))
+    // P1-14 修复：autoCompiled 路径原传 stepHashes={}，导致下次执行 findDirtySteps
+    // 全部误判为脏（或全不脏），指纹脏检查完全失效；改存真实输出哈希
+    const autoStepHashes: Record<number, string> = {}
+    for (const [num, result] of Object.entries(finalResults)) {
+      autoStepHashes[Number(num)] = computeStepOutputHash(result)
+    }
+    saveExecutionFingerprint(manifest.identity.id, inputFingerprint, autoStepHashes, finalResults, true, sideEffectStepNums)
     if (sideEffects.length > 0) {
       try {
         globalBus.emit('feedback:add-side-effect', { executionId, manifestId: manifest.identity.id, userInput: userInput.inputText || '', queryFingerprint, sideEffects, timestamp: Date.now() })
@@ -930,7 +954,8 @@ export async function executeMacro(
     return { results: finalResults, lastResult: finalResults[lastStep.step] || '执行完成(编译缓存)', savedTokens, lineage }
   }
 
-  const dirtySteps = cached ? findDirtySteps(manifest, cached, {}) : new Set<number>()
+  // P1-14 修复：原传 {}，replay 场景下脏步判定恒空集；改传 replayPriorResults 真实变量表
+  const dirtySteps = cached ? findDirtySteps(manifest, cached, replayPriorResults || {}) : new Set<number>()
   const skipSteps = new Set<number>()
   const stepPlan = computeStepPlan(steps, dirtySteps, skipSteps, cached?.results || null)
   const parallelGroups = computeParallelGroups(steps, skipSteps)
@@ -953,8 +978,8 @@ export async function executeMacro(
     savedTokens += Object.keys(replayPriorResults).length * 500
   }
 
-  const NO_CACHE_REUSE_TOOLS = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request', 'read_file'])
   for (const reuseStep of stepPlan.willReuse) {
+    // P1-15：统一不可复用缓存工具集（含 create_docx）
     if (NO_CACHE_REUSE_TOOLS.has(reuseStep.tool)) continue
     if (cached?.results[reuseStep.step]) {
       results[reuseStep.step] = cached.results[reuseStep.step]
@@ -1108,8 +1133,7 @@ export async function executeMacro(
   for (const [num, result] of Object.entries(results)) {
     stepHashes[Number(num)] = computeStepOutputHash(result)
   }
-  const SIDE_EFFECT_TOOLS_SAVE = new Set(['shell_exec', 'file_write', 'create_directory', 'http_request'])
-  const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS_SAVE.has(s.tool)).map(s => s.step))
+  const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS.has(s.tool)).map(s => s.step))
   saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, results, !!cached, sideEffectStepNums)
 
   if (sideEffects.length > 0) {

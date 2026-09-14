@@ -15,6 +15,16 @@ vi.mock('@/services/embedder', () => ({
     const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0)) || 1
     return vec.map((v: number) => v / norm)
   }),
+  generateVectorWithMeta: vi.fn(async (text: string) => {
+    const DIM = 384
+    const vec = new Array(DIM).fill(0)
+    const normalized = text.toLowerCase().trim()
+    for (let i = 0; i < normalized.length; i++) {
+      vec[i % DIM] += normalized.charCodeAt(i) / 65536
+    }
+    const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0)) || 1
+    return { vector: vec.map((v: number) => v / norm), isPseudo: false }
+  }),
   cosineSimilarity: vi.fn((a: number[], b: number[]) => {
     if (a.length !== b.length || a.length === 0) return 0
     let dot = 0, normA = 0, normB = 0

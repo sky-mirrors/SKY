@@ -5,7 +5,8 @@ export async function lookup(queryText: string, domain?: string, context?: Kerne
   if (context?.skipCacheRead) {
     return { hit: false }
   }
-  const result = await cacheLookup(queryText, domain)
+  // P1-13：packId 透传——此前 adapter 丢弃 pack 维度，pack 隔离条目永远查不到
+  const result = await cacheLookup(queryText, domain, context?.packId)
   if (!result) {
     return { hit: false }
   }
@@ -31,6 +32,8 @@ export async function store(entry: CacheStoreInput, context?: KernelContext): Pr
     promptTokens: entry.promptTokens,
     completionTokens: entry.completionTokens,
     domain: entry.domain,
+    // P1-13：显式传入优先，缺省回退 KernelContext（adapter 不再丢弃）
+    packId: entry.packId ?? context?.packId,
     constraintIds: entry.constraintIds,
     ttl: entry.ttl,
   })

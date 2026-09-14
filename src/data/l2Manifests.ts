@@ -30,7 +30,7 @@ const l2Manifests: L2ToolManifest[] = [
       mode: 'macro',
       dagPlan: {
         steps: [
-          { step: 1, description: '列出本周修改的文档', tool: 'directory_tree', depends_on: [], params: { path: '{{workspace_dir}}' }, expectedOutput: '文件列表', modelTier: 'nano' },
+          { step: 1, description: '列出本周修改的文档', tool: 'list_directory', depends_on: [], params: { path: '{{workspace_dir}}' }, expectedOutput: '文件列表', modelTier: 'nano' },
           { step: 2, description: '读取关键文档内容', tool: 'read_file', depends_on: [1], params: { path: '{{step_1_top_files}}' }, expectedOutput: '文档内容摘要', modelTier: 'nano' },
           { step: 3, description: 'AI生成周报', tool: 'llm_generate', depends_on: [2], params: { prompt: '根据以下本周工作文档，生成一份周报草稿，包含：本周完成工作、进行中工作、下周计划、需要协调的事项。\n\n文档内容：{{step_2_result}}' }, expectedOutput: '周报文本', modelTier: 'standard' }
         ],

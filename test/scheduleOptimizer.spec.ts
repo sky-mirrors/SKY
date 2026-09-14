@@ -172,6 +172,36 @@ describe('scheduleOptimizer', () => {
       expect(plan.willReuse.some(s => s.step === 2)).toBe(true)
       expect(plan.willSkip.some(s => s.step === 3)).toBe(true)
     })
+
+    it('P1-15: create_docx 有缓存结果也不复用 → willExecute（原漏副作用集=假成功）', () => {
+      const steps = [
+        makeStep(1, 'create_docx'),
+        makeStep(2, 'file_write')
+      ]
+      const cachedResults = { 1: 'docx created', 2: 'file written' }
+      const plan = computeStepPlan(steps, new Set(), new Set(), cachedResults)
+      expect(plan.willExecute.some(s => s.step === 1)).toBe(true)
+      expect(plan.willReuse.some(s => s.step === 1)).toBe(false)
+      expect(plan.willExecute.some(s => s.step === 2)).toBe(true)
+      expect(plan.willReuse.some(s => s.step === 2)).toBe(false)
+    })
+
+    it('P1-15: read_file 有缓存结果不复用（文件现状可能已变）', () => {
+      const steps = [makeStep(1, 'read_file')]
+      const plan = computeStepPlan(steps, new Set(), new Set(), { 1: 'cached content' })
+      expect(plan.willExecute.some(s => s.step === 1)).toBe(true)
+      expect(plan.willReuse.some(s => s.step === 1)).toBe(false)
+    })
+
+    it('P1-15: create_directory/http_request 均不复用', () => {
+      const steps = [
+        makeStep(1, 'create_directory'),
+        makeStep(2, 'http_request')
+      ]
+      const cachedResults = { 1: 'dir made', 2: '[HTTP 200] ok' }
+      const plan = computeStepPlan(steps, new Set(), new Set(), cachedResults)
+      expect(plan.willReuse).toHaveLength(0)
+    })
   })
 
   describe('simulateDataFlow', () => {
@@ -269,15 +299,48 @@ describe('scheduleOptimizer', () => {
       expect(dirty.has(2)).toBe(true)
     })
 
-    it('脏步骤的depends_on也被标记为脏', () => {
+    it('P1-14: 脏步沿下游 dependents 传播，上游与旁支不受影响', () => {
       const steps: L2DagStep[] = [
-        { step: 1, tool: 'llm_generate', description: '步骤1', params: {}, depends_on: [0] },
+        { step: 0, tool: 'llm_generate', description: '上游', params: {}, depends_on: [] },
+        { step: 1, tool: 'llm_generate', description: '中游', params: {}, depends_on: [0] },
+        { step: 2, tool: 'llm_generate', description: '下游', params: {}, depends_on: [1] },
+        { step: 3, tool: 'llm_generate', description: '旁支', params: {}, depends_on: [0] }
       ]
       const manifest = makeManifest(steps)
-      const fp = { manifestId: 'test', inputHash: 'x', stepHashes: { 1: 'oldhash' }, results: {}, executedAt: Date.now() }
-      const dirty = findDirtySteps(manifest, fp, { 1: 'new output' })
+      const fp = {
+        manifestId: 'test',
+        inputHash: 'x',
+        stepHashes: { 0: 'h0', 1: 'oldhash', 2: 'h2', 3: 'h3' },
+        results: {},
+        executedAt: Date.now()
+      }
+      const dirty = findDirtySteps(manifest, fp, { 1: 'changed output' })
       expect(dirty.has(1)).toBe(true)
-      expect(dirty.has(0)).toBe(true)
+      expect(dirty.has(2)).toBe(true)
+      expect(dirty.has(0)).toBe(false)
+      expect(dirty.has(3)).toBe(false)
+    })
+
+    it('P1-14: 菱形依赖下游全链失效', () => {
+      const steps: L2DagStep[] = [
+        { step: 1, tool: 'llm_generate', description: 'A', params: {}, depends_on: [] },
+        { step: 2, tool: 'llm_generate', description: 'B', params: {}, depends_on: [1] },
+        { step: 3, tool: 'llm_generate', description: 'C', params: {}, depends_on: [1] },
+        { step: 4, tool: 'llm_generate', description: 'D', params: {}, depends_on: [2, 3] }
+      ]
+      const manifest = makeManifest(steps)
+      const fp = {
+        manifestId: 'test',
+        inputHash: 'x',
+        stepHashes: { 1: 'oldhash', 2: 'h2', 3: 'h3', 4: 'h4' },
+        results: {},
+        executedAt: Date.now()
+      }
+      const dirty = findDirtySteps(manifest, fp, { 1: 'changed' })
+      expect(dirty.has(1)).toBe(true)
+      expect(dirty.has(2)).toBe(true)
+      expect(dirty.has(3)).toBe(true)
+      expect(dirty.has(4)).toBe(true)
     })
   })
 

@@ -330,4 +330,19 @@ describe('PackLoader M8：加载、校验、事务回滚与适配器注入', () 
     expect(getExternalConstraintIds()).toContain('pack-test-alpha')
     await loader.unmountPack('testpack')
   })
+
+  it('P1-13: getPackIdForDomain 挂载后按 domain 归因，unmount 后返回 undefined', async () => {
+    ;({ loader, events } = makeLoader({
+      legalpack: { manifest: { ...GOOD_MANIFEST, id: 'legalpack', domain: 'legal' } },
+      finpack: { manifest: { ...GOOD_MANIFEST, id: 'finpack', domain: 'finance' } }
+    }))
+    expect(loader.getPackIdForDomain('legal')).toBeUndefined()
+    await loader.mountPack('legalpack')
+    await loader.mountPack('finpack')
+    expect(loader.getPackIdForDomain('legal')).toBe('legalpack')
+    expect(loader.getPackIdForDomain('finance')).toBe('finpack')
+    expect(loader.getPackIdForDomain('hr')).toBeUndefined()
+    await loader.unmountPack('legalpack')
+    expect(loader.getPackIdForDomain('legal')).toBeUndefined()
+  })
 })

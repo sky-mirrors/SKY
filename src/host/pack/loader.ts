@@ -213,6 +213,18 @@ export class PackLoader {
     return this.mounted.has(packId)
   }
 
+  /**
+   * P1-13：domain → 挂载 packId 归因（内置 finance/legal 与 domain 1:1）。
+   * 语义缓存 packId 隔离由此获得真实 packId 来源；pack 卸载后返回 undefined，
+   * 旧缓存条目因 packMatch 严格相等而不可达（双保险，另有 invalidateByPack）。
+   */
+  getPackIdForDomain(domain: string): string | undefined {
+    for (const [packId, m] of this.mounted) {
+      if (m.manifest.domain === domain) return packId
+    }
+    return undefined
+  }
+
   onLifecycle(cb: (e: PackLifecycleEvent) => void): () => void {
     this.lifecycleCallbacks.add(cb)
     return () => this.lifecycleCallbacks.delete(cb)

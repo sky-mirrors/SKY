@@ -79,6 +79,30 @@ describe('dualEngineValidator', () => {
     it('shell_exec 无参数 → 不需要验证', () => {
       expect(shouldValidate({ tool: 'shell_exec' })).toBe(false)
     })
+
+    it('P1-19: shell_exec + cat 敏感路径 → 需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'cat /etc/passwd' } })).toBe(true)
+    })
+
+    it('P1-19: shell_exec + type Windows 系统文件 → 需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'type C:\\Windows\\system.ini' } })).toBe(true)
+    })
+
+    it('P1-19: shell_exec + curl 内网地址 → 需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'curl http://169.254.169.254/latest/meta-data/' } })).toBe(true)
+    })
+
+    it('P1-19: shell_exec + curl localhost → 需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'curl http://localhost:8080/admin' } })).toBe(true)
+    })
+
+    it('P1-19: shell_exec + file:// 协议 → 需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'cat file:///etc/shadow' } })).toBe(true)
+    })
+
+    it('P1-19: shell_exec + 普通绝对路径读 → 不需要验证', () => {
+      expect(shouldValidate({ tool: 'shell_exec', params: { command: 'cat /home/user/notes.txt' } })).toBe(false)
+    })
   })
 
   describe('isPathUnsafe', () => {
@@ -320,7 +344,7 @@ describe('dualEngineValidator', () => {
     })
 
     it('高风险结果会缓存', async () => {
-      const key = getValidationCacheKey('test', '/tmp/old', 'rm -rf /tmp/old')
+      const key = getValidationCacheKey('test', '/tmp/old', 'rm -rf /tmp/old', '删除')
       await dualEngineValidate({
         skill_id: 'test',
         target_file: '/tmp/old',
@@ -338,7 +362,7 @@ describe('dualEngineValidator', () => {
   describe('dualEngineValidate - 缓存命中', () => {
     it('已缓存结果直接返回', async () => {
       const cached: any = { intent_match: true, parameter_sane: true, risk_level: 'low' }
-      const key = getValidationCacheKey('test-skill', 'test.txt', '文件写入')
+      const key = getValidationCacheKey('test-skill', 'test.txt', '文件写入', '创建测试文件')
       saveValidationCache(key, cached)
       const result = await dualEngineValidate({
         skill_id: 'test-skill',
@@ -349,6 +373,20 @@ describe('dualEngineValidator', () => {
       }, '创建测试文件')
       expect(result.risk_level).toBe('low')
       expect(result.from_cache).toBe(true)
+    })
+
+    it('P1-18: 相同动作不同用户输入不共享缓存', async () => {
+      const first: any = { intent_match: true, parameter_sane: true, risk_level: 'low' }
+      saveValidationCache(getValidationCacheKey('skill-a', 'a.txt', '文件写入', '备份这个文件'), first)
+      const miss = lookupValidationCache(getValidationCacheKey('skill-a', 'a.txt', '文件写入', '删掉这个文件'))
+      expect(miss).toBeNull()
+    })
+
+    it('P1-18: 缓存键包含 userInput 指纹分量', () => {
+      const withInput = getValidationCacheKey('skill', 'a.txt', '文件写入', '读一下内容')
+      const withoutInput = getValidationCacheKey('skill', 'a.txt', '文件写入')
+      expect(withInput).not.toBe(withoutInput)
+      expect(withInput.startsWith('skill|a.txt|文件写入|')).toBe(true)
     })
   })
 

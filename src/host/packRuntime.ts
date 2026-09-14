@@ -9,6 +9,11 @@ import { PackLoader } from './pack/loader'
 
 export const packLoader = new PackLoader()
 
+/** P1-13：语义缓存 packId 归因入口（未挂载/无匹配 domain 时返回 undefined） */
+export function getPackIdForDomain(domain: string): string | undefined {
+  return packLoader.getPackIdForDomain(domain)
+}
+
 let initPromise: Promise<void> | null = null
 
 export function initPackRuntime(): Promise<void> {

@@ -14,11 +14,11 @@ const SEED_CASES: TaskCase[] = [
       needs: ['合同文本', '法律知识'],
       steps: [
         { step: 1, description: '检索知识库获取法律相关知识', tool: 'knowledge_search', depends_on: [], params: { query: '合同风险审查要点' }, expectedOutput: '合同风险审查要点' },
-        { step: 2, description: '读取合同文件内容', tool: 'file_read', depends_on: [], params: {}, expectedOutput: '合同全文' },
+        { step: 2, description: '读取合同文件内容', tool: 'read_file', depends_on: [], params: {}, expectedOutput: '合同全文' },
         { step: 3, description: '分析风险条款并生成报告', tool: 'shell_exec', depends_on: [1, 2], params: {}, expectedOutput: 'docx报告文件' }
       ]
     },
-    toolsUsed: ['knowledge_search', 'file_read', 'shell_exec'],
+    toolsUsed: ['knowledge_search', 'read_file', 'shell_exec'],
     success: true,
     vector: [],
     createdAt: 0
@@ -30,12 +30,12 @@ const SEED_CASES: TaskCase[] = [
       intent: '生成工作周报',
       needs: ['工作记录', '模板'],
       steps: [
-        { step: 1, description: '读取工作记录文件', tool: 'file_read', depends_on: [], params: {}, expectedOutput: '工作记录内容' },
+        { step: 1, description: '读取工作记录文件', tool: 'read_file', depends_on: [], params: {}, expectedOutput: '工作记录内容' },
         { step: 2, description: '检索知识库获取周报模板', tool: 'knowledge_search', depends_on: [], params: { query: '周报模板' }, expectedOutput: '周报模板' },
         { step: 3, description: '生成docx周报', tool: 'shell_exec', depends_on: [1, 2], params: {}, expectedOutput: 'Word格式周报' }
       ]
     },
-    toolsUsed: ['file_read', 'knowledge_search', 'shell_exec'],
+    toolsUsed: ['read_file', 'knowledge_search', 'shell_exec'],
     success: true,
     vector: [],
     createdAt: 0
@@ -47,13 +47,13 @@ const SEED_CASES: TaskCase[] = [
       intent: '对比两份合同差异',
       needs: ['合同A内容', '合同B内容'],
       steps: [
-        { step: 1, description: '读取第一份合同', tool: 'file_read', depends_on: [], params: {}, expectedOutput: '合同A全文' },
-        { step: 2, description: '读取第二份合同', tool: 'file_read', depends_on: [], params: {}, expectedOutput: '合同B全文' },
+        { step: 1, description: '读取第一份合同', tool: 'read_file', depends_on: [], params: {}, expectedOutput: '合同A全文' },
+        { step: 2, description: '读取第二份合同', tool: 'read_file', depends_on: [], params: {}, expectedOutput: '合同B全文' },
         { step: 3, description: '检索知识库获取对比要点', tool: 'knowledge_search', depends_on: [], params: { query: '合同对比维度' }, expectedOutput: '合同对比维度' },
         { step: 4, description: '生成对比表格报告', tool: 'shell_exec', depends_on: [1, 2, 3], params: {}, expectedOutput: '对比报告docx' }
       ]
     },
-    toolsUsed: ['file_read', 'knowledge_search', 'shell_exec'],
+    toolsUsed: ['read_file', 'knowledge_search', 'shell_exec'],
     success: true,
     vector: [],
     createdAt: 0
@@ -212,7 +212,7 @@ export async function planTask(userInput: string, mcpToolNames: string[] = [], r
 
   const toolList = mcpToolNames.length > 0
     ? mcpToolNames.map(n => `- ${n}`).join('\n')
-    : `- knowledge_search: 检索知识库\n- file_read/file_write: 读写文件\n- directory_tree/list_directory: 浏览目录\n- shell_exec: 执行本地命令\n- http_request: 发送HTTP请求(GET/POST等)\n- read_file: 读取本地文件内容`
+    : `- knowledge_search: 检索知识库\n- read_file/file_write: 读写文件\n- list_directory: 浏览目录\n- shell_exec: 执行本地命令\n- http_request: 发送HTTP请求(GET/POST等)\n- create_docx: 生成Word文档`
 
   const contextLine = recentUserMsg && recentUserMsg !== userInput
     ? `\n最近对话上下文：${recentUserMsg.substring(0, 100)}`

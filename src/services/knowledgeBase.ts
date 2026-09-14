@@ -1,6 +1,6 @@
 import { KnowledgeEntry, SearchResult, KnowledgeAdapter } from '@/models'
 import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries } from './vectorStore'
-import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
+import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, generateVectorWithMeta, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
 import { debugLog } from '@/services/debugLog'
 import { estimateTokens } from '@/services/tokenEstimate'
 import { globalBus } from '@/kernel/bus'
@@ -44,6 +44,8 @@ interface ChunkRecord {
   entryId: string
   chunkIndex: number
   vector: number[]
+  /** P1-12：vector 为伪向量时标记，needsReembedding 据此识别待重嵌入（旧记录缺失=保守视为伪） */
+  vectorIsPseudo?: boolean
   tokens: number
 }
 
@@ -210,12 +212,14 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
   const chunkRecords: ChunkRecord[] = []
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
-    const vector = await generateVector(chunkText)
+    // P1-12：记录伪向量标记，供检索期迁移循环识别
+    const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
     chunkRecords.push({
       text: chunkText,
       entryId: `kb-${Date.now()}`,
       chunkIndex: idx,
       vector,
+      vectorIsPseudo: isPseudo,
       tokens: estimateTokens(chunkText)
     })
   }
@@ -266,12 +270,13 @@ async function ingestTextCore(
   const chunkRecords: ChunkRecord[] = []
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
-    const vector = await generateVector(chunkText)
+    const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
     chunkRecords.push({
       text: chunkText,
       entryId: `kb-${Date.now()}`,
       chunkIndex: idx,
       vector,
+      vectorIsPseudo: isPseudo,
       tokens: estimateTokens(chunkText)
     })
   }
@@ -366,8 +371,13 @@ export async function hybridSearch(query: string, topK: number = 5, scope?: Sear
 async function vectorSearch(query: string, chunks: ChunkRecord[], topK: number): Promise<SearchResult[]> {
   let migrated = false
   for (const chunk of chunks) {
-    if (needsReembedding(chunk.vector)) {
-      chunk.vector = await generateVector(chunk.text)
+    if (needsReembedding(chunk.vector, chunk.vectorIsPseudo)) {
+      // P1-12：embedder 未就绪时 generateVector 只会再产一个伪向量，
+      // 重嵌入无意义；仅维度不符（旧格式）时仍降级迁移。待 embedder 就绪后一次性补齐。
+      if (!isEmbedderReady() && chunk.vector.length === VECTOR_DIM) continue
+      const { vector, isPseudo } = await generateVectorWithMeta(chunk.text)
+      chunk.vector = vector
+      chunk.vectorIsPseudo = isPseudo
       migrated = true
     }
   }

@@ -27,8 +27,8 @@ import {
   loadFromStorage
 } from '@/services/semanticCache'
 
-vi.mock('@/services/embedder', () => ({
-  generateVector: vi.fn(async (text: string) => {
+vi.mock('@/services/embedder', () => {
+  const genVec = async (text: string) => {
     const DIM = 384
     const vec = new Array(DIM).fill(0)
     const normalized = text.toLowerCase().trim()
@@ -37,20 +37,25 @@ vi.mock('@/services/embedder', () => ({
     }
     const norm = Math.sqrt(vec.reduce((s: number, v: number) => s + v * v, 0)) || 1
     return vec.map((v: number) => v / norm)
-  }),
-  cosineSimilarity: vi.fn((a: number[], b: number[]) => {
-    if (a.length !== b.length || a.length === 0) return 0
-    let dot = 0, normA = 0, normB = 0
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i]
-      normA += a[i] * a[i]
-      normB += b[i] * b[i]
-    }
-    const denom = Math.sqrt(normA) * Math.sqrt(normB)
-    return denom === 0 ? 0 : dot / denom
-  }),
-  needsReembedding: vi.fn((vector: number[]) => vector.length !== 384)
-}))
+  }
+  return {
+    generateVector: vi.fn(genVec),
+    generateVectorWithMeta: vi.fn(async (text: string) => ({ vector: await genVec(text), isPseudo: false })),
+    isEmbedderReady: vi.fn(() => false),
+    cosineSimilarity: vi.fn((a: number[], b: number[]) => {
+      if (a.length !== b.length || a.length === 0) return 0
+      let dot = 0, normA = 0, normB = 0
+      for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i]
+        normA += a[i] * a[i]
+        normB += b[i] * b[i]
+      }
+      const denom = Math.sqrt(normA) * Math.sqrt(normB)
+      return denom === 0 ? 0 : dot / denom
+    }),
+    needsReembedding: vi.fn((vector: number[], isPseudo?: boolean) => vector.length !== 384 || isPseudo !== false)
+  }
+})
 
 vi.mock('@/services/tokenPricing', () => ({
   calculateCost: vi.fn((inputTokens: number, outputTokens: number, cacheHitTokens: number) => {

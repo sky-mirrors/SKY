@@ -97,15 +97,25 @@ describe('embedder', () => {
 
   describe('needsReembedding', () => {
     it('returns true for wrong dimension', () => {
-      expect(needsReembedding(new Array(128).fill(0))).toBe(true)
+      expect(needsReembedding(new Array(128).fill(0), false)).toBe(true)
     })
 
-    it('returns false for correct dimension', () => {
-      expect(needsReembedding(new Array(VECTOR_DIM).fill(0))).toBe(false)
+    it('returns false for correct dimension with isPseudo=false (真实嵌入)', () => {
+      expect(needsReembedding(new Array(VECTOR_DIM).fill(0), false)).toBe(false)
     })
 
-    it('returns true for empty vector', () => {
-      expect(needsReembedding([])).toBe(true)
+    it('P1-12: returns true for empty vector', () => {
+      expect(needsReembedding([], false)).toBe(true)
+    })
+
+    it('P1-12: 伪向量即使维度正确也需重嵌入（原仅查维度恒 false → 迁移循环永久 no-op）', () => {
+      const pseudo = generatePseudoVector('测试文本')
+      expect(pseudo.length).toBe(VECTOR_DIM)
+      expect(needsReembedding(pseudo, true)).toBe(true)
+    })
+
+    it('P1-12: 标记缺失（旧持久化记录）保守视为需重嵌入', () => {
+      expect(needsReembedding(new Array(VECTOR_DIM).fill(0))).toBe(true)
     })
   })
 })

@@ -1,5 +1,6 @@
 import { L2ToolManifest, L2DagStep, ValidationResult, ValidationCacheEntry } from '@/models'
 import { contentHash } from './hash'
+import { NO_CACHE_REUSE_TOOLS } from './toolRegistry'
 
 export { contentHash }
 
@@ -268,26 +269,33 @@ export function findDirtySteps(
   cachedFingerprint: ExecutionFingerprint,
   currentStepOutputs: Partial<Record<number, string>>
 ): Set<number> {
+  // P1-14 修复：脏步沿 dependents 向下游传播。原实现反向标记 depends_on 上游——
+  // 上游输出未变其缓存仍有效，而真正因输入变化而失效的下游消费者反而不被标脏。
   const dirty = new Set<number>()
   const steps = manifest.execution.dagPlan?.steps || []
+  const dependents = new Map<number, number[]>()
   for (const step of steps) {
-    const currentOutput = currentStepOutputs[step.step]
-    const cachedHash = cachedFingerprint.stepHashes[step.step]
-    if (!currentOutput && !cachedHash) continue
-    if (currentOutput) {
-      const currentHash = computeStepOutputHash(currentOutput)
-      if (currentHash !== cachedHash) {
-        dirty.add(step.step)
-        for (const dep of step.depends_on) {
-          dirty.add(dep)
-        }
-      }
+    for (const dep of step.depends_on || []) {
+      const list = dependents.get(dep) || []
+      list.push(step.step)
+      dependents.set(dep, list)
     }
   }
+  const queue: number[] = []
   for (const step of steps) {
-    if (dirty.has(step.step)) {
-      for (const dep of step.depends_on) {
-        dirty.add(dep)
+    const currentOutput = currentStepOutputs[step.step]
+    if (!currentOutput) continue
+    if (computeStepOutputHash(currentOutput) !== cachedFingerprint.stepHashes[step.step]) {
+      dirty.add(step.step)
+      queue.push(step.step)
+    }
+  }
+  while (queue.length > 0) {
+    const cur = queue.shift()!
+    for (const next of dependents.get(cur) || []) {
+      if (!dirty.has(next)) {
+        dirty.add(next)
+        queue.push(next)
       }
     }
   }
@@ -320,7 +328,9 @@ export function computeStepPlan(
       willSkip.push(step)
     } else if (dirtySteps.has(step.step)) {
       willExecute.push(step)
-    } else if (cachedResults && cachedResults[step.step] && step.tool !== 'shell_exec') {
+    } else if (cachedResults && cachedResults[step.step] && !NO_CACHE_REUSE_TOOLS.has(step.tool)) {
+      // P1-15 修复：原仅排除 shell_exec，file_write/create_docx 等副作用工具结果
+      // 被跨执行复用=假成功；统一走 NO_CACHE_REUSE_TOOLS
       willReuse.push(step)
     } else {
       willExecute.push(step)
@@ -369,7 +379,12 @@ export function computeParallelGroups(steps: L2DagStep[], skipSteps: Set<number>
 const VALIDATION_CACHE_TTL = 24 * 60 * 60 * 1000
 const validationCache = new Map<string, ValidationCacheEntry>()
 
-export function getValidationCacheKey(skillId: string, targetFile: string, operation: string): string {
+export function getValidationCacheKey(skillId: string, targetFile: string, operation: string, userInput?: string): string {
+  // P1-18 修复：审核缓存键必须包含用户输入指纹，否则同一 skill|file|operation
+  // 在 24h TTL 内会跨意图复用 intent_match 结论（如"删掉它"与"备份它"同键）
+  if (userInput !== undefined && userInput !== '') {
+    return `${skillId}|${targetFile}|${operation}|${structHash(userInput.substring(0, 500))}`
+  }
   return `${skillId}|${targetFile}|${operation}`
 }
 
