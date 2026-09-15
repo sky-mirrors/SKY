@@ -97,6 +97,10 @@ const NODE_E_DANGEROUS_PATTERNS = [
   /`[^`]*\$\{/i,
   /settimeout\s*\(/i,
   /setinterval\s*\(/i,
+  // A-05：字符串字面量拼接（'child'+'_process'、c['ex'+'ec']）是黑名单最常用的
+  // 规避手法——受限模板通道没有正当理由在代码里拼接字符串常量，一律拒绝
+  /['"]\s*\+\s*['"]/,
+  /\+\s*['"][A-Za-z_$]/,
 ]
 
 const NODE_E_TRUSTED_SIGNATURES = [
@@ -208,7 +212,9 @@ export function isMcpCommandAllowed(command: string, args?: string[]): { allowed
   return { allowed: true }
 }
 
-const READ_SHELL_COMMANDS = ['type', 'cat', 'head', 'tail', 'find', 'grep', 'wc']
+// A-04：dir/ls 同样是读类命令，路径参数必须走 validateReadPath，
+// 否则 `dir C:\Users\x\.ssh` 可绕过 pathValidator 枚举敏感目录
+const READ_SHELL_COMMANDS = ['type', 'cat', 'head', 'tail', 'find', 'grep', 'wc', 'dir', 'ls']
 const WRITE_SHELL_COMMANDS = ['mkdir', 'copy', 'cp']
 
 function tokenizeArgs(command: string): string[] {
@@ -237,7 +243,9 @@ function resolveAgainstCwd(token: string, cwd?: string): string {
 function validateShellPathArgs(command: string, cwd?: string): { allowed: boolean; reason?: string } {
   const trimmed = command.trim()
   const firstWord = trimmed.split(/\s+/)[0].toLowerCase()
-  const tokens = tokenizeArgs(trimmed).filter(t => !t.startsWith('-') && !t.startsWith('/'))
+  // A-04：只过滤 '-' 开头选项和 Windows 单斜杠短 flag（/b /s /a:d 等 1-3 字符），
+  // 不能把所有 '/' 开头 token 当 flag——那会把 POSIX 绝对路径 /etc/passwd 一并放过
+  const tokens = tokenizeArgs(trimmed).filter(t => !t.startsWith('-') && !/^\/[a-zA-Z]:?[a-zA-Z]?[a-zA-Z]?$/.test(t))
 
   if (READ_SHELL_COMMANDS.includes(firstWord)) {
     for (const token of tokens) {
@@ -268,12 +276,16 @@ export function isShellCommandAllowed(command: string, cwd?: string): { allowed:
   const trimmed = raw.trim().toLowerCase()
 
   if (trimmed.startsWith('node -e ') || trimmed.startsWith('node -e"')) {
-    const codeContent = trimmed.replace(/^node\s+-e\s*/, '').replace(/^node\s+-e"/, '').replace(/"$/, '')
+    // A-05：必须从原始串（raw）提取代码内容做校验，而不是 lowercase 副本——
+    // 执行的是原始串，校验 lowercase 副本会造成校验输入与执行输入不一致；
+    // 同时对原始串与小写串双重匹配危险模式，堵死 Process.Exit 这类大小写规避
+    const codeContent = raw.trim().replace(/^node\s+-e\s*/i, '').replace(/^node\s+-e"/i, '').replace(/"$/, '')
     if (isNodeTrustedTemplate(codeContent)) {
       return { allowed: true }
     }
+    const loweredCode = codeContent.toLowerCase()
     for (const pattern of NODE_E_DANGEROUS_PATTERNS) {
-      if (pattern.test(codeContent)) {
+      if (pattern.test(codeContent) || pattern.test(loweredCode)) {
         return { allowed: false, reason: `node -e 代码包含危险模式，被安全策略拒绝` }
       }
     }
@@ -307,9 +319,11 @@ export function isShellCommandAllowed(command: string, cwd?: string): { allowed:
     return { allowed: false, reason: 'npm run 已移出白名单（package.json scripts 可被伪造实现任意执行），被安全策略拒绝' }
   }
 
-  const firstCmd = trimmed.split(/\s+/)[0] + ' '
+  // A-16：白名单前缀必须词边界匹配——'ls' 不能放行 'lsfoo'，
+  // 'npm install' 不能放行 'npm install-evil'
   for (const allowed of SHELL_ALLOWED_COMMANDS) {
-    if (trimmed.startsWith(allowed.toLowerCase()) || firstCmd === allowed.toLowerCase()) {
+    const base = allowed.toLowerCase().trimEnd()
+    if (trimmed === base || trimmed.startsWith(base + ' ')) {
       const pathArgCheck = validateShellPathArgs(raw, cwd)
       if (!pathArgCheck.allowed) return pathArgCheck
       return { allowed: true }

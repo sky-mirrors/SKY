@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { KnowledgeGroup, ProjectMemory } from '@/models'
 import { vault } from '@/vault'
+import { useMemoryStore } from '@/stores/memoryStore'
 
 const GROUPS_KEY = 'holo-knowledge-groups'
 
@@ -35,12 +36,22 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   function deleteGroup(groupId: string, projectMemories?: ProjectMemory[]) {
     knowledgeGroups.value = knowledgeGroups.value.filter(g => g.id !== groupId)
+    let touchedProjects = false
     if (projectMemories) {
       for (const pm of projectMemories) {
-        if (pm.parentGroupId === groupId) pm.parentGroupId = undefined
+        if (pm.parentGroupId === groupId) {
+          pm.parentGroupId = undefined
+          pm.updatedAt = Date.now()
+          touchedProjects = true
+        }
       }
     }
     saveGroupsToStorage()
+    // C-20：清理 parentGroupId 后必须持久化项目列表——否则重启后项目"复活"
+    // 挂回已删除的分组
+    if (touchedProjects) {
+      try { useMemoryStore().saveProjectsToStorage() } catch { /* store 未就绪 */ }
+    }
   }
 
   function renameGroup(groupId: string, name: string) {
@@ -66,6 +77,19 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
+  // C-16：条目删除时清除所有分组对它的悬空共享引用
+  function removeSharedEntryEverywhere(entryId: string) {
+    let changed = false
+    for (const g of knowledgeGroups.value) {
+      if (g.sharedEntryIds.includes(entryId)) {
+        g.sharedEntryIds = g.sharedEntryIds.filter(id => id !== entryId)
+        g.updatedAt = Date.now()
+        changed = true
+      }
+    }
+    if (changed) saveGroupsToStorage()
+  }
+
   function getGroupProjects(groupId: string, projectMemories: ProjectMemory[]): ProjectMemory[] {
     return projectMemories.filter(p => p.parentGroupId === groupId)
   }
@@ -78,6 +102,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     renameGroup,
     addSharedEntryToGroup,
     removeSharedEntryFromGroup,
+    removeSharedEntryEverywhere,
     getGroupProjects,
     saveGroupsToStorage,
     loadFromStorage

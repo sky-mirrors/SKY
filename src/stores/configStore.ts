@@ -61,11 +61,17 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
-  function toggleTheme() {
-    const cycle: Record<string, 'light' | 'green' | 'dark'> = { dark: 'light', light: 'green', green: 'dark' }
-    theme.value = cycle[theme.value] ?? 'dark'
+  function setTheme(next: 'light' | 'green' | 'dark') {
+    // D-12：主题下拉框需要按选定值直达——toggleTheme 是循环切换，
+    // dark 状态下选 green 实际会得到 light
+    theme.value = next
     document.documentElement.setAttribute('data-theme', theme.value)
     saveToStorage()
+  }
+
+  function toggleTheme() {
+    const cycle: Record<string, 'light' | 'green' | 'dark'> = { dark: 'light', light: 'green', green: 'dark' }
+    setTheme(cycle[theme.value] ?? 'dark')
   }
 
   function setUiMode(mode: 'workbench' | 'starmap') {
@@ -168,7 +174,9 @@ export const useConfigStore = defineStore('config', () => {
         if (parsed.terminologyStyle) config.value.terminologyStyle = parsed.terminologyStyle
         if (parsed.animationEnabled !== undefined) config.value.animationEnabled = parsed.animationEnabled
         if (parsed.starmapNodeDensity) config.value.starmapNodeDensity = parsed.starmapNodeDensity
-        if (parsed.dialogPanelWidth !== undefined) config.value.dialogPanelWidth = parsed.dialogPanelWidth
+        // C-29：加载时同样做范围钳制——持久化的越界值（旧版本写入/手改文件）
+        // 会绕过 setDialogPanelWidth 的 300~600 约束
+        if (parsed.dialogPanelWidth !== undefined) setDialogPanelWidth(parsed.dialogPanelWidth)
         if (parsed.favoriteSkills) config.value.favoriteSkills = parsed.favoriteSkills
         if (parsed.recentSkills) config.value.recentSkills = parsed.recentSkills
         if (parsed.viewMode) config.value.viewMode = parsed.viewMode
@@ -200,6 +208,7 @@ export const useConfigStore = defineStore('config', () => {
     removeSelectedL2,
     markFirstLaunchDone,
     toggleTheme,
+    setTheme,
     setUiMode,
     toggleUiMode,
     markOnboardingComplete,

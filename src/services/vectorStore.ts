@@ -5,6 +5,9 @@ interface ChunkMeta {
   tokens: number
   vectorOffset: number
   vectorDim: number
+  // C-11：vectorIsPseudo 必须随 meta 持久化。缺失时 needsReembedding 按保守
+  // 语义视为需重嵌入（isPseudo !== false）→ 真实向量每次检索都被重复嵌入、永不收敛
+  vectorIsPseudo?: boolean
 }
 
 const META_KEY_PREFIX = 'chunks-meta-'
@@ -36,7 +39,7 @@ function isFileStoreAvailable(): boolean {
 
 export async function saveChunksToFile(
   entryId: string,
-  chunks: { text: string; chunkIndex: number; vector: number[]; tokens: number }[]
+  chunks: { text: string; chunkIndex: number; vector: number[]; tokens: number; vectorIsPseudo?: boolean }[]
 ): Promise<boolean> {
   if (!isFileStoreAvailable()) return false
 
@@ -58,7 +61,9 @@ export async function saveChunksToFile(
       text: c.text,
       tokens: c.tokens,
       vectorOffset: offset,
-      vectorDim: dim
+      vectorDim: dim,
+      // C-11：保留伪向量标记
+      vectorIsPseudo: c.vectorIsPseudo
     })
   }
 
@@ -76,6 +81,7 @@ export async function loadChunksFromFile(entryId: string): Promise<{
   chunkIndex: number
   vector: number[]
   tokens: number
+  vectorIsPseudo?: boolean
 }[] | null> {
   if (!isFileStoreAvailable()) return null
 
@@ -94,6 +100,7 @@ export async function loadChunksFromFile(entryId: string): Promise<{
     chunkIndex: number
     vector: number[]
     tokens: number
+    vectorIsPseudo?: boolean
   }[] = []
 
   for (const meta of metas) {
@@ -106,7 +113,9 @@ export async function loadChunksFromFile(entryId: string): Promise<{
       entryId: meta.entryId,
       chunkIndex: meta.chunkIndex,
       vector: vec,
-      tokens: meta.tokens
+      tokens: meta.tokens,
+      // C-11：读回时还原伪向量标记（旧数据无该字段 → undefined，保守视为需重嵌入）
+      vectorIsPseudo: meta.vectorIsPseudo
     })
   }
 
@@ -116,6 +125,16 @@ export async function loadChunksFromFile(entryId: string): Promise<{
 export async function listVectorEntries(): Promise<string[]> {
   if (!isFileStoreAvailable()) return []
   return window.electronAPI.vectorListKeys()
+}
+
+// C-16：删除条目时清理其二进制向量文件，消除磁盘隐私残留
+export async function deleteChunksFile(entryId: string): Promise<boolean> {
+  if (!isFileStoreAvailable() || !window.electronAPI.vectorDeleteBin) return false
+  try {
+    return await window.electronAPI.vectorDeleteBin(`vec-${entryId}`)
+  } catch {
+    return false
+  }
 }
 
 export async function migrateFromLocalStorage(): Promise<number> {

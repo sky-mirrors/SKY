@@ -436,12 +436,17 @@ export function resolveParams(
   return resolved
 }
 
-export function evaluateCondition(expr: string, stepResults: Record<number, string>): boolean {
+export function evaluateCondition(expr: string, stepResults: Record<number, string>, fromStep?: number): boolean {
   try {
+    // D-09：指定 fromStep 时只对该步骤的输出求值——原实现扫描全部步骤结果中的
+    // 任意数字，文件大小、耗时毫秒等无关数字会让 `$.output.amount > N` 误成立
+    const candidates: string[] = fromStep !== undefined
+      ? (stepResults[fromStep] !== undefined ? [stepResults[fromStep]] : [])
+      : Object.values(stepResults)
     const amountMatch = expr.match(/\$\.output\.(amount|totalAmount|total)\s*>\s*(\d+)/)
     if (amountMatch) {
       const threshold = Number(amountMatch[2])
-      for (const result of Object.values(stepResults)) {
+      for (const result of candidates) {
         const numMatch = result.match(/[\d,]+\.?\d*/g)
         if (numMatch) {
           const val = Number(numMatch[0].replace(/,/g, ''))
@@ -453,7 +458,7 @@ export function evaluateCondition(expr: string, stepResults: Record<number, stri
     const containsMatch = expr.match(/\$\.output\.contains\(['"](.+?)['"]\)/)
     if (containsMatch) {
       const keyword = containsMatch[1]
-      for (const result of Object.values(stepResults)) {
+      for (const result of candidates) {
         if (result.includes(keyword)) return true
       }
       return false
@@ -784,6 +789,9 @@ export async function executeMacro(
   const macroController = new AbortController()
   globalBus.emit('debug:register-abort', macroController)
   const macroSignal = macroController.signal
+  // D-08：提前退出路径的统一注销点——direct 返回/dagPlan 缺失/数据流预检失败/
+  // 并行 ask_user 中断都必须注销，避免控制器在注册表中泄漏成僵尸
+  const unregisterAbort = () => { globalBus.emit('debug:clear-abort', macroController) }
   const lineage: MacroLineage = []
 
   if (execution.mode === 'direct' && execution.directCall) {
@@ -808,10 +816,14 @@ export async function executeMacro(
       signal: macroController.signal,
       routingOptions: { taskType: 'raap', callerId: 'macro_directCall' }
     })
+    // D-08：direct 模式提前返回前注销控制器
+    unregisterAbort()
     return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }] }
   }
 
   if (!execution.dagPlan) {
+    // D-08：提前 throw 前注销控制器
+    unregisterAbort()
     throw new Error('macro/chain mode requires dagPlan')
   }
 
@@ -822,6 +834,8 @@ export async function executeMacro(
   if (!dataflowReport.ok) {
     debugLog(`[MacroExecutor] 数据流预检失败: ${dataflowReport.summary}`)
     const issueList = dataflowReport.issues.filter(i => i.severity === 'error').map(i => i.description).join('；')
+    // D-08：提前 throw 前注销控制器
+    unregisterAbort()
     throw new Error(`DAG数据流预检失败：${issueList}`)
   }
   if (dataflowReport.issues.length > 0) {
@@ -892,6 +906,9 @@ export async function executeMacro(
 
   if (autoCompiled && cached) {
     const finalResults: Record<number, string> = {}
+    // D-05：跟踪失败步骤——原逻辑吞掉 done:false，下游带着缺失变量继续执行，
+    // 残缺结果最后还被写成成功指纹，同输入再跑直接返回错误缓存
+    let hasFailedStep = false
     for (const step of steps) {
       if (step.tool === 'llm_generate') {
         let ruleMatched = false
@@ -917,7 +934,11 @@ export async function executeMacro(
             lineage.push({ step: step.step, source: 'auto_compiled', tool: step.tool })
           } else {
             const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
-            if (done && result) finalResults[step.step] = result
+            if (done && result) {
+              finalResults[step.step] = result
+            } else {
+              hasFailedStep = true
+            }
             lineage.push({ step: step.step, source: tierToLineage(step.modelTier), tool: step.tool, tier: step.modelTier })
           }
         }
@@ -931,27 +952,36 @@ export async function executeMacro(
           lineage.push({ step: step.step, source: 'cache_reuse', tool: step.tool })
         } else {
           const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
-          if (done && result) finalResults[step.step] = result
+          if (done && result) {
+            finalResults[step.step] = result
+          } else {
+            hasFailedStep = true
+          }
           lineage.push({ step: step.step, source: 'tool_call', tool: step.tool })
         }
       }
+      // D-05：失败即停止——下游步骤依赖失败步骤的输出，继续跑只会产生垃圾结果
+      if (hasFailedStep) break
     }
     const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS.has(s.tool)).map(s => s.step))
     // P1-14 修复：autoCompiled 路径原传 stepHashes={}，导致下次执行 findDirtySteps
-    // 全部误判为脏（或全不脏），指纹脏检查完全失效；改存真实输出哈希
-    const autoStepHashes: Record<number, string> = {}
-    for (const [num, result] of Object.entries(finalResults)) {
-      autoStepHashes[Number(num)] = computeStepOutputHash(result)
+    // 全部误判为脏（或全不脏），指纹脏检查完全失效；改存真实输出哈希。
+    // D-05：存在失败步骤时不写指纹，防止残缺结果被缓存为"成功"后同输入直接返回
+    if (!hasFailedStep) {
+      const autoStepHashes: Record<number, string> = {}
+      for (const [num, result] of Object.entries(finalResults)) {
+        autoStepHashes[Number(num)] = computeStepOutputHash(result)
+      }
+      saveExecutionFingerprint(manifest.identity.id, inputFingerprint, autoStepHashes, finalResults, true, sideEffectStepNums)
     }
-    saveExecutionFingerprint(manifest.identity.id, inputFingerprint, autoStepHashes, finalResults, true, sideEffectStepNums)
     if (sideEffects.length > 0) {
       try {
         globalBus.emit('feedback:add-side-effect', { executionId, manifestId: manifest.identity.id, userInput: userInput.inputText || '', queryFingerprint, sideEffects, timestamp: Date.now() })
       } catch { /* ignore */ }
     }
     const lastStep = steps[steps.length - 1]
-    wfComplete('completed')
-    return { results: finalResults, lastResult: finalResults[lastStep.step] || '执行完成(编译缓存)', savedTokens, lineage }
+    wfComplete(hasFailedStep ? 'failed' : 'completed')
+    return { results: finalResults, lastResult: hasFailedStep ? '执行失败(编译缓存路径)' : (finalResults[lastStep.step] || '执行完成(编译缓存)'), savedTokens, lineage }
   }
 
   // P1-14 修复：原传 {}，replay 场景下脏步判定恒空集；改传 replayPriorResults 真实变量表
@@ -1015,9 +1045,9 @@ export async function executeMacro(
         lineage.push({ step: num, source: 'replay_reuse', tool: steps.find(s => s.step === num)?.tool || 'unknown' })
       }
     }
-    for (const fs of existingCp.failedSteps) {
-      stepFailed.set(fs, true)
-    }
+    // D-04：不恢复 failedSteps——原逻辑把失败步骤重载进 stepFailed 后永不重试，
+    // 下游依赖永不就绪 → allDone=false → checkpoint 永不删除，该输入组合永久卡死。
+    // 改为重跑时对失败步骤重新执行（completedResults 仍按 checkpoint 复用）
     for (const ss of existingCp.skipSteps) {
       skipSteps.add(ss)
     }
@@ -1104,13 +1134,18 @@ export async function executeMacro(
           results[step.step] = execResult.result
           lineage.push(buildStepLineage(step, execResult))
           for (const cond of conditions) {
-            if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results)) {
+            if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results, cond.fromStep)) {
               skipSteps.add(cond.toStep)
             }
           }
         } else {
           stepFailed.set(step.step, true)
-          if (execution.dagPlan.fallbackStrategy === 'ask_user') { wfComplete('failed'); return { results, lastResult: '执行中断', savedTokens, lineage } }
+          if (execution.dagPlan.fallbackStrategy === 'ask_user') {
+            // D-08：并行 ask_user 失败提前返回前注销控制器
+            wfComplete('failed')
+            unregisterAbort()
+            return { results, lastResult: '执行中断', savedTokens, lineage }
+          }
         }
       }
     }
@@ -1153,7 +1188,8 @@ export async function executeMacro(
   const finalStep = lastStep[lastStep.length - 1]
   const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
   wfComplete(stepFailed.size > 0 ? 'failed' : 'completed')
-  globalBus.emit('debug:clear-abort', {})
+  // B-09：定向注销本宏的控制器，不再清空全局注册表（避免误杀并发任务）
+  unregisterAbort()
   return { results, lastResult, savedTokens, lineage }
 }
 

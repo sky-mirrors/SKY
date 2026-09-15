@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PipelinePage from './components/PipelinePage.vue'
+import { serializeStoreState, filterPatchForStore } from './services/storeSync'
 
 const app = createApp(PipelinePage)
 const pinia = createPinia()
@@ -13,7 +14,8 @@ pinia.use(({ store }) => {
     if (applyingRemoteUpdate) return
     window.electronAPI?.storeSyncToMain({
       storeId: store.$id,
-      state: JSON.parse(JSON.stringify(state))
+      // D-13：Map 序列化信封化（JSON.stringify(Map) 会丢成 {}）
+      state: serializeStoreState(state as Record<string, unknown>)
     })
   })
 })
@@ -22,11 +24,8 @@ if (window.electronAPI?.onStoreApplyUpdate) {
   window.electronAPI.onStoreApplyUpdate((data: { storeId: string; state: Record<string, unknown> }) => {
     const targetStore = pinia._s.get(data.storeId)
     if (targetStore) {
-      const allowedKeys = Object.keys(targetStore.$state)
-      const filtered: Record<string, unknown> = {}
-      for (const k of allowedKeys) {
-        if (k in data.state) filtered[k] = data.state[k]
-      }
+      // D-13：Map 信封还原/丢弃，防止 Map 状态被覆盖成普通对象
+      const filtered = filterPatchForStore(targetStore.$state as Record<string, unknown>, data.state)
       applyingRemoteUpdate = true
       try {
         targetStore.$patch(filtered)

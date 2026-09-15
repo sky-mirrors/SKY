@@ -61,6 +61,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   vectorListKeys: () =>
     ipcRenderer.invoke('vector:listKeys'),
 
+  vectorDeleteBin: (key: string) =>
+    ipcRenderer.invoke('vector:deleteBin', key),
+
   fileRead: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('file:read', filePath, maxBytes),
 

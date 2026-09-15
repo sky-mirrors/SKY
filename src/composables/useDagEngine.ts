@@ -1,4 +1,4 @@
-import { ref, reactive, Ref } from 'vue'
+import { ref, reactive, Ref, onBeforeUnmount, getCurrentInstance } from 'vue'
 import { DagNode, DagEdge } from '@/models'
 
 interface Point { x: number; y: number }
@@ -364,7 +364,9 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
         const existing = edges.value.find(
           ed => ed.sourceNodeId === edgeSourceNodeId && ed.targetNodeId === tgtId
         )
-        if (!existing) {
+        // D-10：画布禁止画环——原实现允许连成环，保存宏时环上节点被拓扑排序
+        // 静默丢弃且无任何警告
+        if (!existing && !wouldCreateCycle(edgeSourceNodeId, tgtId)) {
           const edge: DagEdge = {
             id: `edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             sourceNodeId: edgeSourceNodeId,
@@ -502,7 +504,27 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
     scheduleRender()
   }
 
+  // D-10：判断新增 source→target 边是否成环——从 target 沿既有边 DFS，
+  // 若能回到 source 则加入该边会形成循环依赖
+  function wouldCreateCycle(sourceId: string, targetId: string): boolean {
+    if (sourceId === targetId) return true
+    const visited = new Set<string>()
+    const stack = [targetId]
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (cur === sourceId) return true
+      if (visited.has(cur)) continue
+      visited.add(cur)
+      for (const e of edges.value) {
+        if (e.sourceNodeId === cur) stack.push(e.targetNodeId)
+      }
+    }
+    return false
+  }
+
   function addEdge(edge: DagEdge) {
+    // D-10：程序化加边同样拒绝成环
+    if (wouldCreateCycle(edge.sourceNodeId, edge.targetNodeId)) return
     edges.value.push(edge)
     scheduleRender()
   }
@@ -535,6 +557,18 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
     return nodes.value.find(n => n.id === selectedNodeId.value) || null
   }
 
+  // D-16：组件卸载时取消未执行的 requestAnimationFrame——
+  // PipelinePage 用 v-if 切走后残留帧会在 canvas 已移除时继续触发渲染
+  if (getCurrentInstance()) {
+    onBeforeUnmount(() => {
+      if (animFrameId !== 0) {
+        cancelAnimationFrame(animFrameId)
+        animFrameId = 0
+        needsRender = false
+      }
+    })
+  }
+
   return {
     nodes,
     edges,
@@ -559,6 +593,7 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
     setEdges,
     getSelectedNode,
     scheduleRender,
-    topologicalSort
+    topologicalSort,
+    wouldCreateCycle
   }
 }

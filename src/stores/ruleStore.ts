@@ -81,7 +81,9 @@ export const useRuleStore = defineStore('rule', () => {
 
   function markFalsePositive(ruleId: string): void {
     recordConstraintTrigger(ruleId, true)
-  // P3.5（R12）：约束装载改由 pack 管线驱动（异步挂载），订阅生命周期事件保持列表同步
+  // P3.5（R12）：约束装载改由 pack 管线驱动（异步挂载），订阅生命周期事件保持列表同步。
+  // C-12：订阅必须在 store 初始化层只注册一次——原来误放 markFalsePositive 函数体内，
+  // 每标记一次误报就泄漏 3 个监听器，pack 事件触发 N+1 次 loadRules
   globalBus.on('pack:mounted', () => loadRules())
   globalBus.on('pack:unmounted', () => loadRules())
   globalBus.on('pack:reloaded', () => loadRules())

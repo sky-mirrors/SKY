@@ -297,9 +297,9 @@ export const useNodeStore = defineStore('nodes', () => {
         }
       }
     } catch {
-      if (schema.some(f => f.required && f.type !== 'markdown')) {
-        errors.push('Data is not valid JSON')
-      }
+      // C-19：完全无法解析的数据必须判 invalid——原条件写反，schema 无 required
+      // 字段时垃圾数据竟返回 {valid:true}
+      errors.push('Data is not valid JSON')
     }
     return { valid: errors.length === 0, errors }
   }

@@ -5,10 +5,15 @@ import { vault } from '@/vault'
 
 export const useWorkflowLogStore = defineStore('workflowLog', () => {
   const logs = ref<WorkflowLog[]>([])
+  // C-27：内存与持久化口径一致——持久化截断 50 条而内存无上限，
+  // 长时间运行 ioSnapshots 全量累积导致内存持续增长
+  const MAX_LOGS = 50
+  const MAX_IO_SNAPSHOTS_PER_LOG = 200
 
   function createLog(name: string, nodeIds: string[], edgeTuples: [string, string, 'data' | 'control'][]): WorkflowLog {
     const log: WorkflowLog = {
-      id: `wfl-${Date.now()}`,
+      // C-25 同型：纯时间戳 ID 在同毫秒创建两条日志时碰撞，find(logId) 会更新错日志
+      id: `wfl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       nodes: nodeIds.map(id => ({
         toolId: id,
@@ -25,6 +30,8 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
       status: 'running'
     }
     logs.value.unshift(log)
+    // C-27：内存上限与持久化一致，丢弃最旧日志（unshift 后最旧在尾部）
+    if (logs.value.length > MAX_LOGS) logs.value.length = MAX_LOGS
     saveToStorage()
     return log
   }
@@ -45,6 +52,10 @@ export const useWorkflowLogStore = defineStore('workflowLog', () => {
     const log = logs.value.find(l => l.id === logId)
     if (!log) return
     log.ioSnapshots.push({ toolId, input, output, timestamp: Date.now() })
+    // C-27：单条日志快照数封顶，超限丢弃最旧快照
+    if (log.ioSnapshots.length > MAX_IO_SNAPSHOTS_PER_LOG) {
+      log.ioSnapshots.splice(0, log.ioSnapshots.length - MAX_IO_SNAPSHOTS_PER_LOG)
+    }
     saveToStorage()
   }
 

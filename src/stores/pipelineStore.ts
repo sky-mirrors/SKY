@@ -31,7 +31,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   function createPipeline(name: string, steps: PipelineStep[], mode: 'serial' | 'parallel' = 'serial', sessionId?: string): Pipeline {
     const pipeline: Pipeline = {
-      id: `pipeline-${Date.now()}`,
+      id: `pipeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       steps,
       mode,
@@ -46,6 +46,12 @@ export const usePipelineStore = defineStore('pipeline', () => {
 
   function removePipeline(id: string) {
     pipelines.value = pipelines.value.filter(p => p.id !== id)
+    // C-26：删除运行中的流水线必须清运行状态，否则 runningPipelineId 悬空，
+    // startPipeline 入口守卫会永久拦截所有流水线
+    if (runningPipelineId.value === id) {
+      runningPipelineId.value = null
+      currentStepIndex.value = 0
+    }
     saveToStorage()
   }
 
@@ -53,26 +59,32 @@ export const usePipelineStore = defineStore('pipeline', () => {
     if (runningPipelineId.value) return undefined
     const pipeline = pipelines.value.find(p => p.id === id)
     if (!pipeline) return
+    // C-13：执行器未注册时不得先置 running 再静默返回——runningPipelineId 会永久卡死，
+    // 入口守卫随后拦截所有流水线直至刷新。改为置错误并直接返回
+    if (!executeFn) {
+      lastError.value = 'Pipeline executor not registered'
+      return undefined
+    }
 
     runningPipelineId.value = id
     currentStepIndex.value = 0
     pipeline.lastRunAt = Date.now()
+    // C-26：lastRunAt 此前只在内存中更新、从不落盘，重启后跨天任务的"上次运行时间"丢失
+    saveToStorage()
     lastResults.value = null
     lastError.value = null
 
-    if (executeFn) {
-      try {
-        const results = await executeFn(pipeline, onProgress)
-        lastResults.value = results
-        runningPipelineId.value = null
-        currentStepIndex.value = 0
-        return results
-      } catch (err) {
-        lastError.value = String(err)
-        runningPipelineId.value = null
-        currentStepIndex.value = 0
-        throw err
-      }
+    try {
+      const results = await executeFn(pipeline, onProgress)
+      lastResults.value = results
+      runningPipelineId.value = null
+      currentStepIndex.value = 0
+      return results
+    } catch (err) {
+      lastError.value = String(err)
+      runningPipelineId.value = null
+      currentStepIndex.value = 0
+      throw err
     }
   }
 
@@ -129,6 +141,18 @@ export const usePipelineStore = defineStore('pipeline', () => {
     if (!p || !p.attachedEntryIds) return
     p.attachedEntryIds = p.attachedEntryIds.filter(id => id !== entryId)
     saveToStorage()
+  }
+
+  // C-16：条目删除时清除所有流水线对它的悬空挂载引用
+  function removeEntryFromAllPipelines(entryId: string): void {
+    let changed = false
+    for (const p of pipelines.value) {
+      if (p.attachedEntryIds && p.attachedEntryIds.includes(entryId)) {
+        p.attachedEntryIds = p.attachedEntryIds.filter(id => id !== entryId)
+        changed = true
+      }
+    }
+    if (changed) saveToStorage()
   }
 
   function addDagNode(pipelineId: string, node: DagNode): void {
@@ -199,6 +223,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     createPipelineKB,
     addPipelineEntry,
     removePipelineEntry,
+    removeEntryFromAllPipelines,
     addDagNode,
     removeDagNode,
     updateDagNode,

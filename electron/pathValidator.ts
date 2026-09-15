@@ -155,6 +155,11 @@ export function validatePath(inputPath: string): { safe: boolean; resolved: stri
 export function validateReadPath(inputPath: string): { safe: boolean; resolved: string; reason?: string } {
   const result = validatePath(inputPath)
   if (!result.safe) return result
+  // A-20：读路径与写路径校验对称——NTFS ADS 冒号与尾随点/空格同样拒绝，
+  // 否则可读取允许目录内文件的备用数据流（如 file.txt:stream）绕过扩展名管控
+  if (hasSuspiciousBasename(result.resolved)) {
+    return { safe: false, resolved: result.resolved, reason: `文件名以点/空格结尾或包含冒号，被安全策略拒绝: ${result.resolved}` }
+  }
   return result
 }
 

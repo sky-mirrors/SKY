@@ -66,8 +66,15 @@ export function registerDebugHandlers(bus: HoloEventBus) {
   _disposeRegisterAbort?.()
   _disposeRegisterAbort = bus.on('debug:register-abort', registerAbortHandler)
 
-  const clearAbortHandler = () => {
-    useDebugStore().clearAbortController()
+  // B-09：带 payload（AbortController）时只注销该任务自己的控制器；
+  // 无 payload 保持旧语义（清空全部），供全局终止使用
+  const clearAbortHandler = (payload: unknown) => {
+    const store = useDebugStore()
+    if (payload instanceof AbortController) {
+      store.unregisterAbortController(payload)
+    } else {
+      store.clearAbortController()
+    }
   }
   bus.registerHandler('debug:clear-abort', clearAbortHandler)
   _disposeClearAbort?.()

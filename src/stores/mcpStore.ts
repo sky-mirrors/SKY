@@ -15,7 +15,7 @@ export const useMcpStore = defineStore('mcp', () => {
 
   function addConnection(name: string, url: string): McpConnection {
     const conn: McpConnection = {
-      id: `mcp-${Date.now()}`,
+      id: `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       url: url.replace(/\/+$/, ''),
       isConnected: false,
@@ -45,7 +45,7 @@ export const useMcpStore = defineStore('mcp', () => {
     }
 
     const conn: McpConnection = {
-      id: `mcp-${Date.now()}`,
+      id: `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: item.name,
       url: '',
       isConnected: false,
@@ -93,12 +93,7 @@ export const useMcpStore = defineStore('mcp', () => {
         conn.isConnected = true
         conn.lastTestedAt = Date.now()
         if (result.tools) {
-          conn.tools = result.tools.map(t => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-            isAutoAllowed: false
-          }))
+          conn.tools = mergeToolsPreservingSettings(conn, result.tools)
         }
         rebuildMcpNodes()
         saveToStorage()
@@ -121,6 +116,24 @@ export const useMcpStore = defineStore('mcp', () => {
     }
   }
 
+  // C-17：工具列表刷新（spawn/重连/testConnection/refreshTools）与推送路径行为对齐——
+  // 按名称保留用户既有授权（isAutoAllowed）与 permission，而不是硬编码重置丢弃
+  function mergeToolsPreservingSettings(
+    conn: McpConnection,
+    incoming: { name: string; description: string; inputSchema: Record<string, unknown> }[]
+  ): McpTool[] {
+    return incoming.map(t => {
+      const prev = conn.tools.find(p => p.name === t.name)
+      return {
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+        isAutoAllowed: prev?.isAutoAllowed ?? false,
+        permission: prev?.permission ?? 'execute'
+      }
+    })
+  }
+
   async function stopMcpProcess(id: string) {
     if (window.electronAPI) {
       await window.electronAPI.mcpStop({ id: String(id) })
@@ -140,12 +153,7 @@ export const useMcpStore = defineStore('mcp', () => {
     if (conn.catalogCommand && window.electronAPI) {
       const result = await window.electronAPI.mcpListTools({ id: String(id) })
       if (result.success && result.tools) {
-        conn.tools = result.tools.map(t => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: t.inputSchema,
-          isAutoAllowed: false
-        }))
+        conn.tools = mergeToolsPreservingSettings(conn, result.tools)
         rebuildMcpNodes()
         saveToStorage()
         return true
@@ -175,12 +183,11 @@ export const useMcpStore = defineStore('mcp', () => {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
 
       const data = await resp.json()
-      const tools: McpTool[] = (data.result?.tools ?? []).map((t: Record<string, unknown>) => ({
+      const tools: McpTool[] = mergeToolsPreservingSettings(conn, (data.result?.tools ?? []).map((t: Record<string, unknown>) => ({
         name: t.name as string,
         description: (t.description ?? '') as string,
-        inputSchema: (t.inputSchema ?? {}) as Record<string, unknown>,
-        isAutoAllowed: false
-      }))
+        inputSchema: (t.inputSchema ?? {}) as Record<string, unknown>
+      })))
 
       conn.tools = tools
       conn.isConnected = true
@@ -311,6 +318,17 @@ export const useMcpStore = defineStore('mcp', () => {
       })
 
       const data = await resp.json()
+
+      // C-18：HTTP 非 2xx 与 JSON-RPC error 必须抛出——原实现把错误报文当工具
+      // 输出返回，污染对话上下文与审计结论
+      if (!resp.ok) {
+        throw new Error(`MCP HTTP ${resp.status}: ${JSON.stringify(data).slice(0, 200)}`)
+      }
+      if (data.error) {
+        const rpcErr = data.error as { code?: number; message?: string }
+        throw new Error(`MCP JSON-RPC error ${rpcErr.code ?? ''}: ${rpcErr.message || 'unknown error'}`)
+      }
+
       const resultStr = JSON.stringify(data.result ?? data)
 
       globalBus.emit('memory:add-mcp-log', {

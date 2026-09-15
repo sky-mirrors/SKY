@@ -63,6 +63,12 @@ vi.mock('@/services/tokenPricing', () => ({
     const outputCost = (outputTokens / 1000) * 0.015
     const cacheSaving = (cacheHitTokens / 1000) * 0.005 * 0.5
     return { inputCost, outputCost, cacheSaving, totalCost: Math.max(0, inputCost + outputCost - cacheSaving) }
+  }),
+  // B-14：lookup 节省成本改用 calculateCostByTier（分层全价，无 cacheSaving 抵扣）
+  calculateCostByTier: vi.fn((inputTokens: number, outputTokens: number) => {
+    const inputCost = (inputTokens / 1000) * 0.005
+    const outputCost = (outputTokens / 1000) * 0.015
+    return { inputCost, outputCost, cacheSaving: 0, totalCost: inputCost + outputCost }
   })
 }))
 

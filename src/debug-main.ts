@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import DebugWindowPage from './components/DebugWindowPage.vue'
+import { serializeStoreState, filterPatchForStore } from './services/storeSync'
 
 const app = createApp(DebugWindowPage)
 const pinia = createPinia()
@@ -13,7 +14,7 @@ let applyingRemoteUpdate = false
 pinia.use(({ store }) => {
   store.$subscribe((_mutation, state) => {
     if (applyingRemoteUpdate) return
-    const entry = { storeId: store.$id, state: JSON.parse(JSON.stringify(state)) }
+    const entry = { storeId: store.$id, state: serializeStoreState(state as Record<string, unknown>) }
     const existing = pendingSyncs.findIndex(s => s.storeId === store.$id)
     if (existing >= 0) {
       pendingSyncs[existing] = entry
@@ -36,11 +37,8 @@ if (window.electronAPI?.onStoreApplyUpdate) {
   window.electronAPI.onStoreApplyUpdate((data: { storeId: string; state: Record<string, unknown> }) => {
     const targetStore = pinia._s.get(data.storeId)
     if (targetStore) {
-      const allowedKeys = Object.keys(targetStore.$state)
-      const filtered: Record<string, unknown> = {}
-      for (const k of allowedKeys) {
-        if (k in data.state) filtered[k] = data.state[k]
-      }
+      // D-13：Map 信封还原/丢弃
+      const filtered = filterPatchForStore(targetStore.$state as Record<string, unknown>, data.state)
       applyingRemoteUpdate = true
       try {
         targetStore.$patch(filtered)

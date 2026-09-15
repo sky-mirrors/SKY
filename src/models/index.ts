@@ -580,7 +580,8 @@ export interface NodeHandler {
 }
 
 export interface ModelGatewayAdapter {
-  chatCompletion(messages: { role: string; content: string }[]): Promise<string>
+  // B-10：增加可选 options.signal——调用方超时/终止时可取消底层请求
+  chatCompletion(messages: { role: string; content: string }[], options?: { signal?: AbortSignal }): Promise<string>
   listModels(): ModelInfo[]
   switchProvider(providerId: string): void
   switchModel(modelId: string): void

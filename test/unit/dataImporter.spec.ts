@@ -46,7 +46,8 @@ describe('dataImporter', () => {
       warnings: []
     }
     await applyImport(content, preview)
-    const stored = vault.readCache('config', 'holo-api-config')
+    // C-04：api-config 实际存储于 ('api','holo-api-config') 命名空间
+    const stored = vault.readCache('api', 'holo-api-config')
     expect(stored).not.toBeNull()
     const parsed = JSON.parse(stored!)
     expect(parsed.providers.length).toBe(1)
@@ -91,7 +92,8 @@ describe('dataImporter', () => {
   })
 
   it('applyImport appends data with append strategy', async () => {
-    vault.writeCache('conv', 'holo-conv-chunks', JSON.stringify([{ id: 'c1', text: 'Old' }]))
+    // C-03：对话历史实际存储于 ('memory','holo-conversations')
+    vault.writeCache('memory', 'holo-conversations', JSON.stringify([{ id: 'c1', text: 'Old' }]))
     const exportData = {
       manifest: { version: '1.0', date: '2026-09-02', appVersion: '0.1.0', items: ['conversations'] },
       'conversations': [{ id: 'c2', text: 'New' }]
@@ -105,7 +107,7 @@ describe('dataImporter', () => {
       warnings: []
     }
     await applyImport(content, preview)
-    const stored = JSON.parse(vault.readCache('conv', 'holo-conv-chunks')!)
+    const stored = JSON.parse(vault.readCache('memory', 'holo-conversations')!)
     expect(stored.length).toBe(2)
     expect(stored[1].id).toBe('c2')
   })

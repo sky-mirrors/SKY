@@ -238,6 +238,13 @@ function dagToManifest(
 
 async function confirmSaveMacro() {
   if (!macroName.value.trim()) return
+  // D-10：保存前检测循环依赖——原实现环上节点被 topologicalSort 静默丢弃
+  // 且 `nodeIndex[...] || 0` + `filter(d=>d>0)` 把环边无声过滤，用户毫无感知
+  const sortedCheck = dag.topologicalSort()
+  if (sortedCheck.length < dag.nodes.value.length) {
+    showRunStatus(`检测到循环依赖：${dag.nodes.value.length - sortedCheck.length} 个节点不在拓扑序内，请先解除环路再保存`)
+    return
+  }
   const manifest = dagToManifest(
     macroName.value.trim(),
     macroKeywords.value.split(',').map(k => k.trim()).filter(Boolean),

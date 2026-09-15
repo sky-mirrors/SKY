@@ -44,9 +44,12 @@ function compressOldMessages(convs: ConversationMemory[], conv: ConversationMemo
   if (conv.messages.length < 10) return
 
   if (window.electronAPI?.storeWrite) {
+    // C-24：storeWrite 返回 Promise，同步 try/catch 对 rejection 无效——
+    // 必须挂 .catch，否则写入失败变成 unhandled rejection
     try {
       const snapshotKey = `precompress-snapshot-${conv.projectId}-${Date.now()}`
       window.electronAPI.storeWrite(snapshotKey, JSON.stringify(conv.messages))
+        .catch(() => { /* snapshot non-critical */ })
     } catch { /* snapshot non-critical */ }
   }
 
@@ -56,9 +59,15 @@ function compressOldMessages(convs: ConversationMemory[], conv: ConversationMemo
   const summaries = loadSummaries()
   const existingSummary = summaries[conv.projectId] || ''
   const oldContent = oldMessages.map(m => `${m.role}: ${m.content}`).join('\n')
-  const newSummary = existingSummary
-    ? `${existingSummary}\n[后续摘要] ${oldContent.slice(0, 500)}...`
-    : `[对话摘要] ${oldContent.slice(0, 800)}...`
+  // C-24：不再对新增内容 slice(0,500) 静默丢弃（完整快照已另存）；
+  // 摘要总量超限时从最旧端截断并显式标记，保留最新内容
+  const MAX_SUMMARY_CHARS = 4000
+  let newSummary = existingSummary
+    ? `${existingSummary}\n[后续摘要] ${oldContent}`
+    : `[对话摘要] ${oldContent}`
+  if (newSummary.length > MAX_SUMMARY_CHARS) {
+    newSummary = `[早期摘要已截断，完整快照见 precompress-snapshot] ${newSummary.slice(newSummary.length - MAX_SUMMARY_CHARS)}`
+  }
 
   summaries[conv.projectId] = newSummary
   saveSummaries(summaries)
@@ -167,6 +176,19 @@ export const useMemoryStore = defineStore('memory', () => {
     }
   }
 
+  // C-16：条目删除时清除所有项目对它的悬空引用
+  function removeKnowledgeEntryRef(entryId: string) {
+    let changed = false
+    for (const pm of projectMemories.value) {
+      if (pm.knowledgeEntryIds.includes(entryId)) {
+        pm.knowledgeEntryIds = pm.knowledgeEntryIds.filter(id => id !== entryId)
+        pm.updatedAt = Date.now()
+        changed = true
+      }
+    }
+    if (changed) saveProjectsToStorage()
+  }
+
   function getActiveProject(): ProjectMemory | null {
     if (!activeProjectId.value) return null
     return projectMemories.value.find(p => p.id === activeProjectId.value) ?? null
@@ -226,8 +248,17 @@ export const useMemoryStore = defineStore('memory', () => {
 
   function exportAuditCsv(): string {
     const header = 'id,userId,action,toolId,fileName,mcpId,timestamp,details'
+    // C-28：完整 CSV 转义——含引号/逗号/换行/CRLF 的字段必须整体加引号并把内部引号翻倍，
+    // 仅把逗号替换为分号会破坏 CSV 结构且丢失原内容
+    const escapeCsv = (field: string | number): string => {
+      const s = String(field ?? '')
+      if (/[",\r\n]/.test(s)) {
+        return `"${s.replace(/"/g, '""')}"`
+      }
+      return s
+    }
     const rows = auditLogs.value.map(e =>
-      `${e.id},${e.userId},${e.action},${e.toolId},${e.fileName || ''},${e.mcpId || ''},${e.timestamp},${e.details.replace(/,/g, ';')}`
+      [e.id, e.userId, e.action, e.toolId, e.fileName || '', e.mcpId || '', e.timestamp, e.details].map(escapeCsv).join(',')
     )
     return [header, ...rows].join('\n')
   }
@@ -251,8 +282,9 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function addConvMessage(projectId: string, message: ChatMessage): void {
-    const conv = conversations.value.find(c => c.projectId === projectId)
-    if (!conv) return
+    // C-14：会话不存在时自动创建——原实现静默 return，pipelineExecutor 的
+    // addMessage('default',...) 首条消息会被吞掉
+    const conv = getOrCreateConversation(projectId)
     conv.messages.push(message)
     conv.updatedAt = Date.now()
     saveConversations(conversations.value)
@@ -376,7 +408,9 @@ export const useMemoryStore = defineStore('memory', () => {
     addProjectMemory,
     addFileFingerprint,
     addKnowledgeEntry,
+    removeKnowledgeEntryRef,
     setProjectGroup,
+    saveProjectsToStorage,
     getActiveProject,
     setActiveProject,
     addPromptTemplate,

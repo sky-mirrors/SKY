@@ -66,6 +66,9 @@ export const useApiStore = defineStore('api', () => {
       if (elapsed > circuitBreaker.value.cooldownMs) {
         circuitBreaker.value.isOpen = false
         circuitBreaker.value.failureCount = 0
+        // B-12：冷却恢复必须同时返还重试预算——否则 retryCount 打满后即使熔断
+        // 恢复也永不再重试，直到一次成功（而失败路径已无重试，成功更难）
+        circuitBreaker.value.retryCount = 0
       }
     }
   }
@@ -81,6 +84,8 @@ export const useApiStore = defineStore('api', () => {
       if (elapsed > circuitBreaker.value.cooldownMs) {
         circuitBreaker.value.isOpen = false
         circuitBreaker.value.failureCount = 0
+        // B-12：与 checkAndResetCircuitBreaker 一致，冷却恢复返还重试预算
+        circuitBreaker.value.retryCount = 0
       }
     }
   }
@@ -449,7 +454,7 @@ export const useApiStore = defineStore('api', () => {
 
     if (window.electronAPI?.llmChatCompletion && config.value.activeProviderId) {
       try {
-        const result = await window.electronAPI.llmChatCompletion({
+        const ipcArgs = {
           providerId: config.value.activeProviderId,
           model: config.value.activeModel,
           messages: messages.map(m => ({
@@ -460,7 +465,22 @@ export const useApiStore = defineStore('api', () => {
           })),
           tools,
           maxTokens
-        })
+        }
+        // B-07：IPC 无法携带 AbortSignal，原实现直接忽略 externalSignal——
+        // 用 race 让调用方侧中止即时生效（主进程侧请求由其自身超时兜底）
+        const ipcCall = window.electronAPI.llmChatCompletion(ipcArgs)
+        const result = await (externalSignal
+          ? Promise.race([
+              ipcCall,
+              new Promise<never>((_, reject) => {
+                if (externalSignal.aborted) {
+                  reject(new DOMException('Aborted', 'AbortError'))
+                } else {
+                  externalSignal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+                }
+              })
+            ])
+          : ipcCall)
         if (!result.success) {
           throw new Error(result.error || 'IPC chatCompletion failed')
         }
@@ -634,17 +654,22 @@ export const useApiStore = defineStore('api', () => {
       recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
       emitRecordCost(usage, effectiveTier, 'llm')
       return directResult
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
+      } catch (err) {
+        // B-07：调用方主动中止不是故障，不进重试/熔断统计
+        if (externalSignal?.aborted) throw err
+        const errMsg = err instanceof Error ? err.message : String(err)
       const isTimeout = errMsg.includes('abort') || errMsg.includes('AbortError') || errMsg.includes('timeout') || errMsg.includes('Timeout')
       if (isTimeout) {
         debugLog('[chatCompletion:direct] 超时熔断触发')
       }
-      recordFailure()
+      // B-12：与 IPC 路径语义对齐——可重试失败只消耗重试预算（retryCount++），
+      // 不再先 recordFailure() 计入熔断失败数；预算耗尽才计为熔断失败
       if (retryOnFailure && !isTimeout && circuitBreaker.value.retryCount < circuitBreaker.value.maxRetries) {
+        circuitBreaker.value.retryCount++
         await new Promise(r => setTimeout(r, 1000 * circuitBreaker.value.retryCount))
         return chatCompletion(messages, false, tools, maxTokens, externalSignal, routingOptions)
       }
+      recordFailure()
       throw err
     }
   }
@@ -881,7 +906,8 @@ export const useApiStore = defineStore('api', () => {
   }
 
   const gatewayAdapter: ModelGatewayAdapter = {
-    async chatCompletion(messages) { const r = await chatCompletion(messages as ChatMessage[]); return r.content },
+    // B-10：透传 signal 到 chatCompletion，供网关调用方超时/终止取消底层请求
+    async chatCompletion(messages, options) { const r = await chatCompletion(messages as ChatMessage[], true, undefined, undefined, options?.signal); return r.content },
     listModels() { return config.value.models },
     switchProvider(providerId) { switchProvider(providerId) },
     switchModel(modelId) { setActiveModel(modelId) },

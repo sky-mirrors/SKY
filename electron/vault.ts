@@ -63,7 +63,10 @@ export function vaultWrite(namespace: string, key: string, value: string, encryp
     INSERT INTO kv_store (namespace, key, value, encrypted, updated_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value, encrypted = excluded.encrypted, updated_at = excluded.updated_at
-  `).run(namespace, key, storeValue, encrypted ? 1 : 0, Date.now())
+  `).run(namespace, key, storeValue,
+    // A-18：safeStorage 不可用时值以明文入库，标志必须同步写 0，
+    // 否则 secrets 明文落盘且标志与内容永久不一致
+    encrypted && safeStorage.isEncryptionAvailable() ? 1 : 0, Date.now())
 }
 
 export function vaultDelete(namespace: string, key: string): void {

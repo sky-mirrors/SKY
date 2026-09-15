@@ -23,7 +23,8 @@ describe('dataExporter', () => {
   })
 
   it('buildExportData collects API config with sanitized keys', async () => {
-    vault.writeCache('config', 'holo-api-config', JSON.stringify({
+    // C-01：collectApiConfig 实际读取 ('api','holo-api-config')，桩数据须写到该命名空间
+    vault.writeCache('api', 'holo-api-config', JSON.stringify({
       providers: [{ id: 'p1', name: 'Test', apiKey: 'secret-key-123', baseUrl: 'http://test.com' }],
       baseUrl: 'http://test.com'
     }))

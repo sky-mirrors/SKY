@@ -54,14 +54,32 @@ const modelGatewayHandler: NodeHandler = {
     const system = (ctx.input.system as string) || '你是一个企业AI助手。'
     ctx.onProgress(`调用模型: ${prompt.slice(0, 50)}...`)
     if (!prompt.trim()) return { response: '(无有效输入，跳过模型调用)' }
-    const response = await Promise.race([
-      ctx.gateway.chatCompletion([
-        { role: 'system', content: system },
-        { role: 'user', content: prompt }
-      ]),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('模型调用超时(60s)')), 60000))
-    ])
-    return { response }
+    // B-10：超时原先只让 race reject，底层 LLM 请求继续跑满自家超时；
+    // 改为超时同步 abort 底层请求，并桥接 ctx.signal 让流水线终止即时生效
+    const callController = new AbortController()
+    const onOuterAbort = () => callController.abort()
+    if (ctx.signal) {
+      if (ctx.signal.aborted) callController.abort()
+      else ctx.signal.addEventListener('abort', onOuterAbort)
+    }
+    try {
+      const response = await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          callController.abort()
+          reject(new Error('模型调用超时(60s)'))
+        }, 60000)
+        ctx.gateway.chatCompletion([
+          { role: 'system', content: system },
+          { role: 'user', content: prompt }
+        ], { signal: callController.signal }).then(
+          r => { clearTimeout(timer); resolve(r) },
+          e => { clearTimeout(timer); reject(e) }
+        )
+      })
+      return { response }
+    } finally {
+      if (ctx.signal) ctx.signal.removeEventListener('abort', onOuterAbort)
+    }
   }
 }
 
@@ -284,7 +302,12 @@ export async function executePipeline(
       completedSteps = cp.completedSteps
       Object.assign(results, cp.results)
       for (const [key, val] of Object.entries(cp.results)) {
-        stringResults[key] = JSON.stringify(val)
+        // B-10：resume 与在线路径格式对齐——在线存的是 .response 字符串，
+        // 原 resume 存整个结果对象的 JSON，下游解析行为分叉
+        const v = val as Record<string, unknown> | null
+        stringResults[key] = (typeof val === 'object' && val !== null && typeof v?.response === 'string')
+          ? v.response as string
+          : JSON.stringify(val)
       }
     }
   }
@@ -407,6 +430,8 @@ export async function executePipeline(
     return stringResults
   } finally {
     if (pipelineFailed) wfComplete('failed')
-    globalBus.emit('debug:clear-abort', {})
+    // B-09：原 emit('debug:clear-abort', {}) 会清空全局注册表，误杀并发运行的其他
+    // 任务；改为定向注销本流水线的控制器（无 payload 的清空仅保留给全局终止）
+    globalBus.emit('debug:clear-abort', pipelineAbortController)
   }
 }

@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { search } from '@/domains/app'
 import { useDialogStore } from '@/domains/dialog'
 import { useConfigStore } from '@/domains/config'
@@ -161,21 +161,9 @@ function close() {
   query.value = ''
 }
 
-function onKeyDown(e: KeyboardEvent) {
-  if (e.key === 'p' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault()
-    if (visible.value) close()
-    else open()
-  }
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', onKeyDown)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('keydown', onKeyDown)
-})
+// D-11：Ctrl+P 全局监听移除——与 App.vue 的监听双重冲突：
+// 子组件先 close，父组件随即 open 并重置 query/scope，面板无法用快捷键关闭。
+// 快捷键开关统一由 App.vue 处理（toggle 语义）
 
 // P1-47：暴露 visible 供 App.vue Esc 链判断弹层是否打开（避免关闭组件后 Esc 冒泡触发相机重置）
 defineExpose({ open, close, visible })

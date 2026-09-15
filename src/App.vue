@@ -414,7 +414,13 @@ const tooltipInfo = ref<{ screenX: number; screenY: number; label: string } | nu
 function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'p' && e.ctrlKey && !e.shiftKey) {
     e.preventDefault()
-    commandPaletteRef.value?.open()
+    // D-11：唯一 Ctrl+P 监听改为 toggle——原与 CommandPalette 内部监听冲突，
+    // 子组件先关、父组件随即强制重开，面板无法用快捷键关闭
+    if (commandPaletteRef.value?.visible) {
+      commandPaletteRef.value?.close()
+    } else {
+      commandPaletteRef.value?.open()
+    }
     return
   }
   if (e.key === 'Escape') {
@@ -446,6 +452,12 @@ function onKeyDown(e: KeyboardEvent) {
     onCameraReset()
   }
   if (e.key === 'Enter' && e.ctrlKey && nodeStore.selectedNodeIds.length > 0) {
+    // D-17：焦点在输入类控件内时组合键应交给控件本身，
+    // 否则文本框内 Ctrl+Enter 会误开流水线窗口并清空当前选择
+    const target = e.target as HTMLElement | null
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+      return
+    }
     const nodes = nodeStore.addSelectedToDialog()
     if (nodes.length > 0) {
       window.electronAPI?.openPipelineWindow?.()

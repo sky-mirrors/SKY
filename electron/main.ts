@@ -1,6 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
+// A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
+// 避免 WAL 文件残留与数据未 checkpoint 落盘
+import { closeVault } from './vault'
 
 let pendingPipelineNodes: { toolId: string; toolName: string; toolLevel: string }[] = []
 
@@ -38,8 +41,11 @@ app.whenReady().then(async () => {
 
   ipcMain.on('pipeline:addNode', (_event, nodeData: { toolId: string; toolName: string; toolLevel: string }) => {
     const pw = getPipelineWindow()
-    if (!pw) {
-      createPipelineWindow()
+    // A-07：窗口对象存在但 did-finish-load 未触发期间，webContents.send 是
+    // fire-and-forget，节点会被静默丢弃——isLoading 期间统一入队，
+    // 由 ready 回调在加载完成后冲刷
+    if (!pw || pw.webContents.isLoading()) {
+      if (!pw) createPipelineWindow()
       pendingPipelineNodes.push(nodeData)
       return
     }
@@ -173,4 +179,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   cleanupMcpProcesses()
+  // A-19：退出前关闭 vault SQLite 连接
+  closeVault()
 })

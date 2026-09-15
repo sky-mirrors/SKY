@@ -1,11 +1,15 @@
 import { ipcMain, dialog, safeStorage, app, FileFilter, shell } from 'electron'
 import { spawn } from 'child_process'
+import { request as httpRequest } from 'http'
+import { request as httpsRequest } from 'https'
+import { Readable } from 'stream'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
-import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds } from './mcp-manager'
+import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds, sanitizeMcpEnv } from './mcp-manager'
+import { getMainWindow } from './window-manager'
 import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP, isMcpCommandAllowed } from './shell-security'
 import { validatePath, validateReadPath, validateOpenPath, validateWritePath, hasSuspiciousBasename, sanitizeKey } from './pathValidator'
 import archiver from 'archiver'
@@ -16,9 +20,11 @@ import * as iconv from 'iconv-lite'
 // R16 修复：原为 CJS require('./vault')——electron-vite 打包不解析相对路径 CJS require，
 // 运行时 out/main 仅有单文件 bundle 导致 MODULE_NOT_FOUND；改为静态 ESM import 由 rollup 打入
 // B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
-import { openVault, closeVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+// A-19：closeVault 移至 main.ts 的 before-quit 调用，此处不再导入
+import { openVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
 
-let mainWindow: BrowserWindow | null = null
+// A-06/A-01：不再持有 setupIpc 时的固定引用（macOS activate 重建窗口后变野指针、
+// 关闭后 isDestroyed 判不住），统一经 window-manager 动态获取（内含 isDestroyed 校验）
 let watchDir: string | null = null
 let fsWatcher: ReturnType<typeof import('fs').watch> | null = null
 
@@ -30,6 +36,30 @@ const knowledgeDir = join(userDataDir, 'knowledge')
 
 function ensureDir(dir: string) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+}
+
+// A-15：响应体流式限量读取——resp.text() 会先把整个响应载入内存后才截断，
+// 恶意/超大响应可直接打爆主进程内存；读到上限即停止并释放剩余连接
+const HTTP_MAX_RESPONSE_SIZE = 512000
+async function readBodyCapped(resp: Response, maxBytes: number = HTTP_MAX_RESPONSE_SIZE): Promise<string> {
+  if (!resp.body) return (await resp.text()).substring(0, maxBytes)
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let out = ''
+  let received = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (received + value.byteLength > maxBytes) {
+      const room = maxBytes - received
+      if (room > 0) out += decoder.decode(value.subarray(0, room))
+      try { await reader.cancel() } catch { /* non-critical */ }
+      return out
+    }
+    received += value.byteLength
+    out += decoder.decode(value, { stream: true })
+  }
+  return out
 }
 
 // P1-1 修复：恢复前对解压产物做条目校验（仅 store 数据、拒符号链接、限数量/大小）
@@ -138,43 +168,90 @@ async function isHostAllowed(hostname: string): Promise<{ allowed: boolean; reas
   }
 }
 
-async function assertUrlAllowed(urlStr: string): Promise<{ ok: boolean; url?: URL; error?: string }> {
-  try {
-    const url = new URL(urlStr)
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return { ok: false, error: '仅支持 http/https 协议' }
-    }
-    const hostCheck = await isHostAllowed(url.hostname)
-    if (!hostCheck.allowed) {
-      return { ok: false, error: hostCheck.reason || `不允许访问内网地址: ${url.hostname}` }
-    }
-    return { ok: true, url }
-  } catch {
-    return { ok: false, error: `URL 格式无效: ${urlStr}` }
+// A-12（DNS Rebinding TOCTOU）：dns.lookup 校验与 fetch 内部解析是两次独立查询，
+// 短 TTL 重绑定可先回公网 IP 过校验、再回内网 IP 供 fetch 实际连接，
+// safeFetch 在校验通过后把连接固定到已校验的 IP（Host 头与 TLS SNI 仍用原域名），
+// 从根本上消除二次解析窗口。
+async function safeFetch(
+  urlStr: string,
+  init: { method: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }
+): Promise<Response> {
+  const url = new URL(urlStr)
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('仅支持 http/https 协议')
   }
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  let pinned: { address: string; family: number }
+  if (isIP(host)) {
+    const v = isIP(host)
+    const priv = v === 4 ? isPrivateIPv4(host) : v === 6 ? isPrivateIPv6(host) : true
+    if (priv) throw new Error(`不允许访问内网保留地址: ${host}`)
+    pinned = { address: host, family: v }
+  } else {
+    if (isPrivateHostname(host)) throw new Error(`不允许访问内网保留地址: ${host}`)
+    const addresses = await lookup(host, { all: true, verbatim: true })
+    if (addresses.length === 0) throw new Error(`域名解析失败: ${host}`)
+    for (const { address } of addresses) {
+      const v = isIP(address)
+      const priv = v === 4 ? isPrivateIPv4(address) : v === 6 ? isPrivateIPv6(address) : true
+      if (priv) throw new Error(`域名解析到内网保留地址: ${host} -> ${address}`)
+    }
+    pinned = { address: addresses[0].address, family: addresses[0].family }
+  }
+  return new Promise<Response>((resolve, reject) => {
+    const lib = url.protocol === 'https:' ? httpsRequest : httpRequest
+    const hostHeader = url.port ? `${url.hostname}:${url.port}` : url.hostname
+    const reqOpts: Record<string, unknown> = {
+      host: pinned.address,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: `${url.pathname}${url.search}`,
+      method: init.method,
+      family: pinned.family,
+      headers: { ...(init.headers || {}), host: hostHeader },
+      signal: init.signal
+    }
+    if (url.protocol === 'https:') reqOpts.servername = url.hostname
+    const req = lib(reqOpts, (res) => {
+      res.on('error', reject)
+      res.on('end', () => {
+        const status = res.statusCode || 0
+        const headers: Record<string, string> = {}
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (v === undefined) continue
+          headers[k] = Array.isArray(v) ? v.join(', ') : String(v)
+        }
+        const nullBody = status === 204 || status === 205 || status === 304
+        // 透传原始流（SSE 流式响应必须实时可读，不能整体缓冲）
+        resolve(new Response(nullBody ? null : Readable.toWeb(res), { status, headers }))
+      })
+    })
+    req.on('error', reject)
+    if (init.body != null) req.write(init.body)
+    req.end()
+  })
 }
 
-export function setupIpc(win: BrowserWindow | null) {
-  mainWindow = win
-
+export function setupIpc(_win: BrowserWindow | null) {
   ensureDir(storeDir)
   ensureDir(vectorDir)
   ensureDir(backupDir)
   ensureDir(knowledgeDir)
 
-  ipcMain.on('window:minimize', () => { mainWindow?.minimize() })
+  ipcMain.on('window:minimize', () => { getMainWindow()?.minimize() })
   ipcMain.on('window:maximize', () => {
-    if (!mainWindow) return
-    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize()
+    const mw = getMainWindow()
+    if (!mw) return
+    mw.isMaximized() ? mw.unmaximize() : mw.maximize()
   })
-  ipcMain.on('window:close', () => { mainWindow?.close() })
+  ipcMain.on('window:close', () => { getMainWindow()?.close() })
 
   ipcMain.handle('dialog:openFile', async (_event, options?: {
     filters?: FileFilter[]
     title?: string
   }) => {
-    if (!mainWindow) return { canceled: true, filePaths: [] }
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const mw = getMainWindow()
+    if (!mw) return { canceled: true, filePaths: [] }
+    const result = await dialog.showOpenDialog(mw, {
       properties: ['openFile', 'multiSelections'],
       filters: options?.filters,
       title: options?.title || '选择文件'
@@ -185,8 +262,9 @@ export function setupIpc(win: BrowserWindow | null) {
   ipcMain.handle('dialog:openDirectory', async (_event, options?: {
     title?: string
   }) => {
-    if (!mainWindow) return { canceled: true, filePaths: [] }
-    const result = await dialog.showOpenDialog(mainWindow, {
+    const mw = getMainWindow()
+    if (!mw) return { canceled: true, filePaths: [] }
+    const result = await dialog.showOpenDialog(mw, {
       properties: ['openDirectory'],
       title: options?.title || '选择文件夹'
     })
@@ -249,6 +327,19 @@ export function setupIpc(win: BrowserWindow | null) {
       return files.filter((f: string) => f.endsWith('.bin')).map((f: string) => f.replace(/\.bin$/, ''))
     } catch {
       return []
+    }
+  })
+
+  // C-16：删除知识条目时清理二进制向量文件（此前只增不减，删除后成隐私残留孤儿）
+  ipcMain.handle('vector:deleteBin', (_event, key: string) => {
+    const keyCheck = sanitizeKey(key)
+    if (!keyCheck.safe) return false
+    try {
+      const filePath = join(vectorDir, `${key}.bin`)
+      if (existsSync(filePath)) unlinkSync(filePath)
+      return true
+    } catch {
+      return false
     }
   })
 
@@ -333,7 +424,8 @@ export function setupIpc(win: BrowserWindow | null) {
           return
         }
         const stat = statSync(validatedPath)
-        const limit = maxBytes || 512000
+        // A-14：maxBytes 必须为有限正数——Infinity 为 truthy 会绕过 `|| 512000` 整读大文件
+        const limit = (typeof maxBytes === 'number' && Number.isFinite(maxBytes) && maxBytes > 0) ? maxBytes : 512000
         if (stat.size > limit * 2) {
           clearTimeout(timer)
           if (!settled) { settled = true; resolve({ success: false, error: `文件过大(${Math.round(stat.size/1024)}KB)，超限` }) }
@@ -429,7 +521,7 @@ export function setupIpc(win: BrowserWindow | null) {
       stopMcpProcess(opts.id)
     }
 
-    const result = startMcpProcess(opts.id, opts.command, opts.args, opts.env, mainWindow)
+    const result = startMcpProcess(opts.id, opts.command, opts.args, opts.env, getMainWindow())
     if (!result.success) return { success: false, error: result.error }
 
     const entry = getMcpEntry(opts.id)
@@ -449,8 +541,9 @@ export function setupIpc(win: BrowserWindow | null) {
         clientInfo: { name: 'HoloStarmap', version: '0.1.0' }
       }, 60000)
 
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('mcp:status', { id: opts.id, status: 'running', initResult })
+      const mw = getMainWindow()
+      if (mw) {
+        mw.webContents.send('mcp:status', { id: opts.id, status: 'running', initResult })
       }
 
       try {
@@ -473,8 +566,9 @@ export function setupIpc(win: BrowserWindow | null) {
         }))
         entry.tools = tools
         entry.status = 'running'
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('mcp:tools', { id: opts.id, tools })
+        const mw = getMainWindow()
+        if (mw) {
+          mw.webContents.send('mcp:tools', { id: opts.id, tools })
         }
       } catch (toolsErr) {
         const toolsMessage = toolsErr instanceof Error ? toolsErr.message : String(toolsErr)
@@ -488,8 +582,9 @@ export function setupIpc(win: BrowserWindow | null) {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[MCP ${opts.id} initialize failed]`, message)
       stopMcpProcess(opts.id)
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('mcp:status', { id: opts.id, status: 'error', error: message })
+      const mw = getMainWindow()
+      if (mw) {
+        mw.webContents.send('mcp:status', { id: opts.id, status: 'error', error: message })
       }
       return { success: false, error: `MCP initialize failed: ${message}` }
     }
@@ -524,8 +619,9 @@ export function setupIpc(win: BrowserWindow | null) {
         inputSchema: (t.inputSchema || {}) as Record<string, unknown>
       }))
       entry.tools = tools
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('mcp:tools', { id: opts.id, tools })
+      const mw = getMainWindow()
+      if (mw) {
+        mw.webContents.send('mcp:tools', { id: opts.id, tools })
       }
       return { success: true, tools }
     } catch (err) {
@@ -570,18 +666,33 @@ export function setupIpc(win: BrowserWindow | null) {
       let settled = false
       let tierTimer: ReturnType<typeof setTimeout> | undefined
       let capTimer: ReturnType<typeof setTimeout> | undefined
+      // A-10：SIGKILL 兜底定时器必须可清除——进程正常退出后残留的兜底 kill
+      // 会在 3 秒后对已回收的 pid 误发信号（pid 可能已被复用）
+      let killTimer: ReturnType<typeof setTimeout> | undefined
       try {
         const extraNodePath = join(process.resourcesPath, 'node_modules')
-        // NODE_PATH 强制为主进程指定值，防止渲染层 env 覆盖后 node -e 加载恶意模块
-        const childEnv: Record<string, string> = { ...(process.env as Record<string, string>), NODE_PATH: extraNodePath, ...(opts.env || {}) }
+        // A-03：渲染层传入的 env 必须先经 sanitizeMcpEnv 过滤危险键，
+        // （NODE_OPTIONS=--import=... 可借 shell 通道注入任意主进程代码），
+        // 再强制 NODE_PATH 为主进程指定值，防止 node -e 加载恶意模块
+        const childEnv: Record<string, string> = { ...(process.env as Record<string, string>), NODE_PATH: extraNodePath, ...sanitizeMcpEnv(opts.env) }
         childEnv.NODE_PATH = extraNodePath
         const child = spawn(opts.command, [], {
           cwd,
           shell: true,
           env: childEnv
         })
-        child.stdout?.on('data', (data: Buffer) => { stdout += data.toString() })
-        child.stderr?.on('data', (data: Buffer) => { stderr += data.toString() })
+        // A-17：stdout/stderr 累积必须有字节上限——大文件 type / 长时间 npm install
+        // 会使主进程内存持续增长；超限后停止累积并追加截断标记
+        const MAX_STREAM_OUTPUT = 1024 * 1024
+        const appendCapped = (current: string, data: Buffer): string => {
+          if (current.length >= MAX_STREAM_OUTPUT) return current
+          const appended = current + data.toString()
+          return appended.length > MAX_STREAM_OUTPUT
+            ? appended.slice(0, MAX_STREAM_OUTPUT) + '\n... (输出超限，已截断)'
+            : appended
+        }
+        child.stdout?.on('data', (data: Buffer) => { stdout = appendCapped(stdout, data) })
+        child.stderr?.on('data', (data: Buffer) => { stderr = appendCapped(stderr, data) })
         child.on('close', (code: number | null) => {
           if (!settled) {
             settled = true
@@ -589,6 +700,7 @@ export function setupIpc(win: BrowserWindow | null) {
             if (capTimer) clearTimeout(capTimer)
             resolve({ success: code === 0, code: code ?? -1, stdout, stderr })
           }
+          if (killTimer) clearTimeout(killTimer)
         })
         child.on('error', (err: Error) => {
           if (!settled) {
@@ -597,21 +709,34 @@ export function setupIpc(win: BrowserWindow | null) {
             if (capTimer) clearTimeout(capTimer)
             resolve({ success: false, code: -1, stdout, stderr: err.message })
           }
+          if (killTimer) clearTimeout(killTimer)
         })
         tierTimer = setTimeout(() => {
           if (!settled) {
             settled = true
-            try { child.kill('SIGTERM') } catch { /* already exited */ }
-            setTimeout(() => {
-              try { child.kill('SIGKILL') } catch { /* ignore */ }
-            }, 3000)
+            // A-10：Windows 下 shell:true 的直接子进程是 cmd.exe，kill 只杀壳进程，
+            // 孙进程（npm/node 进程群）存活后台，超时保护名存实亡——
+            // 改用 taskkill /T /F 杀整棵进程树；非 Windows 保留 SIGTERM→SIGKILL
+            if (process.platform === 'win32' && child.pid) {
+              try { spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']) } catch { /* already exited */ }
+            } else {
+              try { child.kill('SIGTERM') } catch { /* already exited */ }
+              killTimer = setTimeout(() => {
+                try { child.kill('SIGKILL') } catch { /* ignore */ }
+              }, 3000)
+            }
             resolve({ success: false, code: -1, stdout, stderr: `命令超时(${tierTimeout}ms)，已发送终止信号` })
           }
         }, tierTimeout)
         capTimer = setTimeout(() => {
           if (!settled) {
             settled = true
-            try { child.kill('SIGKILL') } catch { /* ignore */ }
+            // A-10：绝对超时同样按进程树击杀
+            if (process.platform === 'win32' && child.pid) {
+              try { spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']) } catch { /* already exited */ }
+            } else {
+              try { child.kill('SIGKILL') } catch { /* ignore */ }
+            }
             resolve({ success: false, code: -1, stdout, stderr: `绝对超时(${180000}ms)，强制终止` })
           }
         }, 180000)
@@ -638,19 +763,18 @@ export function setupIpc(win: BrowserWindow | null) {
       let resp: Response | null = null
 
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-        // P0-3 修复：每一跳都重新做协议 + DNS 解析 + 私网判定，堵死 302 重定向绕过
-        const urlCheck = await assertUrlAllowed(currentUrl)
-        if (!urlCheck.ok) {
-          return { success: false, status: 0, error: urlCheck.error || 'URL 校验失败' }
-        }
+        // P0-3：每一跳都重新做协议 + DNS 解析 + 私网判定，堵死 302 重定向绕过；
+        // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
         const controller = new AbortController()
         const tierTimer = setTimeout(() => controller.abort(), tierTimeout)
         const capTimer = setTimeout(() => controller.abort(), HTTP_ABSOLUTE_CAP)
         try {
-          const fetchOpts: Record<string, unknown> = { method: currentMethod, signal: controller.signal, redirect: 'manual' }
-          if (opts.headers) fetchOpts.headers = opts.headers
-          if (currentBody && currentMethod !== 'GET' && currentMethod !== 'HEAD') fetchOpts.body = currentBody
-          resp = await fetch(currentUrl, fetchOpts)
+          resp = await safeFetch(currentUrl, {
+            method: currentMethod,
+            headers: opts.headers,
+            body: (currentBody && currentMethod !== 'GET' && currentMethod !== 'HEAD') ? currentBody : undefined,
+            signal: controller.signal
+          })
         } finally {
           clearTimeout(tierTimer)
           clearTimeout(capTimer)
@@ -675,8 +799,9 @@ export function setupIpc(win: BrowserWindow | null) {
       if (!resp) {
         return { success: false, status: 0, error: '请求未产生响应' }
       }
-      const text = await resp.text()
-      return { success: true, status: resp.status, headers: Object.fromEntries(resp.headers.entries()), body: text.substring(0, 512000) }
+      // A-15：流式限量读取，不再先整读后截断
+      const text = await readBodyCapped(resp)
+      return { success: true, status: resp.status, headers: Object.fromEntries(resp.headers.entries()), body: text }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e)
       if (msg.includes('abort') || msg.includes('AbortError')) {
@@ -693,8 +818,14 @@ export function setupIpc(win: BrowserWindow | null) {
       const archive = archiver('zip', { zlib: { level: 6 } })
       archive.pipe(output)
       archive.directory(storeDir, 'store')
-      archive.finalize()
-      await new Promise<void>((resolve, reject) => { output.on('close', resolve); output.on('error', reject) })
+      // A-09：archiver 流错误必须有监听（否则 EventEmitter 抛出→uncaughtException 杀应用），
+      // 且 finalize() 的 Promise 需与 output close 一并等待，防止 handler 永久挂起
+      await new Promise<void>((resolve, reject) => {
+        archive.on('error', reject)
+        output.on('close', resolve)
+        output.on('error', reject)
+        archive.finalize().catch(reject)
+      })
       return { success: true, path: join(backupDir, `holo-backup-${ts}.zip`) }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
@@ -703,10 +834,11 @@ export function setupIpc(win: BrowserWindow | null) {
 
   ipcMain.handle('backup:restore', async () => {
     // P1-1 修复：解压到临时目录 → 条目校验 → 快照现网 → 原子交换，失败可回滚
-    if (!mainWindow) return { success: false, error: 'No window' }
+    const mw = getMainWindow()
+    if (!mw) return { success: false, error: 'No window' }
     let tmpDir = ''
     try {
-      const result = await dialog.showOpenDialog(mainWindow, {
+      const result = await dialog.showOpenDialog(mw, {
         properties: ['openFile'],
         filters: [{ name: '备份文件', extensions: ['zip'] }],
         title: '选择备份文件恢复'
@@ -768,10 +900,13 @@ export function setupIpc(win: BrowserWindow | null) {
         if (!filename || typeof filename !== 'string') return
         const ext = filename.split('.').pop()?.toLowerCase()
         if (!ext || !['md', 'txt', 'json', 'csv', 'pdf', 'docx'].includes(ext)) return
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('watchfs:changed', { event: eventType, filename, path: join(pathCheck.resolved, filename) })
+        const mw = getMainWindow()
+        if (mw) {
+          mw.webContents.send('watchfs:changed', { event: eventType, filename, path: join(pathCheck.resolved, filename) })
         }
       })
+      // A-08：成功建立监听后回写 watchDir，否则 watchfs:getDir 恒返回 null，UI 无法恢复监听状态
+      watchDir = pathCheck.resolved
       return { success: true }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
@@ -869,14 +1004,15 @@ export function setupIpc(win: BrowserWindow | null) {
       const maxTok = maxTokens || 16384
       const tierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
       const absoluteCap = 180000
-      const resp = await fetch(`${baseUrl}${endpoint}`, {
+      // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
+      const resp = await safeFetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))
       })
       if (!resp.ok) {
-        const errBody = await resp.text().catch(() => '')
+        const errBody = await readBodyCapped(resp, 16384).catch(() => '')
         return { success: false, error: `API error ${resp.status}: ${errBody.slice(0, 200)}` }
       }
       const data = await resp.json() as Record<string, unknown>
@@ -979,13 +1115,14 @@ export function setupIpc(win: BrowserWindow | null) {
       } else if (provider.authType === 'api-key' && apiKey) {
         headers['x-api-key'] = apiKey
       }
-      const resp = await fetch(`${baseUrl}${endpoint}`, {
+      // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
+      const resp = await safeFetch(`${baseUrl}${endpoint}`, {
         method: 'GET',
         headers,
         signal: AbortSignal.timeout(5000)
       })
       if (!resp.ok) {
-        const errBody = await resp.text().catch(() => '')
+        const errBody = await readBodyCapped(resp, 16384).catch(() => '')
         return { success: false, error: `API error ${resp.status}: ${errBody.slice(0, 200)}` }
       }
       const data = await resp.json() as { data?: Array<{ id: string }> }
@@ -1007,7 +1144,8 @@ export function setupIpc(win: BrowserWindow | null) {
       return { success: false, error: `内容过大(${Math.round(content.length / 1024)}KB)，上限10MB` }
     }
     try {
-      const id = `kb-${Date.now()}`
+      // A-21：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
+      const id = `kb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
       const entryPath = join(knowledgeDir, `${id}.json`)
       const chunks = chunkText(content, 512)
       const entry = {
@@ -1031,7 +1169,11 @@ export function setupIpc(win: BrowserWindow | null) {
       return { success: false, error: 'Missing query' }
     }
     try {
-      const queryWords = query.split(/\s+/)
+      // A-21：首/尾空格 split 出的空词 includes('') 恒真会匹配所有 chunk，必须过滤
+      const queryWords = query.split(/\s+/).filter((w: string) => w.length > 0)
+      if (queryWords.length === 0) {
+        return { success: false, error: 'Missing query' }
+      }
       const results: { text: string; score: number }[] = []
       const files = readdirSync(knowledgeDir).filter((f: string) => f.endsWith('.json'))
       for (const file of files) {
@@ -1269,14 +1411,15 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     const absoluteCap = 180000
     const fetchSignal = AbortSignal.any([abortCtrl.signal, AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))])
 
-    const resp = await fetch(`${baseUrl}${endpoint}`, {
+    // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU（SSE 流透传）
+    const resp = await safeFetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal: fetchSignal
     })
     if (!resp.ok) {
-      const errBody = await resp.text().catch(() => '')
+      const errBody = await readBodyCapped(resp, 16384).catch(() => '')
       event.sender.send(errorChannel, `API error ${resp.status}: ${errBody.slice(0, 200)}`)
       activeStreamControllers.delete(streamId)
       return

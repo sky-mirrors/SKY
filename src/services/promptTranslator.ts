@@ -266,12 +266,21 @@ ${contextLine}
     const cleaned = rawContent.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
     const parsed = JSON.parse(cleaned)
     if (parsed.intent && parsed.steps && Array.isArray(parsed.steps)) {
+      // B-08：LLM 偶发返回重复步骤编号——validateDAG 的 stepMap 中后者覆盖前者，
+      // 执行层步骤错乱且依赖悬空。按编号去重，保留首个出现（depends_on 语义以首次为准）
+      const seenStepNums = new Set<number>()
+      const deduped: unknown[] = []
       for (let i = 0; i < parsed.steps.length; i++) {
         const s = parsed.steps[i]
         if (s.step === undefined) s.step = i + 1
         if (!s.depends_on) s.depends_on = []
         if (!s.params) s.params = {}
+        if (!seenStepNums.has(s.step)) {
+          seenStepNums.add(s.step)
+          deduped.push(s)
+        }
       }
+      parsed.steps = deduped
       return validateDAG(parsed as TaskPlan)
     }
   } catch { /* fallback */ }
@@ -330,9 +339,12 @@ function validateDAG(plan: TaskPlan): TaskPlan {
     const cycleEdge = findCycleEdge()
     if (!cycleEdge) break
     const [from, to] = cycleEdge
-    const step = stepMap.get(to)
+    // B-04：栈序保证 stack[i+1] ∈ stack[i].depends_on，即 to 是 from 的依赖；
+    // 破环必须从 from 的 depends_on 里移除 to。原代码改的是 to 的依赖表（方向反了），
+    // 环依然存在，白耗迭代后环被原样放行
+    const step = stepMap.get(from)
     if (step) {
-      step.depends_on = step.depends_on.filter(d => d !== from)
+      step.depends_on = step.depends_on.filter(d => d !== to)
     }
   }
 

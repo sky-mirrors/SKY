@@ -1,5 +1,5 @@
 import { KnowledgeEntry, SearchResult, KnowledgeAdapter } from '@/models'
-import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries } from './vectorStore'
+import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries, deleteChunksFile } from './vectorStore'
 import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, generateVectorWithMeta, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
 import { debugLog } from '@/services/debugLog'
 import { estimateTokens } from '@/services/tokenEstimate'
@@ -37,6 +37,15 @@ export function getKnowledgeEntries(): KnowledgeEntry[] {
 
 function saveEntries(entries: KnowledgeEntry[]) {
   vault.writeThrough('knowledge', STORAGE_KEY, JSON.stringify(entries))
+}
+
+// C-15：条目索引读-改-写互斥锁（promise 链实现）——摄取窗口秒级，
+// 并发导入文件时后写者会用自己的旧快照覆盖前写者，先完成的条目从索引消失
+let entriesWriteLock: Promise<unknown> = Promise.resolve()
+function withEntriesLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = entriesWriteLock.then(fn, fn)
+  entriesWriteLock = run.then(() => undefined, () => undefined)
+  return run
 }
 
 interface ChunkRecord {
@@ -210,13 +219,15 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
 
   const chunks = chunkBySemantic(text, 512)
   const chunkRecords: ChunkRecord[] = []
+  // C-25：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
+  const entryId = `kb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
     // P1-12：记录伪向量标记，供检索期迁移循环识别
     const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
     chunkRecords.push({
       text: chunkText,
-      entryId: `kb-${Date.now()}`,
+      entryId,
       chunkIndex: idx,
       vector,
       vectorIsPseudo: isPseudo,
@@ -225,7 +236,7 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
   }
 
   const entry: KnowledgeEntry = {
-    id: chunkRecords.length > 0 ? chunkRecords[0].entryId : `kb-${Date.now()}`,
+    id: entryId,
     filename: file.name,
     fileType: file.type || file.name.split('.').pop() || 'unknown',
     chunks: chunks.length,
@@ -241,9 +252,12 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
 
   await saveChunkStore(entry.id, chunkRecords)
 
-  const entries = getKnowledgeEntries()
-  entries.push(entry)
-  saveEntries(entries)
+  // C-15：追加必须持锁读-改-写，防并发覆盖
+  await withEntriesLock(async () => {
+    const entries = getKnowledgeEntries()
+    entries.push(entry)
+    saveEntries(entries)
+  })
 
   return entry
 }
@@ -268,12 +282,14 @@ async function ingestTextCore(
 ): Promise<KnowledgeEntry> {
   const chunks = chunkBySemantic(text, 512)
   const chunkRecords: ChunkRecord[] = []
+  // C-25：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
+  const entryId = `kb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
     const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
     chunkRecords.push({
       text: chunkText,
-      entryId: `kb-${Date.now()}`,
+      entryId,
       chunkIndex: idx,
       vector,
       vectorIsPseudo: isPseudo,
@@ -282,7 +298,7 @@ async function ingestTextCore(
   }
 
   const entry: KnowledgeEntry = {
-    id: chunkRecords.length > 0 ? chunkRecords[0].entryId : `kb-${Date.now()}`,
+    id: entryId,
     filename: label || `text-${Date.now()}`,
     fileType: 'text/plain',
     chunks: chunks.length,
@@ -300,9 +316,12 @@ async function ingestTextCore(
 
   await saveChunkStore(entry.id, chunkRecords)
 
-  const entries = getKnowledgeEntries()
-  entries.push(entry)
-  saveEntries(entries)
+  // C-15：追加必须持锁读-改-写，防并发覆盖
+  await withEntriesLock(async () => {
+    const entries = getKnowledgeEntries()
+    entries.push(entry)
+    saveEntries(entries)
+  })
 
   return entry
 }
@@ -346,7 +365,9 @@ export async function hybridSearch(query: string, topK: number = 5, scope?: Sear
         }
       }
     }
-    if (allowedIds.size > 0) {
+    // C-09：只要 scope 指定了 owner/group 维度就必须过滤——原来的 `allowedIds.size > 0`
+    // 条件下，新会话/空分组首次检索会整体跳过过滤，返回所有其他项目的知识条目（跨项目泄漏）
+    if (scope.ownerType || (scope.groupIds && scope.groupIds.length > 0)) {
       const globalIds = new Set(entries.filter(e => !e.ownerType || e.ownerType === 'global').map(e => e.id))
       globalIds.forEach(id => allowedIds.add(id))
       entries = entries.filter(e => allowedIds.has(e.id))
@@ -356,6 +377,8 @@ export async function hybridSearch(query: string, topK: number = 5, scope?: Sear
   const allChunks: ChunkRecord[] = []
   for (const entry of entries) {
     const chunks = await getChunkStoreAsync(entry.id)
+    // C-10：重嵌入迁移移到这里（按 entry 粒度），迁移结果回写持久层
+    await reembedChunksIfStale(entry.id, chunks)
     allChunks.push(...chunks)
   }
 
@@ -368,7 +391,10 @@ export async function hybridSearch(query: string, topK: number = 5, scope?: Sear
   return merged.slice(0, topK)
 }
 
-async function vectorSearch(query: string, chunks: ChunkRecord[], topK: number): Promise<SearchResult[]> {
+// C-10：检索期重嵌入此前只改内存副本、`migrated` 是死变量，永不落盘 →
+// 每次搜索重复全量嵌入（transformers.js 推理极耗 CPU），迁移无限循环。
+// 改为按 entry 回写 saveChunkStore（含 vault 与文件向量库双持久层）
+async function reembedChunksIfStale(entryId: string, chunks: ChunkRecord[]): Promise<void> {
   let migrated = false
   for (const chunk of chunks) {
     if (needsReembedding(chunk.vector, chunk.vectorIsPseudo)) {
@@ -381,7 +407,10 @@ async function vectorSearch(query: string, chunks: ChunkRecord[], topK: number):
       migrated = true
     }
   }
+  if (migrated) await saveChunkStore(entryId, chunks)
+}
 
+async function vectorSearch(query: string, chunks: ChunkRecord[], topK: number): Promise<SearchResult[]> {
   const queryVec = await generateVector(query)
   const scored = chunks.map(chunk => ({
     text: chunk.text,
@@ -417,25 +446,36 @@ export function getEntry(id: string): KnowledgeEntry | null {
 }
 
 export async function deleteKnowledgeEntry(entryId: string): Promise<boolean> {
-  const entries = getKnowledgeEntries()
-  const idx = entries.findIndex(e => e.id === entryId)
-  if (idx < 0) return false
+  // C-15/C-16：删除与并发摄取同样需要持锁，否则旧快照回写可"复活"已删条目
+  return withEntriesLock(async () => {
+    const entries = getKnowledgeEntries()
+    const idx = entries.findIndex(e => e.id === entryId)
+    if (idx < 0) return false
 
-  entries.splice(idx, 1)
-  saveEntries(entries)
+    entries.splice(idx, 1)
+    saveEntries(entries)
 
-  await vault.delete('knowledge', `holo-kb-chunks-${entryId}`)
+    await vault.delete('knowledge', `holo-kb-chunks-${entryId}`)
 
-  try {
-    if (window.electronAPI?.storeRead) {
-      await window.electronAPI.storeRead(`chunks-meta-${entryId}`)
-      if (window.electronAPI?.storeWrite) {
-        await window.electronAPI.storeWrite(`chunks-meta-${entryId}`, '')
+    try {
+      if (window.electronAPI?.storeRead) {
+        await window.electronAPI.storeRead(`chunks-meta-${entryId}`)
+        if (window.electronAPI?.storeWrite) {
+          await window.electronAPI.storeWrite(`chunks-meta-${entryId}`, '')
+        }
       }
-    }
-  } catch { /* non-critical */ }
+    } catch { /* non-critical */ }
 
-  return true
+    // C-16：同步删除二进制向量文件——原实现只清 meta，vec-*.bin 磁盘残留（隐私问题）
+    await deleteChunksFile(entryId)
+
+    // C-16：广播条目删除，清理 memoryStore/knowledgeStore/pipelineStore 三处悬空引用
+    try {
+      globalBus.emit('knowledge:entry-deleted', { entryId })
+    } catch { /* non-critical */ }
+
+    return true
+  })
 }
 
 export function getEntriesByOwner(ownerType: string, ownerId: string): KnowledgeEntry[] {

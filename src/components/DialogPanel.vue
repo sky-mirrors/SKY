@@ -1433,7 +1433,8 @@ function onNewSession() {
   const s = sessionStore.createSession()
   const switched = sessionStore.switchToSession(s.id, dialogStore.messages)
   if (switched) {
-    dialogStore.messages = switched.messages
+    // B-17：拷贝断开与 session.messages 的数组别名
+    dialogStore.messages = switched.messages.map(m => ({ ...m }))
   }
   dialogStore.showTransientHint(`✅ 已创建并切换到: ${s.name}`)
 }
@@ -1441,7 +1442,8 @@ function onNewSession() {
 function onSwitchSession(sessionId: string) {
   const switched = sessionStore.switchToSession(sessionId, dialogStore.messages)
   if (switched) {
-    dialogStore.messages = switched.messages
+    // B-17：拷贝断开与 session.messages 的数组别名
+    dialogStore.messages = switched.messages.map(m => ({ ...m }))
     dialogStore.showTransientHint(`🔄 已切换到: ${switched.name}`)
   }
 }

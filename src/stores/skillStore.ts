@@ -11,15 +11,28 @@ export const useSkillStore = defineStore('skills', () => {
   function installSkill(skill: Skill) {
     const missing = skill.dependencies.filter(dep => !isDependencyMet(dep))
     if (missing.length > 0) return { success: false, missing }
+    // C-21：同 id 技能不可重复安装（与 importSkill 同口径）
+    if (installedSkills.value.some(s => s.id === skill.id)) {
+      return { success: false, missing: [`Skill already installed: ${skill.id}`] }
+    }
     const installed = { ...skill, isInstalled: true, isFromMarket: true }
     installedSkills.value.push(installed)
     saveToStorage()
     return { success: true, missing: [] }
   }
 
-  function uninstallSkill(skillId: string) {
+  function uninstallSkill(skillId: string): { success: boolean; blockedBy: string[] } {
+    // C-21：卸载前校验反向依赖——被其他已安装技能依赖时拒绝卸载，
+    // 否则留下悬空依赖，后续安装/校验莫名失败
+    const blockedBy = installedSkills.value
+      .filter(s => s.id !== skillId && s.dependencies.includes(skillId))
+      .map(s => s.name || s.id)
+    if (blockedBy.length > 0) {
+      return { success: false, blockedBy }
+    }
     installedSkills.value = installedSkills.value.filter(s => s.id !== skillId)
     saveToStorage()
+    return { success: true, blockedBy: [] }
   }
 
   function isCatalogItemInstalled(catalogId: string): boolean {
@@ -32,7 +45,7 @@ export const useSkillStore = defineStore('skills', () => {
     }
 
     const skill: Skill = {
-      id: `skill-${Date.now()}`,
+      id: `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: item.name,
       description: item.description,
       version: item.version,
@@ -64,6 +77,10 @@ export const useSkillStore = defineStore('skills', () => {
     try {
       const skill = JSON.parse(json) as Skill
       if (!skill.id || !skill.name || !skill.nodes) return { success: false, missing: ['Invalid skill format'] }
+      // C-21：重复导入同 id 产生不可区分副本——已存在则拒绝
+      if (installedSkills.value.some(s => s.id === skill.id)) {
+        return { success: false, missing: [`Skill already installed: ${skill.id}`] }
+      }
       skill.isInstalled = true
       const missing = skill.dependencies.filter(dep => !isDependencyMet(dep))
       if (missing.length > 0) return { success: false, missing }
@@ -77,7 +94,7 @@ export const useSkillStore = defineStore('skills', () => {
 
   function createSkillFromWorkflow(name: string, description: string, nodes: SkillNode[], edges: SkillEdge[], dependencies: string[]): Skill {
     const skill: Skill = {
-      id: `skill-${Date.now()}`,
+      id: `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name,
       description,
       version: '1.0.0',

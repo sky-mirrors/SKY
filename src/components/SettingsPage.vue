@@ -19,7 +19,8 @@
           <div v-if="activeTab === 'appearance'" class="sp-section">
             <div class="sp-field">
               <label>主题</label>
-              <select :value="configStore.theme" @change="configStore.toggleTheme()">
+              <!-- D-12：下拉框按选定值直达，不再调用循环切换的 toggleTheme -->
+              <select :value="configStore.theme" @change="configStore.setTheme(($event.target as HTMLSelectElement).value as 'light' | 'green' | 'dark')">
                 <option value="dark">深色</option>
                 <option value="light">浅色</option>
                 <option value="green">护眼</option>

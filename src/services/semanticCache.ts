@@ -1,6 +1,6 @@
 ﻿import { ModelTier } from '@/models'
 import { generateVector, generateVectorWithMeta, cosineSimilarity, needsReembedding, isEmbedderReady } from '@/services/embedder'
-import { calculateCost } from '@/services/tokenPricing'
+import { calculateCostByTier } from '@/services/tokenPricing'
 import { debugLog } from '@/services/debugLog'
 import { vault } from '@/vault'
 
@@ -152,6 +152,17 @@ function isExpired(entry: SemanticCacheEntry): boolean {
 }
 
 /**
+ * B-13：仅当 exactMap 中该键仍指向本条目时才删除——防止同 key 的僵尸条目
+ * 被 LRU 逐出/失效时误删覆盖后的新条目映射。
+ */
+function deleteExactIfOwned(entry: SemanticCacheEntry): void {
+  const k = exactKey(entry.queryHash, entry.domain, entry.packId)
+  if (exactMap.get(k) === entry) {
+    exactMap.delete(k)
+  }
+}
+
+/**
  * 规格 M10：精确键 = 查询哈希 × domain × packId。
  * 原实现仅按 queryHash 去重/索引——同一查询来自不同 pack/domain 会互相顶替或错误复用
  * （跨域缓存污染的 store 侧漏洞），复合键后各归属独立成条。
@@ -223,7 +234,9 @@ export async function lookup(
     exact.lastAccessedAt = Date.now()
     const lruNode = lruMap.get(exact.id)
     if (lruNode) lruTouch(lruNode)
-    const costResult = calculateCost(exact.tokenUsage.promptTokens, exact.tokenUsage.completionTokens, exact.tokenUsage.completionTokens)
+    // B-14：节省成本=按 entry.tier 分层重新生成整条响应的全价——
+    // 原实现把 completionTokens 当 cacheHitTokens 抵扣且用全局定价，统计系统性虚高
+    const costResult = calculateCostByTier(exact.tokenUsage.promptTokens, exact.tokenUsage.completionTokens, exact.tier)
     totalSavedTokens += exact.tokenUsage.completionTokens
     totalSavedCost += costResult.totalCost
     debugLog(`[SemanticCache] HIT (exact): similarity=1.0000, savedTokens=${exact.tokenUsage.completionTokens}`)
@@ -258,7 +271,8 @@ export async function lookup(
     bestEntry.lastAccessedAt = Date.now()
     const lruNode = lruMap.get(bestEntry.id)
     if (lruNode) lruTouch(lruNode)
-    const costResult = calculateCost(bestEntry.tokenUsage.promptTokens, bestEntry.tokenUsage.completionTokens, bestEntry.tokenUsage.completionTokens)
+    // B-14：与 exact 命中同口径——按 entry.tier 分层全价计算
+    const costResult = calculateCostByTier(bestEntry.tokenUsage.promptTokens, bestEntry.tokenUsage.completionTokens, bestEntry.tier)
     totalSavedTokens += bestEntry.tokenUsage.completionTokens
     totalSavedCost += costResult.totalCost
     debugLog(`[SemanticCache] HIT: similarity=${bestSimilarity.toFixed(4)}, savedTokens=${bestEntry.tokenUsage.completionTokens}`)
@@ -294,6 +308,13 @@ export async function store(entry: {
   if (existing && !isExpired(existing)) {
     return existing
   }
+  if (existing) {
+    // B-13：覆盖过期条目时必须彻底摘除旧僵尸（semanticArray + lruMap），
+    // 否则旧条目残留游荡，被 LRU 逐出时会删掉 exactMap 里新条目的映射
+    const lruNode = lruMap.get(existing.id)
+    if (lruNode) lruRemove(lruNode)
+    semanticArray = semanticArray.filter(e => e.id !== existing.id)
+  }
 
   // P1-12：记录伪向量标记，reembedAll 据此识别待重嵌入
   const { vector: embedding, isPseudo: embeddingIsPseudo } = await generateVectorWithMeta(entry.queryText)
@@ -322,7 +343,7 @@ export async function store(entry: {
   while (exactMap.size > config.maxEntries) {
     const evicted = lruEvictOne()
     if (!evicted) break
-    exactMap.delete(exactKey(evicted.queryHash, evicted.domain, evicted.packId))
+    deleteExactIfOwned(evicted)
     semanticArray = semanticArray.filter(e => e.id !== evicted.id)
   }
 
@@ -335,7 +356,7 @@ export function invalidateByDomain(domain: string): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => e.domain === domain)
   for (const entry of toRemove) {
-    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
+    deleteExactIfOwned(entry)
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -356,7 +377,7 @@ export function invalidateByPack(packId: string): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => (e.packId || '') === packId)
   for (const entry of toRemove) {
-    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
+    deleteExactIfOwned(entry)
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -373,7 +394,7 @@ export function invalidateByConstraint(constraintId: string): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => e.constraintIds.includes(constraintId))
   for (const entry of toRemove) {
-    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
+    deleteExactIfOwned(entry)
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -390,7 +411,7 @@ export function invalidateExpired(): number {
   const before = semanticArray.length
   const toRemove = semanticArray.filter(e => isExpired(e))
   for (const entry of toRemove) {
-    exactMap.delete(exactKey(entry.queryHash, entry.domain, entry.packId))
+    deleteExactIfOwned(entry)
     const lruNode = lruMap.get(entry.id)
     if (lruNode) lruRemove(lruNode)
   }
@@ -560,7 +581,7 @@ function saveToStorage(): void {
     while (semanticArray.length > 10) {
       const evicted = lruEvictOne()
       if (!evicted) break
-      exactMap.delete(exactKey(evicted.queryHash, evicted.domain, evicted.packId))
+      deleteExactIfOwned(evicted)
       semanticArray = semanticArray.filter(e => e.id !== evicted.id)
     }
     try {

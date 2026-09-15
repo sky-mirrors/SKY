@@ -14,7 +14,8 @@ export function setOnPipelineWindowReady(cb: () => void) {
 }
 
 export function getMainWindow(): BrowserWindow | null {
-  return mainWindow
+  // A-01：与其他窗口一致，销毁后返回 null，防止调用方对已销毁 webContents 发送消息抛异常
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
 }
 
 export function getPipelineWindow(): BrowserWindow | null {
@@ -68,6 +69,9 @@ export function createWindow(): BrowserWindow {
   mainWindow.webContents.on('did-fail-load', (event, code, desc) => {
     console.error(`[MainWindow] Renderer FAILED to load: code=${code}, desc=${desc}`)
   })
+
+  // A-01：销毁后清空引用，避免跨窗口消息对已销毁对象调用 send 导致 uncaughtException 杀掉整个应用
+  mainWindow.on('closed', () => { mainWindow = null })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -274,15 +278,16 @@ export function createRuleReviewWindow(): BrowserWindow {
 
 export function registerGlobalShortcuts() {
   globalShortcut.register('Ctrl+Space', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore()
+    const mw = getMainWindow()
+    if (!mw) return
+    if (mw.isMinimized()) {
+      mw.restore()
     }
-    if (!mainWindow.isVisible()) {
-      mainWindow.show()
+    if (!mw.isVisible()) {
+      mw.show()
     }
-    mainWindow.focus()
-    mainWindow.webContents.send('global:quickInput')
+    mw.focus()
+    mw.webContents.send('global:quickInput')
   })
 }
 

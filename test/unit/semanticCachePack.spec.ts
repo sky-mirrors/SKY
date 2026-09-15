@@ -51,7 +51,9 @@ vi.mock('@/services/embedder', () => {
 })
 
 vi.mock('@/services/tokenPricing', () => ({
-  calculateCost: vi.fn(() => ({ inputCost: 0, outputCost: 0, cacheSaving: 0, totalCost: 0 }))
+  calculateCost: vi.fn(() => ({ inputCost: 0, outputCost: 0, cacheSaving: 0, totalCost: 0 })),
+  // B-14：lookup 节省成本改用 calculateCostByTier
+  calculateCostByTier: vi.fn(() => ({ inputCost: 0, outputCost: 0, cacheSaving: 0, totalCost: 0 }))
 }))
 
 describe('semanticCache M10：packId 隔离与精确匹配', () => {

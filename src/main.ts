@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { vault } from './vault'
+import { serializeStoreState, filterPatchForStore } from './services/storeSync'
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []
@@ -18,7 +19,7 @@ function installStoreSync(): ReturnType<typeof createPinia> {
   pinia.use(({ store }) => {
     store.$subscribe((_mutation, state) => {
       if (applyingRemoteUpdate) return
-      const entry = { storeId: store.$id, state: JSON.parse(JSON.stringify(state)) }
+      const entry = { storeId: store.$id, state: serializeStoreState(state as Record<string, unknown>) }
       if (DEBUG_SYNC_STORES.includes(store.$id)) {
         const existing = pendingDebugSyncs.findIndex(s => s.storeId === store.$id)
         if (existing >= 0) {
@@ -57,11 +58,8 @@ function installStoreSync(): ReturnType<typeof createPinia> {
     window.electronAPI.onStoreApplyUpdate((data: { storeId: string; state: Record<string, unknown> }) => {
       const targetStore = pinia._s.get(data.storeId)
       if (!targetStore) return
-      const allowedKeys = Object.keys(targetStore.$state)
-      const filtered: Record<string, unknown> = {}
-      for (const k of allowedKeys) {
-        if (k in data.state) filtered[k] = data.state[k]
-      }
+      // D-13：Map 信封还原/丢弃，防止 nodeVisualEvents 等 Map 状态被覆盖成普通对象
+      const filtered = filterPatchForStore(targetStore.$state as Record<string, unknown>, data.state)
       applyingRemoteUpdate = true
       try {
         targetStore.$patch(filtered)

@@ -27,6 +27,19 @@ export interface McpProcessEntry {
 
 const mcpProcesses = new Map<string, McpProcessEntry>()
 
+// A-03: Environment variables controllable by the renderer must not affect Node's own startup/loading behavior,
+// otherwise a compromised renderer could use NODE_OPTIONS=--import=... etc. to escalate to arbitrary code execution in the main process
+const MCP_DENIED_ENV_KEYS = /^(NODE_OPTIONS|NODE_PATH|PATH|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|ELECTRON_RUN_AS_NODE|ELECTRON_NO_ATTACH_CONSOLE)$/i
+
+export function sanitizeMcpEnv(env: Record<string, string> | undefined): Record<string, string> {
+  const safe: Record<string, string> = {}
+  for (const [k, v] of Object.entries(env || {})) {
+    if (MCP_DENIED_ENV_KEYS.test(k)) continue
+    safe[k] = String(v)
+  }
+  return safe
+}
+
 export function getMcpEntry(id: string): McpProcessEntry | undefined {
   return mcpProcesses.get(id)
 }
@@ -58,7 +71,8 @@ export function startMcpProcess(
 
   try {
     const isWindows = process.platform === 'win32'
-    const procEnv: Record<string, string> = { ...process.env as Record<string, string>, ...env }
+    // A-03：过滤危险 env 键，防止 NODE_OPTIONS/--import 注入
+    const procEnv: Record<string, string> = { ...process.env as Record<string, string>, ...sanitizeMcpEnv(env) }
 
     const finalCommand = command
     let finalArgs = [...args]
@@ -82,10 +96,21 @@ export function startMcpProcess(
       appendFileSync(logPath, `[${new Date().toISOString()}] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}\n`)
     } catch { /* ignore */ }
 
+    // A-11：Windows 上 npx/npm/pnpm/yarn/bunx 只有 .cmd shim，shell:false 直接 spawn 抛 EINVAL/ENOENT。
+    // 对这些白名单命令改用 shell:true，但参数必须无引号/元字符防注入，含空格参数加引号包裹。
+    const CMD_SHIMS = new Set(['npx', 'npm', 'pnpm', 'yarn', 'bunx'])
+    const useShell = isWindows && CMD_SHIMS.has(finalCommand)
+    if (useShell) {
+      if (finalArgs.some(a => typeof a !== 'string' || a.includes('"') || /[&|<>^\n\r]/.test(a))) {
+        return { success: false, error: 'MCP arguments contain characters not allowed for shell execution' }
+      }
+      finalArgs = finalArgs.map(a => a.includes(' ') ? `"${a}"` : a)
+    }
+
     const child = spawn(finalCommand, finalArgs, {
       env: procEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false
+      shell: useShell
     })
 
     const entry: McpProcessEntry = {
@@ -137,6 +162,8 @@ export function startMcpProcess(
         pending.reject(new Error(`MCP process error: ${err.message}`))
       }
       entry.pendingRequests.clear()
+      // A-02：同 id 重启后，旧进程的回调不得对新条目误报状态
+      if (mcpProcesses.get(id) !== entry) return
       notifyRenderer(mainWindow, 'mcp:status', { id, status: 'error', error: err.message })
     })
 
@@ -149,6 +176,12 @@ export function startMcpProcess(
         pending.reject(new Error(`MCP process exited with code ${code}: ${stderrTail}`))
       }
       entry.pendingRequests.clear()
+      // A-02：exit 回调异步触发时，注册表中同 id 可能已是重启后的新进程——
+      // 只有条目仍是自己时才删除与广播，否则会把新进程误删成孤儿
+      if (mcpProcesses.get(id) !== entry) {
+        DEBUG && console.log(`[MCP ${id} stale exit ignored]`)
+        return
+      }
       mcpProcesses.delete(id)
       notifyRenderer(mainWindow, 'mcp:status', { id, status: 'stopped', stderr: stderrTail })
     })

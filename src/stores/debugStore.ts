@@ -44,7 +44,6 @@ export const useDebugStore = defineStore('debug', () => {
   const frozen = ref(false)
   const sessions = ref<DebugSession[]>([])
   const selectedProbeId = ref<string | null>(null)
-  const abortController = ref<AbortController | null>(null)
   const currentSession = ref<DebugSession | null>({
     id: `debug-${Date.now()}`,
     startedAt: Date.now(),
@@ -283,19 +282,27 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  // B-09：原单槽位（ref）会被并发任务相互覆盖，且 clear-abort 一键清空会误杀
+  // 仍在运行的其他任务——改为 Set 注册表，任务结束时只注销自己的控制器
+  const abortControllers = new Set<AbortController>()
+
   function terminateExecution() {
-    if (abortController.value) {
-      abortController.value.abort()
-      abortController.value = null
+    for (const ac of abortControllers) {
+      ac.abort()
     }
+    abortControllers.clear()
   }
 
   function registerAbortController(ac: AbortController) {
-    abortController.value = ac
+    abortControllers.add(ac)
+  }
+
+  function unregisterAbortController(ac: AbortController) {
+    abortControllers.delete(ac)
   }
 
   function clearAbortController() {
-    abortController.value = null
+    abortControllers.clear()
   }
 
   function updateEnvironment(env: DebugSession['environment']) {
@@ -450,6 +457,7 @@ export const useDebugStore = defineStore('debug', () => {
     unfreezeBuffer,
     terminateExecution,
     registerAbortController,
+    unregisterAbortController,
     clearAbortController,
     updateEnvironment,
     exportDebugPackage,

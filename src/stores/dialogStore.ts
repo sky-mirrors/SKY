@@ -130,6 +130,9 @@ export const useDialogStore = defineStore('dialog', () => {
 
   const pendingCandidateList = ref<{ manifestId: string; manifestName: string; score: number }[]>([])
   const awaitingCandidatePick = ref(false)
+  // B-06：进入候选暂停点时记录触发候选的原始用户输入（完整未截断），
+  // pickCandidate 回退用它，不再依赖 slice(-2) 反推（首条消息时 undefined/取到截断内容）
+  let _candidateOriginalInput = ''
 
   const factConflict = ref<{ conflicts: { type: string; sourceRaw: string; outputRaw: string; diff: string; severity: string }[]; pendingStepNum: number; pendingManifestId: string } | null>(null)
   const awaitingFactResolution = ref(false)
@@ -145,6 +148,11 @@ export const useDialogStore = defineStore('dialog', () => {
   const takeoverStepNum = ref<number | null>(null)
   let _takeoverResolve: ((result: string) => void) | null = null
 
+  // B-02：风险确认期间到达的输入排队，确认结束后自动重发（期间不强制解锁 isProcessing）
+  const _riskQueuedInputs: string[] = []
+  let _riskQueueFlushTimer: ReturnType<typeof setTimeout> | null = null
+  let _riskQueueRetries = 0
+
   function clearAllPausePoints(): void {
     awaitingConfirmation.value = false
     awaitingIntentConfirm.value = false
@@ -156,12 +164,14 @@ export const useDialogStore = defineStore('dialog', () => {
     awaitingTakeover.value = false
   }
 
-  function acquirePausePoint(point: 'confirmation' | 'intentConfirm' | 'slotFill' | 'factResolution' | 'riskConfirm' | 'dagPaused' | 'takeover'): void {
+  // B-01：所有暂停点必须经 acquirePausePoint 互斥获取，禁止对 awaiting* 直接置 true
+  function acquirePausePoint(point: 'confirmation' | 'intentConfirm' | 'slotFill' | 'candidatePick' | 'factResolution' | 'riskConfirm' | 'dagPaused' | 'takeover'): void {
     clearAllPausePoints()
     switch (point) {
       case 'confirmation': awaitingConfirmation.value = true; break
       case 'intentConfirm': awaitingIntentConfirm.value = true; break
       case 'slotFill': awaitingSlotFill.value = true; break
+      case 'candidatePick': awaitingCandidatePick.value = true; break
       case 'factResolution': awaitingFactResolution.value = true; break
       case 'riskConfirm': awaitingRiskConfirm.value = true; break
       case 'dagPaused': dagPaused.value = true; break
@@ -713,7 +723,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const candList = outcome.candidates.map((c, i) => `${i + 1}. ${c.name}（${(c.score * 100).toFixed(0)}%）`).join('\n')
       addSystemNotice(`🟡 匹配到多个候选，请选择：\n${candList}\n\n输入编号选择，或重新描述你的需求`)
       pendingCandidateList.value = outcome.candidates.map(c => ({ manifestId: c.id, manifestName: c.name, score: c.score }))
-      awaitingCandidatePick.value = true
+      _candidateOriginalInput = content
+      acquirePausePoint('candidatePick')
       isProcessing.value = false
       return true
     }
@@ -757,6 +768,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           addAssistantMessage(`❌ 工具调用失败（${classifyError(errStr)}）`)
           globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具调用失败: ${errStr}`, detail: errStr })
         }
+      } else {
+        // B-15：工具名未命中 allMcpTools 时不能静默——用户消息被消费却无任何回复
+        addAssistantMessage(`❌ 工具 ${outcome.toolName} 当前不可用（未连接或已被移除），请重试或换个描述`)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `[Router] mcp-direct 未命中工具: ${outcome.toolName}` })
       }
       isProcessing.value = false
       return true
@@ -864,7 +879,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
   }
 
-  async function sendMessage(content: string): Promise<string> {
+  async function sendMessage(content: string, isQueuedReplay = false): Promise<string> {
     if (content.trim() === '/debug') {
       if (globalBus.request('debug:is-enabled', {})) {
         globalBus.emit('debug:deactivate', {})
@@ -885,12 +900,16 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
     // §5.2：用户请求入口生成 traceId（须在 addUserMessage 之前，消息落记忆时携带）
     activeTraceId.value = newTraceId()
-    addUserMessage(content)
+    // B-02：排队重发时消息已在首次入队时 addUserMessage，跳过避免重复
+    if (!isQueuedReplay) addUserMessage(content)
     try {
       globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: `[Dialog] 用户发送消息: ${content.substring(0, 100)}`, traceId: activeTraceId.value })
     } catch { /* non-critical */ }
     if (awaitingRiskConfirm.value) {
-      isProcessing.value = false
+      // B-02：不再强制 isProcessing=false——那会解锁输入框并发第二条 sendMessage，
+      // 造成并行计划执行、消息数组交错、DAG 状态污染；改为排队，确认结束后自动重发
+      _riskQueuedInputs.push(content)
+      showTransientHint('⏳ 请先在确认条上裁决风险操作，这条消息已排队')
       return ''
     }
     // P1-46：候选工具选择期无专属输入通道——纯数字输入映射候选编号；其他输入则放弃候选、按新请求处理
@@ -899,12 +918,20 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const num = Number(trimmed)
       if (trimmed !== '' && !Number.isNaN(num)) {
         isProcessing.value = false
-        // 此刻 addUserMessage 已把编号当消息追加，取倒数第二条还原原始请求
-        const originalInput = messages.value.filter(m => m.role === 'user').slice(-2)[0]?.content || ''
+        // B-06：用暂停点记录的完整原始输入，不再从消息数组 slice(-2) 反推
+        // （首条消息时 undefined 回退空串、且取到的是截断后的展示内容）。
+        // 若状态被外部直接设置（如恢复/持久化场景）导致未采集，退回历史倒数第二条还原
+        let originalInput = _candidateOriginalInput
+        _candidateOriginalInput = ''
+        if (!originalInput) {
+          const prevMsg = messages.value[messages.value.length - 2]
+          if (prevMsg && prevMsg.role === 'user') originalInput = prevMsg.content
+        }
         return pickCandidate(num - 1, originalInput)
       }
       awaitingCandidatePick.value = false
       pendingCandidateList.value = []
+      _candidateOriginalInput = ''
       addSystemNotice('ℹ️ 已放弃候选选择，按新请求处理')
     }
     isProcessing.value = true
@@ -1167,7 +1194,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 const candList = cands.slice(0, 5).map((c, i) => `${i + 1}. ${c.item.name}（${(c.score * 100).toFixed(0)}%，${c.method === 'keyword' ? '关键词' : c.method === 'vector' ? '向量' : '融合'}）`).join('\n')
                 addSystemNotice(`🟡 匹配到多个工具候选，请选择：\n${candList}\n\n输入编号选择，或重新描述你的需求`)
                 pendingCandidateList.value = cands.slice(0, 5).map(c => ({ manifestId: c.item.id, manifestName: c.item.name, score: c.score }))
-                awaitingCandidatePick.value = true
+                _candidateOriginalInput = content
+                acquirePausePoint('candidatePick')
                 isProcessing.value = false
                 return ''
               }
@@ -1227,7 +1255,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 const candList = cands.slice(0, 5).map((c, i) => `${i + 1}. ${c.manifest.identity.name}（${(c.score * 100).toFixed(0)}%，${c.method === 'keyword' ? '关键词' : '向量'}）`).join('\n')
                 addSystemNotice(`🟡 RaaP匹配到多个候选，请选择：\n${candList}\n\n输入编号选择，或重新描述你的需求`)
                 pendingCandidateList.value = cands.slice(0, 5).map(c => ({ manifestId: c.manifest.identity.id, manifestName: c.manifest.identity.name, score: c.score }))
-                awaitingCandidatePick.value = true
+                _candidateOriginalInput = content
+                acquirePausePoint('candidatePick')
                 isProcessing.value = false
                 return ''
               }
@@ -1292,7 +1321,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
               if (cands.length > 1) {
                 addSystemNotice(`🟡 您是指：${candNames}？请重新描述您的需求，或输入编号选择`)
                 pendingCandidateList.value = cands.slice(0, 5).map(c => ({ manifestId: c.manifest.identity.id, manifestName: c.manifest.identity.name, score: c.score }))
-                awaitingCandidatePick.value = true
+                _candidateOriginalInput = content
+                acquirePausePoint('candidatePick')
                 isProcessing.value = false
                 return ''
               }
@@ -1983,10 +2013,21 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 }
                 const patchedSteps = await replan(step.step, '步骤执行失败', remainingSteps, truncatedResults)
                 const maxStepNum = currentPlanSteps.reduce((max, cs) => Math.max(max, cs.step), 0)
-                const newSteps = patchedSteps.map((s, i) => ({
-                  ...s,
-                  step: maxStepNum + i + 1
-                }))
+                // B-03：LLM 补丁里的 depends_on 用的是原计划编号，重编号后必须重映射，
+                // 否则依赖悬空 → depsOk 永不满足 → 补丁步骤被静默跳过（任务看似成功实则缺步）
+                const stepRemap = new Map<number, number>()
+                const newSteps = patchedSteps.map((s, i) => {
+                  const newNum = maxStepNum + i + 1
+                  stepRemap.set(Number(s.step), newNum)
+                  return { ...s, step: newNum }
+                })
+                for (const ns of newSteps) {
+                  // 已完成步骤保留原编号（stepDone 里有记录），补丁内部依赖映射到新编号，
+                  // 既不是已完成步骤也映射不到的依赖视为悬空，剔除以免永久阻塞
+                  ns.depends_on = ns.depends_on
+                    .map(d => stepRemap.get(d) ?? (stepDone.has(d) ? d : undefined))
+                    .filter((d): d is number => d !== undefined)
+                }
                 // Keep done steps + failed step (now marked done) + new replanned steps
                 currentPlanSteps = [...currentPlanSteps.filter(s => stepDone.has(s.step)), ...newSteps]
                 // Add new steps to DAG chain state
@@ -2170,7 +2211,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         const lastSummaryTime = loadSummaries()[loadSummaries().length - 1]?.to || 0
         const newMsgs = messages.value.filter(m => m.timestamp > lastSummaryTime && (m.role === 'user' || (m.role === 'assistant' && m.type === 'text')))
         if (newMsgs.length >= 8) {
-          generateHistorySummary()
+          // B-05：generateHistorySummary 异步未等待就读缓存，读到的系统性错位为上一轮
+          // 旧摘要——必须 await 后再读
+          await generateHistorySummary()
           const summary = vault.readCache('dialog', 'holo-history-summary') || ''
           if (summary) {
             savePeriodSummary(summary, newMsgs[0].timestamp, newMsgs[newMsgs.length - 1].timestamp)
@@ -2223,7 +2266,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             pendingStepNum: 0,
             pendingManifestId: manifest.identity.id
           }
-          awaitingFactResolution.value = true
+          // B-01：走互斥获取，清掉其它暂停点标志，防止双暂停态卡死输入循环
+          acquirePausePoint('factResolution')
           isProcessing.value = false
           addSystemNotice(`🔴 事实一致性校验失败：${errMsg.replace('FactGuard: ', '')}`)
           return ''
@@ -2305,7 +2349,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             pendingStepNum: 0,
             pendingManifestId: manifest.identity.id
           }
-          awaitingFactResolution.value = true
+          // B-01：走互斥获取，清掉其它暂停点标志，防止双暂停态卡死输入循环
+          acquirePausePoint('factResolution')
           isProcessing.value = false
           addSystemNotice(`🔴 事实一致性校验失败：${errMsg.replace('FactGuard: ', '')}`)
           return ''
@@ -2446,6 +2491,31 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     awaitingFactResolution.value = false
   }
 
+  // B-02：确认结束后重发排队消息；若前台仍忙（宏收尾中/其它暂停点），500ms 轮询等待
+  function flushRiskQueuedInputs(): void {
+    if (_riskQueueFlushTimer) { clearTimeout(_riskQueueFlushTimer); _riskQueueFlushTimer = null }
+    if (_riskQueuedInputs.length === 0) { _riskQueueRetries = 0; return }
+    const busy = isProcessing.value || awaitingRiskConfirm.value || awaitingConfirmation.value
+      || awaitingIntentConfirm.value || awaitingSlotFill.value || awaitingCandidatePick.value
+      || awaitingFactResolution.value || dagPaused.value || awaitingTakeover.value
+    if (busy) {
+      if (++_riskQueueRetries > 600) {
+        _riskQueuedInputs.length = 0
+        _riskQueueRetries = 0
+        addSystemNotice('⚠️ 风险确认期间排队的消息等待超时，已丢弃')
+        return
+      }
+      _riskQueueFlushTimer = setTimeout(flushRiskQueuedInputs, 500)
+      return
+    }
+    _riskQueueRetries = 0
+    const next = _riskQueuedInputs.shift()
+    if (next !== undefined) {
+      void sendMessage(next, true)
+      if (_riskQueuedInputs.length > 0) _riskQueueFlushTimer = setTimeout(flushRiskQueuedInputs, 500)
+    }
+  }
+
   function requestRiskConfirm(action: import('@/models').ActionManifest): Promise<boolean> {
     // A5-4：被新请求顶替时必须先结算旧 Promise（按拒绝，fail-closed），
     // 否则首个调用方的 await 永久悬挂（singleton resolver 覆盖孤儿化）。
@@ -2464,6 +2534,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           awaitingRiskConfirm.value = false
           riskAction.value = null
           resolve(false)
+          // B-02：超时按拒绝后同样尝试重发排队消息
+          flushRiskQueuedInputs()
         }
       }, 5 * 60 * 1000)
     })
@@ -2476,6 +2548,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       _riskResolve(approved)
       _riskResolve = null
     }
+    // B-02：重发风险确认期间排队的输入（flush 内部会等前台空闲）
+    flushRiskQueuedInputs()
   }
 
   function pauseDagAtStep(stepNum: number, manifestId: string): void {
@@ -2533,15 +2607,24 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   async function retryFactConflict(): Promise<void> {
     if (!factConflict.value) return
     addSystemNotice('🔄 尝试用mini模型重新生成...')
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15000)
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 15000)
       const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: '请使用源文件中的原始精确数字重新生成，不要修改任何金额、日期或编号。' }], stream: false, tools: undefined, maxTokens: 512, signal: controller.signal })
-      clearTimeout(timer)
-          globalBus.emit('debug:log-probe', { level: 'info', domain: 'tool', message: `重新生成结果`, detail: (resp.content || '').substring(0, 500) })
+      // B-07：重生成结果必须展示给用户——原实现只写 debug 日志，用户完全看不到内容
+      if (resp.content) {
+        addAssistantMessage(resp.content)
+      } else {
+        addSystemNotice('⚠️ 模型未返回内容，请选择覆盖或保留')
+        return
+      }
+      globalBus.emit('debug:log-probe', { level: 'info', domain: 'tool', message: `重新生成结果`, detail: (resp.content || '').substring(0, 500) })
     } catch {
       addSystemNotice('❌ 重新生成失败，请选择覆盖或保留')
       return
+    } finally {
+      // B-07：原 catch 路径不清 timer，15s 定时器泄漏
+      clearTimeout(timer)
     }
     factConflict.value = null
     awaitingFactResolution.value = false
@@ -2609,7 +2692,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     const sessionStore = useSessionStore()
     const target = sessionStore.switchToSession(sessionId, messages.value)
     if (!target) return
-    messages.value = target.messages || []
+    // B-17：拷贝断开与 session.messages 的数组别名——直接赋值会让后续 push
+    // 直接改写会话存储的数组，与"存入会话的永远是拷贝"语义矛盾
+    messages.value = target.messages ? target.messages.map(m => ({ ...m })) : []
     clearAllPausePoints()
     isProcessing.value = false
     saveToStorage()

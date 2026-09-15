@@ -95,6 +95,8 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
   let ingestSpawnTimer = 0
 
   let tractorBeamRef: THREE.Line | null = null
+  // D-01：光束材质提升为复用实例，避免每帧 new 材质造成无界 GPU 泄漏
+  let tractorBeamMaterial: THREE.LineBasicMaterial | null = null
   let selectionBreathTime = 0
   let selectionRingGroup: THREE.Group | null = null
   let selectionRingTargetId: string | null = null
@@ -588,7 +590,13 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     scene.add(group)
   }
 
+  // D-02：日冕纹理按 layer+size 缓存，避免 rebuildNode 每次重建 L0 节点时新建 5 张 256×256 纹理
+  const coronaTextures: Map<string, THREE.Texture> = new Map()
+
   function createCoronaTexture(layer: number, size: number = 256): THREE.Texture {
+    const cacheKey = `corona_${layer}_${size}`
+    const cached = coronaTextures.get(cacheKey)
+    if (cached) return cached
     const canvas = document.createElement('canvas')
     canvas.width = size
     canvas.height = size
@@ -645,6 +653,7 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
 
     const tex = new THREE.CanvasTexture(canvas)
     tex.needsUpdate = true
+    coronaTextures.set(`corona_${layer}_${size}`, tex)
     return tex
   }
 
@@ -993,6 +1002,13 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     for (const line of connectionLines) {
       scene.remove(line)
       line.geometry.dispose()
+      // D-04：连线材质为每次 showConnections 新建，须一并释放
+      const mat = line.material
+      if (Array.isArray(mat)) {
+        for (const m of mat) m.dispose()
+      } else {
+        mat.dispose()
+      }
     }
     connectionLines.length = 0
   }
@@ -1084,14 +1100,18 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     }
 
     const geo = new THREE.BufferGeometry().setFromPoints(points)
-    const mat = new THREE.LineBasicMaterial({
-      color: mesh.userData.level === 'L1' ? 0xffd700 : mesh.userData.level === 'L2' ? 0x00ccdd : 0x88aacc,
-      transparent: true,
-      opacity: 0.15 + pulse * 0.2,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    })
-    tractorBeamRef = new THREE.Line(geo, mat)
+    if (!tractorBeamMaterial) {
+      tractorBeamMaterial = new THREE.LineBasicMaterial({
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    }
+    tractorBeamMaterial.color.setHex(
+      mesh.userData.level === 'L1' ? 0xffd700 : mesh.userData.level === 'L2' ? 0x00ccdd : 0x88aacc
+    )
+    tractorBeamMaterial.opacity = 0.15 + pulse * 0.2
+    tractorBeamRef = new THREE.Line(geo, tractorBeamMaterial)
     scene.add(tractorBeamRef)
   }
 
@@ -1284,6 +1304,24 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     pointerDownHitId = null
   }
 
+  // D-02：统一释放节点对象的 geometry 与材质。
+  // 注意：材质引用的 map 纹理来自共享缓存（glowTextures/coronaTextures），不可在此释放；
+  // 池化对象（isPoolItem）由脉冲池统一管理，同样跳过。
+  function disposeNodeObject(root: THREE.Object3D): void {
+    root.traverse((obj: THREE.Object3D) => {
+      if (obj.userData.isPoolItem) return
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.Sprite || obj instanceof THREE.Line) {
+        obj.geometry?.dispose()
+        const mat = obj.material
+        if (Array.isArray(mat)) {
+          for (const m of mat) m.dispose()
+        } else {
+          mat.dispose()
+        }
+      }
+    })
+  }
+
   function rebuildNode(nodeId: string) {
     const oldMesh = nodeMeshes.get(nodeId)
     const oldHit = nodeHitTargets.get(nodeId)
@@ -1296,10 +1334,12 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
         }
       }
       scene.remove(oldMesh)
+      disposeNodeObject(oldMesh)
       nodeMeshes.delete(nodeId)
     }
     if (oldHit) {
       scene.remove(oldHit)
+      disposeNodeObject(oldHit)
       nodeHitTargets.delete(nodeId)
     }
 
@@ -1537,6 +1577,14 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
       if (explodeElapsed > 1.5) {
         for (const sd of onboardingStardusts) {
           scene.remove(sd)
+          // D-14：星尘 group 的子 Sprite 材质与纹理是每次引导流程新建的，
+          // 只 scene.remove 不释放会造成 GPU 泄漏
+          for (const child of sd.children) {
+            if (child instanceof THREE.Sprite && child.material instanceof THREE.SpriteMaterial) {
+              child.material.map?.dispose()
+              child.material.dispose()
+            }
+          }
         }
         onboardingStardusts = []
         onboardingLabels = []
@@ -2247,6 +2295,17 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
 
         if (t >= 1) {
           scene.remove(ast.group)
+          // D-15：动画结束释放子对象资源（Sprite 材质+纹理、Ring 几何体+材质），
+          // 与 flowParticles 的清理写法对齐，只 scene.remove 会持续泄漏 GPU 资源
+          for (const child of ast.group.children) {
+            if (child instanceof THREE.Sprite && child.material instanceof THREE.SpriteMaterial) {
+              child.material.map?.dispose()
+              child.material.dispose()
+            } else if (child instanceof THREE.Mesh) {
+              child.geometry.dispose()
+              if (child.material instanceof THREE.Material) child.material.dispose()
+            }
+          }
           starLogAsteroids.splice(i, 1)
         }
       } else {
@@ -2562,7 +2621,8 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
       for (const ghost of ghosts) {
         mesh.remove(ghost)
         if (ghost.material instanceof THREE.SpriteMaterial) {
-          ghost.material.map?.dispose()
+          // D-07：map 纹理来自共享缓存 createGlowTexture('#9944ff',...)，dispose 会导致
+          // 缓存持有已失效纹理、后续同 key 精灵渲染损坏——只释放材质本身
           ghost.material.dispose()
         }
       }
@@ -2782,16 +2842,40 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointerup', onPointerUp)
     }
-    scene.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose()
-        if (Array.isArray(obj.material)) {
-          obj.material.forEach(m => m.dispose())
-        } else {
-          obj.material.dispose()
+    // D-03：场景主体是 Sprite/Line，原 traverse 只处理 Mesh 导致主体资源全部泄漏。
+    // 先收集共享缓存纹理，释放材质时跳过它们（最后统一释放，避免逐对象误伤缓存）。
+    const sharedTextures = new Set<THREE.Texture>()
+    for (const t of glowTextures.values()) sharedTextures.add(t)
+    for (const t of coronaTextures.values()) sharedTextures.add(t)
+    scene.traverse((obj: THREE.Object3D) => {
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.Sprite || obj instanceof THREE.Line) {
+        obj.geometry?.dispose()
+        const mat = obj.material
+        const mats = Array.isArray(mat) ? mat : [mat]
+        for (const m of mats) {
+          const matWithMap = m as THREE.SpriteMaterial
+          if (matWithMap.map && !sharedTextures.has(matWithMap.map)) {
+            matWithMap.map.dispose()
+          }
+          m.dispose()
         }
       }
     })
+    // 脉冲池对象的材质使用共享纹理，单独释放材质本身
+    for (const pool of [gravityPulsePool, cacheHitPulsePool]) {
+      for (const item of pool) {
+        if (item.material instanceof THREE.SpriteMaterial) item.material.dispose()
+      }
+    }
+    // 共享缓存纹理统一释放并清空，防止组件重建后拿到已失效纹理
+    for (const t of glowTextures.values()) t.dispose()
+    glowTextures.clear()
+    for (const t of coronaTextures.values()) t.dispose()
+    coronaTextures.clear()
+    if (starDotTexture) { starDotTexture.dispose(); starDotTexture = null }
+    if (starBrightTexture) { starBrightTexture.dispose(); starBrightTexture = null }
+    if (tractorBeamMaterial) { tractorBeamMaterial.dispose(); tractorBeamMaterial = null }
+    controls.dispose()
     renderer.dispose()
     if (hoverTimer) clearTimeout(hoverTimer)
   }
@@ -2801,7 +2885,9 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     const bgMap: Record<string, number> = { dark: 0x050510, light: 0xd8dce8, green: 0x1a2a1a }
     renderer.setClearColor(bgMap[theme] ?? 0x050510)
     if (scene.fog) {
-      const fogColorMap: Record<string, number> = { dark: 0x050510, light: 0xd8dce8, green: 0x1a2a1a }
+      // UI-04：声明后缺分号导致 ASI 将下一行解析为对 fogColorMap 的调用，
+      // 主题切换时抛 TypeError "fogColorMap is not a function"
+      const fogColorMap: Record<string, number> = { dark: 0x050510, light: 0xd8dce8, green: 0x1a2a1a };
       (scene.fog as THREE.Fog).color.setHex(fogColorMap[theme] ?? 0x050510)
     }
   }
