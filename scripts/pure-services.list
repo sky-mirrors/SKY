@@ -1,0 +1,8 @@
+# 规格书 2.3（M18）框架级纯服务白名单；每行一个文件，相对 src/services/
+smartRouter.ts
+semanticCache.ts
+tokenBudget.ts
+factGuard.ts
+knowledgeBase.ts
+embedder.ts
+debugLog.ts
