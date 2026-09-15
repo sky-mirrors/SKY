@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { join } from 'path'
 import {
   isShellCommandAllowed,
   getTimeoutForCommand,
@@ -7,6 +8,7 @@ import {
   HTTP_ABSOLUTE_CAP,
   isMcpCommandAllowed
 } from '@electron/shell-security'
+import { validateWritePath, validateOpenPath } from '@electron/pathValidator'
 
 describe('IPC安全 - shell:exec 白名单机制 (生产代码导入)', () => {
   describe('白名单命令允许', () => {
@@ -351,5 +353,122 @@ describe('IPC安全 - XSS防护 (VULN-13回归)', () => {
     expect(html).toContain('href=')
     expect(html).toContain('https://example.com')
     expect(html).not.toContain('unsafe-link')
+  })
+})
+
+describe('IPC安全 - P0-2 收尾：node -e 动态 require 与句柄式写原语', () => {
+  it('require(process.env.M) 动态 require → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "const m=require(process.env.M);m.run()"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('require(变量) → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "const x=\'fs\';const m=require(x)"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('require(白名单外字面量模块) → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "const z=require(\'zlib\')"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('trusted 模板路径同样受 require 白名单约束 → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "require(\'docx\');const m=require(process.env.M)"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('fs.openSync+fs.writeSync 绕过写路径约束 → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "const fs=require(\'fs\');const fd=fs.openSync(\'C:\\\\evil.txt\',\'w\');fs.writeSync(fd,\'data\');fs.closeSync(fd)"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('fs.appendFileSync → 拒绝', () => {
+    const r = isShellCommandAllowed('node -e "const fs=require(\'fs\');fs.appendFileSync(\'C:\\\\evil.txt\',\'data\')"')
+    expect(r.allowed).toBe(false)
+  })
+
+  it('合法模板 require(docx/fs/path) → 仍允许', () => {
+    const r = isShellCommandAllowed('node -e "const {Document}=require(\'docx\');const fs=require(\'fs\');fs.writeFileSync(process.env.USERPROFILE+\'\\\\Desktop\\\\a.docx\',\'x\')"')
+    expect(r.allowed).toBe(true)
+  })
+})
+
+describe('IPC安全 - P1-3 收尾：解释器脚本扩展名约束', () => {
+  it('node 执行 .txt 脚本 → 拒绝', () => {
+    const r = isMcpCommandAllowed('node', ['C:\\Users\\Default\\evil.txt'])
+    expect(r.allowed).toBe(false)
+  })
+
+  it('python 执行 .txt 脚本 → 拒绝', () => {
+    const r = isMcpCommandAllowed('python', ['C:\\Users\\Default\\evil.txt'])
+    expect(r.allowed).toBe(false)
+  })
+
+  it('node 执行无扩展名文件（Node 会尝试按模块解析）→ 拒绝', () => {
+    const r = isMcpCommandAllowed('node', ['C:\\Users\\Default\\evil'])
+    expect(r.allowed).toBe(false)
+  })
+
+  it('node --eval= 内联代码 → 拒绝', () => {
+    const r = isMcpCommandAllowed('node', ['--eval=process.exit(1)'])
+    expect(r.allowed).toBe(false)
+  })
+
+  it('node 执行 .js 脚本（允许目录内）→ 允许', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = isMcpCommandAllowed('node', [join(home, 'mcp-server', 'index.js')])
+    expect(r.allowed).toBe(true)
+  })
+
+  it('python 执行 .py 脚本（允许目录内）→ 允许', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = isMcpCommandAllowed('python', [join(home, 'mcp-server', 'server.py')])
+    expect(r.allowed).toBe(true)
+  })
+
+  it('node 脚本 + 普通参数 → 允许', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = isMcpCommandAllowed('node', [join(home, 'mcp-server', 'index.js'), '--port', '3000'])
+    expect(r.allowed).toBe(true)
+  })
+})
+
+describe('IPC安全 - P1-3 收尾：脚本类扩展名写入/打开封禁', () => {
+  it('file:write 写入 .py → 拒绝', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = validateWritePath(join(home, 'evil.py'))
+    expect(r.safe).toBe(false)
+  })
+
+  it('file:write 写入 .pyw/.mjs/.cjs → 拒绝', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    expect(validateWritePath(join(home, 'evil.pyw')).safe).toBe(false)
+    expect(validateWritePath(join(home, 'evil.mjs')).safe).toBe(false)
+    expect(validateWritePath(join(home, 'evil.cjs')).safe).toBe(false)
+  })
+
+  it('file:open 打开 .py（双击即执行）→ 拒绝', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = validateOpenPath(join(home, 'evil.py'))
+    expect(r.safe).toBe(false)
+  })
+
+  it('file:write 写入普通文本 → 仍允许', () => {
+    const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+    const r = validateWritePath(join(home, 'Desktop', 'note.txt'))
+    expect(r.safe).toBe(true)
+  })
+})
+
+describe('IPC安全 - P1-30 回归：l2-file-creator-v1 的 node -e 命令可执行', () => {
+  it('脚本不含未定义 debugLog / String.fromCharCode，且通过 shell 安全校验', async () => {
+    const manifests = (await import('@/data/l2Manifests')).default
+    const m = manifests.find(x => x.identity.id === 'l2-file-creator-v1')
+    expect(m).toBeDefined()
+    const cmd = String(m?.execution.dagPlan?.steps?.[0]?.params?.command || '')
+    expect(cmd).not.toContain('debugLog')
+    expect(cmd).not.toContain('String.fromCharCode')
+    const check = isShellCommandAllowed(cmd)
+    expect(check.allowed).toBe(true)
   })
 })

@@ -67,6 +67,26 @@ describe('crossDocValidator', () => {
       expect(amountConflicts.length).toBeGreaterThan(0)
     })
 
+    it('A4-20：实体对全量比对，后续可匹配项不再被首个不匹配短路', () => {
+      const docMaps = [
+        {
+          docId: 'doc1',
+          entities: [
+            { type: 'amount', raw: '60万元', normalized: '600000.00', confidence: 1, source: 'regex' as const }
+          ]
+        },
+        {
+          docId: 'doc2',
+          entities: [
+            { type: 'amount', raw: '100元', normalized: '100.00', confidence: 1, source: 'regex' as const },
+            { type: 'amount', raw: '600000元', normalized: '600000.00', confidence: 1, source: 'regex' as const }
+          ]
+        }
+      ]
+      const conflicts = findCrossDocumentConflicts(docMaps)
+      expect(conflicts).toHaveLength(0)
+    })
+
     it('finds conflicts for mismatched contract IDs', () => {
       const docMaps = [
         {

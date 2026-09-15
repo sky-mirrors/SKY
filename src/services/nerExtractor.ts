@@ -39,10 +39,29 @@ const CONTEXTUAL_NAME_PATTERNS = [
 const PERSON_SUFFIXES = ['总', '经理', '先生', '女士', '主任', '总监', '主管', '工程师', '老师']
 
 function normalizeAmount(raw: string): string {
-  const cleaned = raw.replace(/[￥¥$USD\sCNY元美元万元万块,，]/g, '')
+  // P1-21：万/亿 后缀必须参与数值换算——原实现把 '万元' 当普通字符直接剥掉，
+  // "100万元" 被归一化为 100.00，与中文路径 "一百万元" 的 1000000.00 恒冲突，
+  // 同类数字永远比对失败
+  let cleaned = raw.replace(/[￥¥$USD\sCNY,，]/g, '')
+  let multiplier = 1
+  if (cleaned.endsWith('万元')) {
+    multiplier = 10000
+    cleaned = cleaned.slice(0, -2)
+  } else if (cleaned.endsWith('亿美元')) {
+    multiplier = 100000000
+    cleaned = cleaned.slice(0, -3)
+  } else if (cleaned.endsWith('万')) {
+    multiplier = 10000
+    cleaned = cleaned.slice(0, -1)
+  } else if (cleaned.endsWith('亿')) {
+    multiplier = 100000000
+    cleaned = cleaned.slice(0, -1)
+  } else {
+    cleaned = cleaned.replace(/[元美元块]/g, '')
+  }
   const num = parseFloat(cleaned)
   if (isNaN(num)) return ''
-  return num.toFixed(2)
+  return (num * multiplier).toFixed(2)
 }
 
 function normalizeDate(raw: string): string {

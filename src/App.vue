@@ -570,7 +570,7 @@ onMounted(async () => {
   kernel.registerLLM({
     chatCompletion: async (messages, options) => {
       const chatMessages: ChatMessage[] = messages.map(m => ({ role: m.role as ChatMessage['role'], content: m.content, timestamp: Date.now() }))
-      const result = await apiStore.chatCompletion(chatMessages, true, undefined, options?.maxTokens, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId })
+      const result = await apiStore.chatCompletion(chatMessages, true, undefined, options?.maxTokens, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
       return {
         content: result.content,
         tier: options?.tier ?? 'standard',
@@ -600,7 +600,7 @@ onMounted(async () => {
           finished = true
           resolveNext?.()
         }
-      }, undefined, undefined, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId })
+      }, undefined, undefined, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
       async function* stream(): AsyncGenerator<string> {
         while (true) {
           if (chunks.length > 0) {

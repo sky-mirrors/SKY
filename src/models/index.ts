@@ -570,6 +570,8 @@ export interface NodeHandlerContext {
   gateway: ModelGatewayAdapter
   memory: MemoryAdapter
   knowledge: KnowledgeAdapter
+  // #2 收尾：traceId 参数化传播（原模块级全局在并发下串号）
+  traceId?: string
 }
 
 export interface NodeHandler {
@@ -581,7 +583,8 @@ export interface NodeHandler {
 
 export interface ModelGatewayAdapter {
   // B-10：增加可选 options.signal——调用方超时/终止时可取消底层请求
-  chatCompletion(messages: { role: string; content: string }[], options?: { signal?: AbortSignal }): Promise<string>
+  // #2 收尾：增加可选 options.traceId——经 apiStore routingOptions 参数化传播
+  chatCompletion(messages: { role: string; content: string }[], options?: { signal?: AbortSignal; traceId?: string }): Promise<string>
   listModels(): ModelInfo[]
   switchProvider(providerId: string): void
   switchModel(modelId: string): void

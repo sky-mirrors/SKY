@@ -5,7 +5,7 @@ import { compileToChain } from './promptTranslator'
 import { debugLog } from '@/services/debugLog'
 import { globalBus } from '@/kernel/bus'
 import { beautify } from './resultBeautifier'
-import { newTraceId, getCurrentTraceId } from '@/services/trace'
+import { newTraceId } from '@/services/trace'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 
 const handlerRegistry: Map<string, NodeHandler> = new Map()
@@ -71,7 +71,7 @@ const modelGatewayHandler: NodeHandler = {
         ctx.gateway.chatCompletion([
           { role: 'system', content: system },
           { role: 'user', content: prompt }
-        ], { signal: callController.signal }).then(
+        ], { signal: callController.signal, traceId: ctx.traceId }).then(
           r => { clearTimeout(timer); resolve(r) },
           e => { clearTimeout(timer); reject(e) }
         )
@@ -245,7 +245,8 @@ export async function executePipeline(
   resumeFromCheckpoint: boolean = false
 ): Promise<Record<string, string>> {
   // §5.2：pipeline 启动是 traceId 生成入口之一
-  newTraceId()
+  // #2 收尾：traceId 改为局部变量经 ctx/gateway 参数传播（原模块级全局并发下串号）
+  const traceId = newTraceId()
   const gateway = globalBus.request<ModelGatewayAdapter>('llm:get-gateway', {})
 
   const pipelineAbortController = new AbortController()
@@ -348,7 +349,8 @@ export async function executePipeline(
       },
       gateway,
       memory: memoryAdapter,
-      knowledge: knowledgeAdapter
+      knowledge: knowledgeAdapter,
+      traceId
     }
 
     try {
@@ -381,7 +383,6 @@ export async function executePipeline(
 
       try {
         const source: ProbeSource = step.toolId === 'l1-model-gateway' ? 'llm' : step.toolId === 'l1-workspace-memory' ? 'knowledge' : 'mcp'
-        const traceId = getCurrentTraceId()
         // P1-39：payload 须为 { snapshot } 包装——bridge 只认 payload.snapshot
         globalBus.emit('debug:log-probe', { snapshot: {
           id: `probe-pipe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -403,7 +404,6 @@ export async function executePipeline(
       pipelineFailed = true
       wfUpdate(stepId, 'failed')
       try {
-        const traceId = getCurrentTraceId()
         globalBus.emit('debug:log-probe', { snapshot: {
           id: `probe-pipe-err-${Date.now()}`,
           stepNum: stepIndex,

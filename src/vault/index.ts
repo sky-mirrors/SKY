@@ -50,6 +50,10 @@ class VaultClient {
   async write(namespace: string, key: string, value: string, encrypted?: boolean): Promise<void> {
     const fullKey = this.fullKeyOf(namespace, key)
     this.cache.set(fullKey, value)
+    // P1-29：立即写必须先取消同 key 的排队写与脏键——否则 100ms 内的 flush
+    // 会把排队里的旧值倒灌覆盖刚写入磁盘的新值（writeQueue 存的是入队时的快照）
+    this.writeQueue.delete(fullKey)
+    this.dirtyKeys.delete(fullKey)
     const api = this.electronAPI
     if (api?.vaultWrite) await api.vaultWrite(namespace, key, value, encrypted)
   }

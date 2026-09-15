@@ -1581,7 +1581,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice(`▶ 步骤${s.step}: ${s.description}`)
         try {
           const { callToolDirectWithTier } = await import('@/services/macroExecutor')
-          const result = await callToolDirectWithTier(s.tool, resolvedParams, undefined, undefined, undefined, stepResults, { inputText: content })
+          const result = await callToolDirectWithTier(s.tool, resolvedParams, undefined, undefined, undefined, stepResults, { inputText: content }, activeTraceId.value)
           stepResults[s.step] = result
           lastResult = result
           addSystemNotice(`✓ 步骤${s.step}完成`)
@@ -1673,7 +1673,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           },
           (preview) => {
             globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `执行计划预览`, detail: preview })
-          }
+          },
+          undefined,
+          activeTraceId.value
         )
 
         if (macroResult.savedTokens > 0) {
@@ -2254,7 +2256,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
       try {
-        const macroResult = await executeMacro(manifest, { inputText: ti.originalInput, context: ti.params ? JSON.stringify(ti.params) : '' })
+        const macroResult = await executeMacro(manifest, { inputText: ti.originalInput, context: ti.params ? JSON.stringify(ti.params) : '' }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
         addSystemNotice(`✅ 执行完成: ${macroResult.lastResult.substring(0, 200)}`)
         isProcessing.value = false
         return macroResult.lastResult
@@ -2337,7 +2339,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
       const lastUserMsg = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
       try {
-        const macroResult = await executeMacro(manifest, { inputText: lastUserMsg, context: filledSlots ? JSON.stringify(filledSlots) : '' })
+        const macroResult = await executeMacro(manifest, { inputText: lastUserMsg, context: filledSlots ? JSON.stringify(filledSlots) : '' }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
         addSystemNotice(`✅ 执行完成: ${macroResult.lastResult.substring(0, 200)}`)
         isProcessing.value = false
         return macroResult.lastResult
@@ -2434,7 +2436,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         // P1-46：编号拦截路径传入原始请求；按钮点击路径回退最后一条用户消息
         const lastUserMsg = originalInput || messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
         try {
-          const macroResult = await executeMacro(manifest, { inputText: lastUserMsg })
+          const macroResult = await executeMacro(manifest, { inputText: lastUserMsg }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
           addSystemNotice('✅ 执行完成')
           globalBus.emit('debug:log-probe', { level: 'info', domain: 'tool', message: `执行完成: ${macroResult.lastResult.substring(0, 500)}`, detail: macroResult.lastResult })
           isProcessing.value = false

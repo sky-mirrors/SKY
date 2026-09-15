@@ -8,6 +8,8 @@ export interface KernelContext {
   sessionId?: string
   taskType?: string
   callerId?: string
+  // #2 收尾：traceId 参数化传播（原模块级全局并发下串号）
+  traceId?: string
   budgetLimit?: number
   budgetMode?: string
   cacheNamespace?: string
@@ -191,6 +193,8 @@ export interface LLMCallOptions {
   tier?: ModelTier
   taskType?: string
   callerId?: string
+  // #2 收尾：traceId 参数化传播
+  traceId?: string
   maxTokens?: number
   domain?: string
   stream?: boolean

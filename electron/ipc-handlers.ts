@@ -818,6 +818,11 @@ export function setupIpc(_win: BrowserWindow | null) {
       const archive = archiver('zip', { zlib: { level: 6 } })
       archive.pipe(output)
       archive.directory(storeDir, 'store')
+      // P1-5：只备 store 目录会漏掉 vault SQLite（全部 store 持久化数据）与
+      // knowledge 知识库——"备份成功"却丢最核心数据；vectorDir 已含于 store 内
+      const vaultsDir = join(userDataDir, 'vaults')
+      if (existsSync(vaultsDir)) archive.directory(vaultsDir, 'vaults')
+      if (existsSync(knowledgeDir)) archive.directory(knowledgeDir, 'knowledge')
       // A-09：archiver 流错误必须有监听（否则 EventEmitter 抛出→uncaughtException 杀应用），
       // 且 finalize() 的 Promise 需与 output close 一并等待，防止 handler 永久挂起
       await new Promise<void>((resolve, reject) => {
@@ -1271,7 +1276,20 @@ export function setupIpc(_win: BrowserWindow | null) {
     return app.getPath('userData')
   })
 
-  openVault()
+  // P1-6：openVault 失败（库文件损坏/被其他进程占用）此前会让 setupIpc 整体炸掉——
+  // 后续所有 IPC 通道不注册、异常落入 whenReady 的 unhandledRejection，用户无任何提示。
+  // 捕获后弹系统级错误框；vault:* 通道照常注册，调用时 getDb 抛明确错误，
+  // 渲染层 syncFromVault 失败将 fail-fast 拒绝挂载（见 src/main.ts）
+  try {
+    openVault()
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[vault] 数据库打开失败:', msg)
+    dialog.showErrorBox(
+      '数据存储打开失败',
+      `本地数据库无法打开，应用数据读写不可用。\n\n${msg}\n\n请检查数据目录磁盘状态或确认没有其他实例占用后重启应用。`
+    )
+  }
 
   ipcMain.handle('vault:read', (_event, namespace: string, key: string) => {
     return vaultRead(namespace, key)

@@ -81,14 +81,7 @@ export const useRuleStore = defineStore('rule', () => {
 
   function markFalsePositive(ruleId: string): void {
     recordConstraintTrigger(ruleId, true)
-  // P3.5（R12）：约束装载改由 pack 管线驱动（异步挂载），订阅生命周期事件保持列表同步。
-  // C-12：订阅必须在 store 初始化层只注册一次——原来误放 markFalsePositive 函数体内，
-  // 每标记一次误报就泄漏 3 个监听器，pack 事件触发 N+1 次 loadRules
-  globalBus.on('pack:mounted', () => loadRules())
-  globalBus.on('pack:unmounted', () => loadRules())
-  globalBus.on('pack:reloaded', () => loadRules())
-
-  loadRules()
+    loadRules()
   }
 
   function runTestOnRule(ruleId: string, testInput: string): ConstraintResult | null {
@@ -146,6 +139,14 @@ export const useRuleStore = defineStore('rule', () => {
   function validateAll(): { total: number; valid: number; invalid: number; details: { id: string; valid: boolean; errors: string[]; passedTests: number; failedTests: number }[] } {
     return validateAllConstraints()
   }
+
+  // P3.5（R12）：约束装载改由 pack 管线驱动（异步挂载），订阅生命周期事件保持列表同步。
+  // P1-10 补课：C-12 注释早已写明订阅须在 store 初始化层只注册一次，但代码实际
+  // 仍留在 markFalsePositive 函数体内——每标记一次误报就泄漏 3 个监听器，
+  // pack 事件触发 N+1 次 loadRules。此处移至 setup 顶层，store 创建时注册一次
+  globalBus.on('pack:mounted', () => loadRules())
+  globalBus.on('pack:unmounted', () => loadRules())
+  globalBus.on('pack:reloaded', () => loadRules())
 
   loadRules()
 

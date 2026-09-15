@@ -97,6 +97,19 @@ const NODE_E_DANGEROUS_PATTERNS = [
   /`[^`]*\$\{/i,
   /settimeout\s*\(/i,
   /setinterval\s*\(/i,
+  // P0-2 收尾：句柄式写原语（open/openSync/write/writeSync/appendFile 等）此前
+  // 不在黑名单，可完全绕过 writeFile 族的写入路径约束——writeFileSync 被拦时
+  // 改用 fs.openSync(path,'w')+fs.writeSync(fd,data) 即可写任意路径
+  /\.open\s*\(/i,
+  /\.opensync\s*\(/i,
+  /\.write\s*\(/i,
+  /\.writesync\s*\(/i,
+  /\.appendfile\s*\(/i,
+  /\.appendfilesync\s*\(/i,
+  /\.copyfile\s*\(/i,
+  /\.copyfilesync\s*\(/i,
+  /\.ftruncate\s*\(/i,
+  /\.ftruncatesync\s*\(/i,
   // A-05：字符串字面量拼接（'child'+'_process'、c['ex'+'ec']）是黑名单最常用的
   // 规避手法——受限模板通道没有正当理由在代码里拼接字符串常量，一律拒绝
   /['"]\s*\+\s*['"]/,
@@ -116,6 +129,25 @@ const NODE_E_ALLOWED_WRITE_PATTERNS = [
   /writeFileSync\s*\(\s*['"](?:[^'"]*[/\\])?(Desktop|Documents|Downloads)[/\\]/i,
   /writeFileSync\s*\(\s*process\.env\.(?:USERPROFILE|HOME|userprofile|home)/i,
 ]
+
+// P0-2 收尾：require 实参必须是与白名单完全一致的字符串字面量。
+// 原黑名单仅枚举危险模块的字面量写法，require(process.env.M) 这类动态
+// require 不匹配任何危险模式即可放行，等于任意模块加载
+const NODE_E_ALLOWED_REQUIRE_MODULES: Set<string> = new Set([
+  'fs', 'path', 'os', 'node:fs', 'node:path', 'node:os',
+  'docx', 'xlsx', 'pdf-parse', 'mammoth', 'archiver', 'marked',
+])
+
+function findIllegalRequire(codeContent: string): string | null {
+  const re = /require\s*\(\s*([^()]*?)\s*\)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(codeContent)) !== null) {
+    const arg = m[1].trim()
+    const lit = /^(['"])([\s\S]*)\1$/.exec(arg)
+    if (!lit || !NODE_E_ALLOWED_REQUIRE_MODULES.has(lit[2])) return m[0]
+  }
+  return null
+}
 
 function isNodeTrustedTemplate(codeContent: string): boolean {
   let trustedCount = 0
@@ -196,9 +228,21 @@ export function isMcpCommandAllowed(command: string, args?: string[]): { allowed
   }
 
   // node / python / python3
+  // P1-3 收尾：file:write 允许落盘 .txt 等任意扩展名文本，若解释器肯执行
+  // 任意扩展名文件（node foo.txt / python bar.txt 均照跑），即构成
+  // "写文件→执行文件" RCE 链。首个非 flag 参数视为脚本入口，
+  // 必须带解释器对应的白名单扩展名且通过读路径校验
+  const scriptExtRe = firstWord === 'node' ? /\.(js|mjs|cjs)$/i : /\.(py|pyw)$/i
+  let sawScriptArg = false
   for (const arg of argList) {
-    if (/^-{1,2}(e|eval|p|print|c|command|m|module|stdin)$/i.test(arg)) {
+    if (/^-{1,2}(e|eval|p|print|c|command|m|module|stdin)(=|["']|$)/i.test(arg)) {
       return { allowed: false, reason: `MCP解释器参数被禁止: ${arg}` }
+    }
+    if (!arg.startsWith('-') && !sawScriptArg) {
+      sawScriptArg = true
+      if (!scriptExtRe.test(arg)) {
+        return { allowed: false, reason: `MCP脚本扩展名不在允许范围（${firstWord === 'node' ? '.js/.mjs/.cjs' : '.py'}）: ${arg.substring(0, 60)}` }
+      }
     }
     const isPathLike = /^[A-Za-z]:[\\/]/.test(arg) || arg.includes('/') || arg.includes('\\') || /\.(js|mjs|cjs|py|pyw)$/i.test(arg)
     if (isPathLike) {
@@ -280,6 +324,11 @@ export function isShellCommandAllowed(command: string, cwd?: string): { allowed:
     // 执行的是原始串，校验 lowercase 副本会造成校验输入与执行输入不一致；
     // 同时对原始串与小写串双重匹配危险模式，堵死 Process.Exit 这类大小写规避
     const codeContent = raw.trim().replace(/^node\s+-e\s*/i, '').replace(/^node\s+-e"/i, '').replace(/"$/, '')
+    // P0-2 收尾：require 白名单校验先于 trusted 模板判定，两条路径统一收敛
+    const illegalRequire = findIllegalRequire(codeContent)
+    if (illegalRequire) {
+      return { allowed: false, reason: `node -e 存在白名单外的 require 调用，被安全策略拒绝: ${illegalRequire.substring(0, 60)}` }
+    }
     if (isNodeTrustedTemplate(codeContent)) {
       return { allowed: true }
     }

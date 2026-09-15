@@ -16,6 +16,18 @@ describe('nerExtractor', () => {
       expect(amounts.some(a => a.normalized === '50000.00')).toBe(true)
     })
 
+    it('P1-21：万元 后缀参与换算（100万元 → 1000000.00）', () => {
+      const entities = extractEntities('合同金额为100万元')
+      const amounts = entities.filter(e => e.type === 'amount')
+      expect(amounts.some(a => a.normalized === '1000000.00')).toBe(true)
+    })
+
+    it('P1-21：万 后缀参与换算（3.5万 → 35000.00）', () => {
+      const entities = extractEntities('服务费3.5万')
+      const amounts = entities.filter(e => e.type === 'amount')
+      expect(amounts.some(a => a.normalized === '35000.00')).toBe(true)
+    })
+
     it('extracts dates in Chinese format', () => {
       const entities = extractEntities('签订日期2024年3月15日')
       const dates = entities.filter(e => e.type === 'date')

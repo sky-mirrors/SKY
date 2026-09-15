@@ -72,6 +72,31 @@ function installStoreSync(): ReturnType<typeof createPinia> {
   return pinia
 }
 
+// #1（P0-7 残留收窄）：sync 失败若继续 mount，store 会以空缓存初始化，
+// 默认值 writeThrough 将不可逆覆盖磁盘全部历史数据——必须 fail-fast 拒绝挂载，
+// 并向用户展示可见错误（而非仅 console.error）
+function showVaultFatalError(err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err)
+  console.error('[vault] 冷启动同步失败，拒绝挂载应用:', err)
+  const loader = document.getElementById('initLoader')
+  if (loader) loader.remove()
+  const overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#050510;color:#e8eaf0;font-family:system-ui,sans-serif;padding:32px;text-align:center;z-index:99999'
+  const title = document.createElement('h2')
+  title.textContent = '数据存储同步失败，应用已停止启动'
+  title.style.cssText = 'margin:0;font-size:18px;font-weight:600'
+  const detail = document.createElement('pre')
+  detail.textContent = msg
+  detail.style.cssText = 'max-width:640px;margin:0;white-space:pre-wrap;word-break:break-all;color:#9aa3b2;font-size:12px'
+  const hint = document.createElement('p')
+  hint.textContent = '为防止空缓存覆盖磁盘数据，已拒绝启动。请检查数据目录后重启应用；若持续出现，可从备份恢复。'
+  hint.style.cssText = 'margin:0;max-width:480px;color:#c8cede;font-size:13px;line-height:1.6'
+  overlay.appendChild(title)
+  overlay.appendChild(detail)
+  overlay.appendChild(hint)
+  document.body.appendChild(overlay)
+}
+
 async function bootstrap(): Promise<void> {
   const app = createApp(App)
   app.use(installStoreSync())
@@ -81,7 +106,8 @@ async function bootstrap(): Promise<void> {
   try {
     await vault.syncFromVault()
   } catch (err) {
-    console.error('[vault] 冷启动同步失败，store 将以空缓存启动:', err)
+    showVaultFatalError(err)
+    return
   }
 
   app.mount('#app')

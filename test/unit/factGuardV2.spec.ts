@@ -89,4 +89,18 @@ describe('runFactGuardV2', () => {
     const result = runFactGuardV2(groundTruth, output, '张二签署了合同')
     expect(result.severity).toBe('minor')
   })
+
+  it('P1-20：source 列表后续可匹配项不再被首项不匹配短路', () => {
+    const groundTruth: ExtractedEntity[] = [
+      { type: 'amount', raw: '100元', normalized: '100.00', confidence: 1, source: 'regex' },
+      { type: 'amount', raw: '600000元', normalized: '600000.00', confidence: 1, source: 'regex' }
+    ]
+    const output: ExtractedEntity[] = [
+      { type: 'amount', raw: '60万元', normalized: '600000.00', confidence: 1, source: 'regex' }
+    ]
+    const result = runFactGuardV2(groundTruth, output, '金额60万元')
+    expect(result.conflicts).toHaveLength(0)
+    expect(result.ok).toBe(true)
+    expect(result.severity).toBe('ok')
+  })
 })

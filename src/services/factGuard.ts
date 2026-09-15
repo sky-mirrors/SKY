@@ -76,6 +76,7 @@ function runFactGuard(
 
     for (const out of outputList) {
       let matched = false
+      let conflict: FactConflict | null = null
       for (const src of sourceList) {
         let isMatch = false
         let diff = ''
@@ -133,8 +134,11 @@ function runFactGuard(
           matched = true
           break
         }
-        if (!isMatch && src.normalized) {
-          conflicts.push({
+        // P1-20：不匹配时只记录首个冲突候选并继续尝试其余 source——
+        // 原实现在首个不匹配处即 push+break，后续本可匹配成功的 source
+        // 永远得不到比对（多金额文档中系统性制造假冲突）
+        if (!conflict && src.normalized) {
+          conflict = {
             type,
             sourceRaw: src.raw,
             outputRaw: out.raw,
@@ -142,12 +146,13 @@ function runFactGuard(
             outputNormalized: out.normalized,
             severity,
             diff
-          })
-          matched = true
-          break
+          }
         }
       }
 
+      if (!matched && conflict) {
+        conflicts.push(conflict)
+      }
       if (!matched && sourceList.length === 0) {
         hallucinatedEntities.push(out)
       }

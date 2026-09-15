@@ -160,6 +160,7 @@ export function createKernel(options?: {
               taskType: context?.taskType,
               callerId: context?.callerId,
               domain: context?.domain,
+              traceId: context?.traceId,
               stream: true,
             })
           } else {
@@ -168,6 +169,7 @@ export function createKernel(options?: {
               taskType: context?.taskType,
               callerId: context?.callerId,
               domain: context?.domain,
+              traceId: context?.traceId,
             })
             responseText = response.content
             promptTokens = response.promptTokens

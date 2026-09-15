@@ -68,7 +68,8 @@ const fingerprintStore: ExecutionFingerprint[] = []
 const MAX_FINGERPRINTS = 50
 const manifestStats = new Map<string, ManifestExecutionStats>()
 const AUTO_COMPILE_THRESHOLD = 10
-const AUTO_COMPILE_CACHE_HIT_RATE = 0.8
+// #3 收尾：晋级门槛是"真实执行占比"（1-缓存命中率），非缓存命中率
+const AUTO_COMPILE_REAL_EXEC_RATE = 0.8
 
 const FP_STORE_KEY = 'execution-fingerprints'
 const STATS_STORE_KEY = 'manifest-execution-stats'
@@ -161,8 +162,11 @@ export function saveExecutionFingerprint(
   stats.lastExecutedAt = Date.now()
 
   if (!stats.autoCompiled && stats.successCount >= AUTO_COMPILE_THRESHOLD) {
-    const hitRate = stats.cacheHitCount / stats.successCount
-    if (hitRate >= AUTO_COMPILE_CACHE_HIT_RATE) {
+    // #3 收尾：autoCompile 晋级门槛写反——原 hitRate≥0.8 让"10 次纯缓存命中"
+    // 成为晋级最短路径，与自编译（工作流被真实跑熟）的语义相反；
+    // 改为真实执行占比达标才晋级，纯缓存命中的清单永不晋级
+    const realExecRate = 1 - stats.cacheHitCount / stats.successCount
+    if (realExecRate >= AUTO_COMPILE_REAL_EXEC_RATE) {
       stats.autoCompiled = true
     }
   }

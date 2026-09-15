@@ -11,7 +11,6 @@ import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, ge
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
 import { vault } from '@/vault'
-import { getCurrentTraceId } from '@/services/trace'
 import { globalBus } from '@/kernel/bus'
 import { getPackIdForDomain } from '@/host/packRuntime'
 
@@ -370,7 +369,7 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string }
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string }
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     if (!config.value.isReachable || !config.value.activeModel) {
       throw new Error('API not ready')
@@ -384,10 +383,17 @@ export const useApiStore = defineStore('api', () => {
 
     const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
     let cacheHitTier: ModelTier | undefined
+    // #5：benchmark 压测流量与生产记账/学习完全隔离——经 taskType='benchmark' 识别，
+    // 跳过生产响应缓存读写、预算 block、ZOL 路由学习与 record-cost 记账
+    // （P1-33 只隔离了指纹库；此处补齐 tokenBudget/sessionSpent、routingHistory
+    // 与 debugStore 记账三类污染面，并避免 budget=0 恒超限时 benchmark 被 block）
+    const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
     const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string) => {
+      if (isBenchmarkTraffic) return
       try {
-        const traceId = getCurrentTraceId()
+        // #2 收尾：traceId 改经 routingOptions 参数传入（原模块级全局并发下串号）
+        const traceId = routingOptions?.traceId
         globalBus.emit('debug:record-cost', {
           promptTokens: usage.promptTokens,
           completionTokens: usage.completionTokens,
@@ -398,7 +404,7 @@ export const useApiStore = defineStore('api', () => {
         })
       } catch { /* non-critical */ }
     }
-    if (cacheEligible && getCacheConfig().enabled) {
+    if (cacheEligible && !isBenchmarkTraffic && getCacheConfig().enabled) {
       try {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
@@ -444,12 +450,14 @@ export const useApiStore = defineStore('api', () => {
 
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
-    if (!budgetResult.allowed) {
-      debugLog(`[chatCompletion:budget] BLOCKED - ${budgetResult.reason}`)
-      throw new Error(`Budget exceeded: ${budgetResult.reason}`)
-    }
-    if (budgetResult.recommendedTier !== effectiveTier) {
-      debugLog(`[chatCompletion:budget] ${budgetResult.reason}`)
+    if (!isBenchmarkTraffic) {
+      if (!budgetResult.allowed) {
+        debugLog(`[chatCompletion:budget] BLOCKED - ${budgetResult.reason}`)
+        throw new Error(`Budget exceeded: ${budgetResult.reason}`)
+      }
+      if (budgetResult.recommendedTier !== effectiveTier) {
+        debugLog(`[chatCompletion:budget] ${budgetResult.reason}`)
+      }
     }
 
     if (window.electronAPI?.llmChatCompletion && config.value.activeProviderId) {
@@ -491,7 +499,7 @@ export const useApiStore = defineStore('api', () => {
           toolCalls: result.toolCalls ?? [],
           usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
         }
-        if (cacheEligible && ipcResult.content.length > 50) {
+        if (cacheEligible && !isBenchmarkTraffic && ipcResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -505,7 +513,10 @@ export const useApiStore = defineStore('api', () => {
             }).catch(() => {})
           }
         }
-        recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+        // #5：benchmark 流量不进 ZOL 路由学习（recordOutcome→routingHistory）
+        if (!isBenchmarkTraffic) {
+          recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+        }
         emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
         return ipcResult
       } catch (err) {
@@ -597,7 +608,7 @@ export const useApiStore = defineStore('api', () => {
         const ct = aResp?.usage?.output_tokens || 0
         debugLog(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
         const anthropicResult = { content: text ? String(text) : '', toolCalls: [] }
-        if (cacheEligible && anthropicResult.content.length > 50) {
+        if (cacheEligible && !isBenchmarkTraffic && anthropicResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -611,7 +622,10 @@ export const useApiStore = defineStore('api', () => {
             }).catch(() => {})
           }
         }
-        recordOutcome(userContent, decision, effectiveTier, ct, budgetResult.estimatedCost, routingOptions?.taskType)
+        // #5：benchmark 流量不进 ZOL 路由学习
+        if (!isBenchmarkTraffic) {
+          recordOutcome(userContent, decision, effectiveTier, ct, budgetResult.estimatedCost, routingOptions?.taskType)
+        }
         emitRecordCost({ promptTokens: pt, completionTokens: ct, totalTokens: pt + ct }, effectiveTier, 'llm')
         return anthropicResult
       }
@@ -637,7 +651,7 @@ export const useApiStore = defineStore('api', () => {
       const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
       debugLog(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       const directResult = { content, toolCalls, usage }
-      if (cacheEligible && content.length > 50 && toolCalls.length === 0) {
+      if (cacheEligible && !isBenchmarkTraffic && content.length > 50 && toolCalls.length === 0) {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
         if (userMsg) {
           cacheStore({
@@ -651,7 +665,10 @@ export const useApiStore = defineStore('api', () => {
           }).catch(() => {})
         }
       }
-      recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+      // #5：benchmark 流量不进 ZOL 路由学习
+      if (!isBenchmarkTraffic) {
+        recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+      }
       emitRecordCost(usage, effectiveTier, 'llm')
       return directResult
       } catch (err) {
@@ -680,7 +697,7 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string }
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string }
   ): Promise<{ cancel: () => void }> {
     if (!config.value.isReachable || !config.value.activeModel) {
       callbacks.onError(new Error('API not ready'))
@@ -711,7 +728,9 @@ export const useApiStore = defineStore('api', () => {
 
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
-    if (!budgetResult.allowed) {
+    // #5：benchmark 压测流量不受预算 block（budget=0 恒超限时 benchmark 会被误拦）
+    const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
+    if (!budgetResult.allowed && !isBenchmarkTraffic) {
       callbacks.onError(new Error(`Budget exceeded: ${budgetResult.reason}`))
       return { cancel: () => {} }
     }
@@ -722,6 +741,23 @@ export const useApiStore = defineStore('api', () => {
       : controller.signal
 
     const cancel = () => controller.abort()
+
+    // #4 收尾：流式成功路径原不发射 record-cost——C-10 修复、流式启用后整体绕过
+    // debugStore 记账/sessionSpent 消耗；此处与非流式路径同口径补齐
+    // #5：benchmark 压测流量同样隔离，不进生产记账
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string) => {
+      if (isBenchmarkTraffic) return
+      try {
+        globalBus.emit('debug:record-cost', {
+          promptTokens: usage.promptTokens,
+          completionTokens: usage.completionTokens,
+          totalTokens: usage.totalTokens,
+          tier,
+          category,
+          ...(routingOptions?.traceId ? { traceId: routingOptions.traceId } : {})
+        })
+      } catch { /* non-critical */ }
+    }
 
     if (window.electronAPI?.llmChatCompletionStream && config.value.activeProviderId) {
       try {
@@ -746,6 +782,11 @@ export const useApiStore = defineStore('api', () => {
               if (!combinedSignal.aborted) {
                 recordSuccess()
                 recordOutcome(userContent, decision, effectiveTier, final.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+                emitRecordCost({
+                  promptTokens: final.usage?.promptTokens ?? 0,
+                  completionTokens: final.usage?.completionTokens ?? 0,
+                  totalTokens: final.usage?.totalTokens ?? (final.usage?.promptTokens ?? 0) + (final.usage?.completionTokens ?? 0)
+                }, effectiveTier, 'llm')
                 callbacks.onDone(final)
               }
             },
@@ -876,7 +917,7 @@ export const useApiStore = defineStore('api', () => {
             const toolCalls = Array.from(toolCallMap.values())
             recordSuccess()
             const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
-            if (cacheEligible && accumulatedContent.length > 50 && toolCalls.length === 0) {
+            if (cacheEligible && !isBenchmarkTraffic && accumulatedContent.length > 50 && toolCalls.length === 0) {
               const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
               if (userMsg) {
                 cacheStore({
@@ -891,6 +932,11 @@ export const useApiStore = defineStore('api', () => {
               }
             }
             recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+            emitRecordCost({
+              promptTokens: usageInfo?.promptTokens ?? 0,
+              completionTokens: usageInfo?.completionTokens ?? 0,
+              totalTokens: usageInfo?.totalTokens ?? (usageInfo?.promptTokens ?? 0) + (usageInfo?.completionTokens ?? 0)
+            }, effectiveTier, 'llm')
             callbacks.onDone({ content: accumulatedContent, toolCalls, usage: usageInfo })
           }
         }, fetchSignal)
@@ -907,7 +953,8 @@ export const useApiStore = defineStore('api', () => {
 
   const gatewayAdapter: ModelGatewayAdapter = {
     // B-10：透传 signal 到 chatCompletion，供网关调用方超时/终止取消底层请求
-    async chatCompletion(messages, options) { const r = await chatCompletion(messages as ChatMessage[], true, undefined, undefined, options?.signal); return r.content },
+    // #2 收尾：透传 traceId 到 routingOptions，网关路径记账归因不再依赖模块全局
+    async chatCompletion(messages, options) { const r = await chatCompletion(messages as ChatMessage[], true, undefined, undefined, options?.signal, options?.traceId ? { traceId: options.traceId } : undefined); return r.content },
     listModels() { return config.value.models },
     switchProvider(providerId) { switchProvider(providerId) },
     switchModel(modelId) { setActiveModel(modelId) },

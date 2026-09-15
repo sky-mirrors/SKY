@@ -21,7 +21,6 @@ import { runRuleEngine, buildRuleContext } from './ruleEngine'
 import type { RuleEngineResult } from './ruleEngine'
 import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } from './dagCheckpoint'
 import { debugLog } from '@/services/debugLog'
-import { getCurrentTraceId } from '@/services/trace'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 
@@ -50,7 +49,8 @@ function probeStep(
   inputSnapshot: Record<string, unknown>,
   outputSnapshot: string,
   durationMs: number,
-  extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>
+  extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>,
+  traceId?: string
 ) {
   // P1-39：get-step-cost 请求与探针发布分离——请求失败（无 handler）不再吞掉整个探针
   let tokenUsage: NonNullable<ProbeSnapshot['tokenUsage']> | undefined
@@ -66,7 +66,7 @@ function probeStep(
     }
   } catch { /* 可选链路：step-cost 不可用不影响探针 */ }
   try {
-    const traceId = getCurrentTraceId()
+    // #2 收尾：traceId 参数化传播（原模块级全局并发下串号）
     const snapshot: ProbeSnapshot = {
       id: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       stepNum,
@@ -115,7 +115,8 @@ export async function callToolDirectWithTier(
   timeoutMs?: number,
   externalSignal?: AbortSignal,
   stepResults?: Record<number, string>,
-  userInput?: { inputText?: string }
+  userInput?: { inputText?: string },
+  traceId?: string
 ): Promise<string> {
   const isWin = window.electronAPI?.platform === 'win32'
   const defaultHome = isWin ? 'C:\\Users\\Default' : '/home/user'
@@ -199,13 +200,17 @@ export async function callToolDirectWithTier(
       const desktopFileMatch = cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\\\([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\/([^'"]+)/) || cmd.match(/writeFileSync\([^)]*Desktop[^)]*\\([^'"]+)/)
       if (desktopFileMatch) {
         const expectedFileName = desktopFileMatch[1].replace(/['"]/g, '')
-        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.HOME_DIR||process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');debugLog(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
+        // P1-31：核验脚本三重死修复——
+        // 1) debugLog 在 node -e 里未定义，首次调用即抛 ReferenceError，核验永远失败；
+        // 2) HOME_DIR 伪造为 'C:\Users\Default'（不存在的兜底目录）恒 FILE_MISSING；
+        // 3) shellExec 子进程 env 已合并主进程 process.env（见 ipc-handlers A-03），
+        //    USERPROFILE/HOME 天然是真实用户目录，无需任何 HOME_DIR
+        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');console.log(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
         try {
           const checkResult = await window.electronAPI.shellExec({
             command: checkCmd,
             timeout: 5000,
             env: {
-              HOME_DIR: window.electronAPI?.platform === 'win32' ? 'C:\\Users\\Default' : '/home/user',
               EXPECTED_FILE: expectedFileName
             }
           })
@@ -300,7 +305,7 @@ export async function callToolDirectWithTier(
           messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
           maxTokens: Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
           signal: controller.signal,
-          routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}` }
+          routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, ...(traceId ? { traceId } : {}) }
         })
         clearTimeout(timeoutId)
         return resp.content || '(LLM无输出)'
@@ -478,7 +483,8 @@ export async function executeStep(
   onStepDone?: (stepNum: number, result: string) => void,
   onStepFailed?: (stepNum: number, error: string) => void,
   macroSignal?: AbortSignal,
-  onSideEffect?: (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => void
+  onSideEffect?: (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => void,
+  traceId?: string
 ): Promise<{ done: boolean; result?: string; fromCache?: boolean; fromRule?: boolean; ruleMatchedId?: string; usedFallback?: boolean }> {
   const resolvedArgs = resolveParams(step, manifest, userInput, stepResults)
   onStepStart?.(step.step, step.tool)
@@ -499,7 +505,7 @@ export async function executeStep(
     const ruleResult = runRuleEngine(manifest.ruleBasedFallback, ctx)
     if (ruleResult.matched) {
       onStepDone?.(step.step, ruleResult.output)
-      probeStep(manifest.identity.id, step.step, step.tool, 'rule', `规则引擎命中: ${ruleResult.matchedRuleId}`, resolvedArgs, ruleResult.output, 0, { ruleId: ruleResult.matchedRuleId })
+      probeStep(manifest.identity.id, step.step, step.tool, 'rule', `规则引擎命中: ${ruleResult.matchedRuleId}`, resolvedArgs, ruleResult.output, 0, { ruleId: ruleResult.matchedRuleId }, traceId)
       return { done: true, result: ruleResult.output, fromCache: false, fromRule: true, ruleMatchedId: ruleResult.matchedRuleId }
     }
   }
@@ -522,12 +528,12 @@ export async function executeStep(
 
         if (!validation.intent_match) {
           const msg = `双引擎审核: 意图偏离 — ${validation.reason || '动作不匹配用户意图'}`
-          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime)
+          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime, undefined, traceId)
           throw new Error(msg)
         }
         if (!validation.parameter_sane) {
           const msg = `双引擎审核: 参数存疑 — ${validation.reason || '目标文件格式不匹配'}`
-          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime)
+          probeStep(manifest.identity.id, step.step, step.tool, 'error', msg, resolvedArgs, '', Date.now() - stepStartTime, undefined, traceId)
           throw new Error(msg)
         }
         if (validation.risk_level === 'high') {
@@ -545,13 +551,13 @@ export async function executeStep(
       }
     }
 
-    let result = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+    let result = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput, traceId)
 
     // P1-42：宏副作用/工具调用审计埋点（经 bus 桥落 memoryStore.addAuditLog）
     if (SIDE_EFFECT_TOOLS.has(step.tool) || isMcpToolName(step.tool)) {
       try {
         const isMcp = isMcpToolName(step.tool)
-        const traceId = getCurrentTraceId()
+        // #2 收尾：traceId 参数化传播（原模块级全局并发下串号）
         globalBus.emit('memory:add-audit-log', {
           userId: 'local',
           action: isMcp ? 'mcp_tool_call' : 'macro_step_exec',
@@ -591,7 +597,7 @@ export async function executeStep(
         const errDetail = factResult.conflicts.filter(c => c.severity === 'critical').map(c => c.diff).join('；')
         const constraintErrors = factResult.allConstraintResults.filter(r => r.triggered && r.severity === 'error' && (!r.automationLevel || r.automationLevel === 'full')).map(r => r.message).join('；')
         const fullError = [errDetail, constraintErrors].filter(Boolean).join('；')
-        probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${fullError}`, resolvedArgs, result, Date.now() - stepStartTime)
+        probeStep(manifest.identity.id, step.step, step.tool, 'error', `FactGuard严重冲突: ${fullError}`, resolvedArgs, result, Date.now() - stepStartTime, undefined, traceId)
         throw new Error(`FactGuard: ${fullError}`)
       }
       if (factResult.severity === 'minor' && factResult.correctedOutput) {
@@ -610,7 +616,7 @@ export async function executeStep(
     probeStep(manifest.identity.id, step.step, step.tool, sourceForTool(step.tool), `${step.tool} @ tier=${tier || 'default'}`, resolvedArgs, result, dur, {
       modelTier: tier,
       modelParams: tierConfig ? { temperature: tierConfig.temperature, maxTokens: tierConfig.maxTokens } : undefined
-    })
+    }, traceId)
     return { done: true, result, fromCache: false }
   } catch (err) {
     if (macroSignal?.aborted) {
@@ -619,7 +625,7 @@ export async function executeStep(
     }
     const errMsg = err instanceof Error ? err.message : String(err)
     const errStack = err instanceof Error ? err.stack : undefined
-    probeStep(manifest.identity.id, step.step, step.tool, 'error', errMsg, resolvedArgs, '', Date.now() - stepStartTime, { errorStack: errStack })
+    probeStep(manifest.identity.id, step.step, step.tool, 'error', errMsg, resolvedArgs, '', Date.now() - stepStartTime, { errorStack: errStack }, traceId)
 
     try {
       const { classifyError } = await import('./errorClassifier')
@@ -664,7 +670,7 @@ export async function executeStep(
                   })
                   if (installResult?.success) {
                     try { globalBus.emit('debug:log-event', { level: 'info', tag: 'shell', message: `[自动修复] 已安装缺失模块: ${mod}` }) } catch { /* ignore */ }
-                    const retryResult = await callToolDirectWithTier(step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput)
+                    const retryResult = await callToolDirectWithTier(step.tool, fixedArgs, tier, undefined, macroSignal, stepResults, userInput, traceId)
                     onStepDone?.(step.step, retryResult)
                     return { done: true, result: retryResult, fromCache: false }
                   }
@@ -677,7 +683,7 @@ export async function executeStep(
 
       if (classification.action === 'retry' && !step.fallback) {
         try {
-          const retryResult = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput)
+          const retryResult = await callToolDirectWithTier(step.tool, resolvedArgs, tier, undefined, macroSignal, stepResults, userInput, traceId)
           onStepDone?.(step.step, retryResult)
           return { done: true, result: retryResult, fromCache: false }
         } catch (retryErr) {
@@ -690,7 +696,7 @@ export async function executeStep(
     if (step.fallback) {
       try {
         const fbTier = step.modelTier || 'mini'
-        const fbResult = await callToolDirectWithTier(step.fallback, resolvedArgs, fbTier, undefined, macroSignal, stepResults, userInput)
+        const fbResult = await callToolDirectWithTier(step.fallback, resolvedArgs, fbTier, undefined, macroSignal, stepResults, userInput, traceId)
         onStepDone?.(step.step, fbResult)
         return { done: true, result: fbResult, fromCache: false, usedFallback: true }
       } catch (fbErr) {
@@ -782,7 +788,8 @@ export async function executeMacro(
   onStepReuse?: (stepNum: number) => void,
   onStepSkip?: (stepNum: number) => void,
   onPlanPreview?: (preview: string) => void,
-  replayPriorResults?: Record<number, string>
+  replayPriorResults?: Record<number, string>,
+  traceId?: string
 ): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage }> {
   const { execution } = manifest
   let savedTokens = 0
@@ -814,7 +821,7 @@ export async function executeMacro(
       messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
       maxTokens: execution.directCall.maxTokens,
       signal: macroController.signal,
-      routingOptions: { taskType: 'raap', callerId: 'macro_directCall' }
+      routingOptions: { taskType: 'raap', callerId: 'macro_directCall', ...(traceId ? { traceId } : {}) }
     })
     // D-08：direct 模式提前返回前注销控制器
     unregisterAbort()
@@ -933,7 +940,7 @@ export async function executeMacro(
             savedTokens += 2000
             lineage.push({ step: step.step, source: 'auto_compiled', tool: step.tool })
           } else {
-            const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
+            const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb, traceId)
             if (done && result) {
               finalResults[step.step] = result
             } else {
@@ -951,7 +958,7 @@ export async function executeMacro(
           onStepReuse?.(step.step)
           lineage.push({ step: step.step, source: 'cache_reuse', tool: step.tool })
         } else {
-          const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
+          const { done, result } = await executeStep(step, manifest, userInput, finalResults, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb, traceId)
           if (done && result) {
             finalResults[step.step] = result
           } else {
@@ -1018,7 +1025,7 @@ export async function executeMacro(
       onStepReuse?.(reuseStep.step)
       savedTokens += reuseStep.tool === 'llm_generate' ? 2000 : 500
       lineage.push({ step: reuseStep.step, source: 'cache_reuse', tool: reuseStep.tool })
-      probeStep(manifest.identity.id, reuseStep.step, reuseStep.tool, 'cache', `缓存复用(fingerprint=${inputFingerprint.substring(0, 16)})`, {}, cached.results[reuseStep.step], 0, { cacheFingerprint: inputFingerprint })
+      probeStep(manifest.identity.id, reuseStep.step, reuseStep.tool, 'cache', `缓存复用(fingerprint=${inputFingerprint.substring(0, 16)})`, {}, cached.results[reuseStep.step], 0, { cacheFingerprint: inputFingerprint }, traceId)
     }
   }
 
@@ -1026,7 +1033,7 @@ export async function executeMacro(
     skipSteps.add(skipStep.step)
     onStepSkip?.(skipStep.step)
     lineage.push({ step: skipStep.step, source: 'skipped', tool: skipStep.tool })
-    probeStep(manifest.identity.id, skipStep.step, skipStep.tool, 'skip', '条件短路跳过', {}, '', 0)
+    probeStep(manifest.identity.id, skipStep.step, skipStep.tool, 'skip', '条件短路跳过', {}, '', 0, undefined, traceId)
   }
 
   const activeSteps = stepPlan.willExecute
@@ -1107,7 +1114,7 @@ export async function executeMacro(
         }
       } catch { /* ignore */ }
 
-      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb, traceId)
       if (execResult.done && execResult.result) {
         stepDone.set(step.step, true)
         results[step.step] = execResult.result
@@ -1124,7 +1131,7 @@ export async function executeMacro(
     } else {
       const execResults = await Promise.all(
         readySteps.map(async (step) => {
-      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb)
+      const execResult = await executeStep(step, manifest, userInput, results, stepStartCb, stepDoneCb, stepFailedCb, macroController.signal, sideEffectCb, traceId)
           return { step, execResult }
         })
       )

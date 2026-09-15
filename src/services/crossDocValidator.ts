@@ -49,6 +49,9 @@ function compareEntityValues(
   if (type === 'percentage') {
     const fa = parseFloat(a.normalized)
     const fb = parseFloat(b.normalized)
+    // A4-20：NaN 时 NaN<0.1 与 NaN>1 均为 false，会产出 match:false/severity:minor
+    // 且 diff 为 NaN 的诡异冲突——与 amount/date 一致显式判非法值
+    if (isNaN(fa) || isNaN(fb)) return { match: false, severity: 'minor' }
     const diff = Math.abs(fa - fb)
     return { match: diff < 0.1, severity: diff > 1 ? 'critical' : 'minor' }
   }
@@ -91,24 +94,28 @@ export function findCrossDocumentConflicts(
 
         for (const eA of entitiesA) {
           let anyMatch = false
+          let conflict: CrossDocConflict | null = null
           for (const eB of entitiesB) {
             const cmp = compareEntityValues(type, eA, eB)
             if (cmp.match) {
               anyMatch = true
               break
             }
-            if (!cmp.match) {
-              conflicts.push({
+            // A4-20：与 factGuard P1-20 同型——首个不匹配即 push+break 会跳过
+            // 后续本可匹配的实体对（首实体恒被拿来比对，系统性假冲突）
+            if (!conflict) {
+              conflict = {
                 entityType: type,
                 docAId: docA.docId,
                 docAValue: eA.raw,
                 docBId: docB.docId,
                 docBValue: eB.raw,
                 severity: cmp.severity
-              })
-              anyMatch = true
-              break
+              }
             }
+          }
+          if (!anyMatch && conflict) {
+            conflicts.push(conflict)
           }
         }
       }

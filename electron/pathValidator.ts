@@ -46,7 +46,7 @@ const FORBIDDEN_WRITE_PATHS = [
 
 const SAFE_OPEN_EXTENSIONS = [
   '.txt', '.md', '.json', '.csv', '.xml', '.yaml', '.yml', '.toml',
-  '.html', '.htm', '.css', '.js', '.ts', '.vue', '.py', '.java', '.c', '.cpp', '.h',
+  '.html', '.htm', '.css', '.js', '.ts', '.vue', '.java', '.c', '.cpp', '.h',
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.ico',
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
   '.zip', '.tar', '.gz', '.7z',
@@ -54,8 +54,12 @@ const SAFE_OPEN_EXTENSIONS = [
   '.log', '.ini', '.cfg', '.conf', '.env.example',
 ]
 
+// P1-3 收尾：.py/.pyw 与 .mjs/.cjs 是解释器可直接执行的脚本扩展名，
+// 允许 file:write 落盘即构成"写文件→MCP 解释器执行"RCE 链（.js 已在列）；
+// 同时 validateOpenPath 会拒绝 shell 打开这类文件（双击即执行）
 const DANGEROUS_EXTENSIONS = [
   '.exe', '.bat', '.cmd', '.ps1', '.vbs', '.vbe', '.js', '.jse',
+  '.mjs', '.cjs', '.py', '.pyw',
   '.wsf', '.wsh', '.msi', '.msp', '.mst', '.dll', '.ocx', '.sys',
   '.scr', '.pif', '.com', '.cpl', '.inf', '.reg', '.hta',
   '.sh', '.bash', '.zsh', '.fish', '.run', '.bin', '.app',

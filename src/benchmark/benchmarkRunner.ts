@@ -1,7 +1,7 @@
 import { useApiStore } from '@/stores/apiStore'
 import { useNodeStore } from '@/stores/nodeStore'
 import { tryL0Skill, tryL05QuickMatch, checkL1Capability } from '@/services/l0SkillRouter'
-import { computeInputFingerprint, getTierConfig } from '@/services/scheduleOptimizer'
+import { computeInputFingerprint, getTierConfig, compilePrompt, fillCompiledPrompt } from '@/services/scheduleOptimizer'
 import type { BenchmarkStats, BenchmarkReport } from './statsTracker'
 import { createStatsTracker } from './statsTracker'
 import { getTestCases, type TestCase } from './testCases'
@@ -55,6 +55,14 @@ export function createBenchmarkRunner(): BenchmarkRunner {
 
   // P1-33：runner 实例级隔离指纹缓存（读/写均不触达 scheduleOptimizer 生产库）
   const benchFingerprints: BenchFingerprint[] = []
+  // P1-32：与生产一致的插槽渲染——input 直填，step_N_result 按已执行步骤结果填充
+  function renderStepPrompt(template: string, input: string, stepResults: Record<number, string>): string {
+    const variables: Record<string, string> = { input }
+    for (const [sNum, sResult] of Object.entries(stepResults)) {
+      variables[`step_${sNum}_result`] = sResult
+    }
+    return fillCompiledPrompt(compilePrompt(template), variables)
+  }
   function findBenchCached(manifestId: string, inputHash: string): BenchFingerprint | null {
     return benchFingerprints.find(f => f.manifestId === manifestId && f.inputHash === inputHash) || null
   }
@@ -111,7 +119,10 @@ export function createBenchmarkRunner(): BenchmarkRunner {
     if (l05Result && l05Result.confidence >= 0.8) {
       const m = l05Result.manifest
       if (m.execution.mode === 'direct' && m.execution.directCall) {
-        const prompt = m.execution.directCall.promptTemplate.replace('{{input}}', input)
+        // P1-32：优化路径必须与生产管线（macroExecutor.resolveParams）一致做
+        // {{input}} 等插槽替换——原实现只替换 {{input}} 单插槽或干脆直传模板，
+        // 发给模型的是带 {{...}} 字面量的提示词，测的根本不是声称的管线
+        const prompt = fillCompiledPrompt(compilePrompt(m.execution.directCall.promptTemplate), { input })
         const result = await directLlmCall(prompt, 'nano', tracker)
         tracker.recordCacheHit('l05')
         debugLog(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (nano tier)`)
@@ -120,7 +131,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
       if (m.execution.dagPlan && m.execution.dagPlan.steps.length === 1) {
         const step = m.execution.dagPlan.steps[0]
         const tier = step.modelTier || 'mini'
-        const prompt = String(step.params.prompt || input)
+        const prompt = renderStepPrompt(String(step.params.prompt || input), input, {})
         const result = await directLlmCall(prompt, tier, tracker)
         tracker.recordCacheHit('l05')
         debugLog(`[Benchmark:Optimized] L0.5 hit: ${m.identity.name} (${tier} tier)`)
@@ -143,7 +154,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
         let lastResult = ''
         for (const step of m.execution.dagPlan.steps) {
           const tier = step.modelTier || 'standard'
-          const prompt = String(step.params.prompt || input)
+          const prompt = renderStepPrompt(String(step.params.prompt || input), input, stepResults)
           lastResult = await directLlmCall(prompt, tier, tracker)
           stepResults[step.step] = lastResult
         }

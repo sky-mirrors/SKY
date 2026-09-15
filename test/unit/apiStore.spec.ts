@@ -26,6 +26,17 @@ function mockWindow() {
       content: 'mock response', toolCalls: [],
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
     }),
+    llmChatCompletionStream: vi.fn().mockImplementation(
+      (_payload: unknown, cbs: { onChunk: (c: unknown) => void; onDone: (f: unknown) => void; onError: (e: string) => void }) => {
+        Promise.resolve().then(() => {
+          cbs.onDone({
+            content: 'streamed response', toolCalls: [],
+            usage: { promptTokens: 5, completionTokens: 7, totalTokens: 12, cacheHitTokens: 0, cacheMissTokens: 5 }
+          })
+        })
+        return () => {}
+      }
+    ),
     llmListModels: vi.fn().mockResolvedValue([])
   }
   ;(globalThis as Record<string, unknown>).window = { electronAPI: api }
@@ -174,6 +185,88 @@ describe('apiStore', () => {
       const store = useApiStore()
       const domain = store.detectDomain([{ role: 'user', content: '帮我写一封邮件' }])
       expect(domain).toBe('general')
+    })
+  })
+
+  describe('#5 benchmark 流量隔离', () => {
+    it('benchmark 调用不发射 record-cost、不写 routingHistory；普通调用两者均记录', async () => {
+      const { globalBus } = await import('@/kernel/bus')
+      const { getRoutingHistory, clearRoutingHistory } = await import('@/services/smartRouter')
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+
+      const costs: unknown[] = []
+      const handler = (e: unknown) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+      clearRoutingHistory()
+
+      // 6 条消息绕过语义缓存资格路径（generateVector 在测试环境不可用会挂起）
+      const benchMsgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `benchmark probe ${i}` }))
+      await store.chatCompletion(
+        benchMsgs,
+        false, undefined, undefined, undefined,
+        { taskType: 'benchmark', callerId: 'benchmark_standard' }
+      )
+      expect(costs).toHaveLength(0)
+      expect(getRoutingHistory()).toHaveLength(0)
+
+      const normalMsgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `normal probe ${i}` }))
+      await store.chatCompletion(
+        normalMsgs,
+        false, undefined, undefined, undefined,
+        { taskType: 'chat' }
+      )
+      expect(costs.length).toBeGreaterThan(0)
+      expect(getRoutingHistory().length).toBeGreaterThan(0)
+
+      globalBus.off('debug:record-cost', handler)
+      clearRoutingHistory()
+    })
+  })
+
+  describe('#2/#4/#5 流式路径记账与隔离', () => {
+    it('流式成功发射 record-cost 并携带 routingOptions.traceId；benchmark 流量不发射', async () => {
+      const { globalBus } = await import('@/kernel/bus')
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+
+      const costs: Record<string, unknown>[] = []
+      const handler = (e: Record<string, unknown>) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+
+      // 6 条消息绕过语义缓存资格路径（generateVector 在测试环境不可用会挂起）
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `stream probe ${i}` }))
+      const done = new Promise<void>((resolve, reject) => {
+        store.chatCompletionStream(
+          msgs,
+          { onChunk: () => {}, onDone: () => resolve(), onError: (e) => reject(e) },
+          undefined, undefined, undefined,
+          { taskType: 'chat', traceId: 'trace-abc-123' }
+        ).catch(reject)
+      })
+      await done
+      expect(costs.length).toBe(1)
+      expect(costs[0].traceId).toBe('trace-abc-123')
+      expect(costs[0].category).toBe('llm')
+
+      await store.chatCompletionStream(
+        msgs,
+        { onChunk: () => {}, onDone: () => {}, onError: () => {} },
+        undefined, undefined, undefined,
+        { taskType: 'benchmark' }
+      )
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(costs.length).toBe(1)
+
+      globalBus.off('debug:record-cost', handler)
     })
   })
 })
