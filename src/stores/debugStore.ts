@@ -122,15 +122,16 @@ export const useDebugStore = defineStore('debug', () => {
     return 'standard'
   }
 
-  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number, category?: string, tier?: string, traceId?: string) {
+  // M17/M20：local=true 表示本地 Ollama 调用——token 计数照常，费用记 0
+  function recordTokenUsage(promptTokens: number, completionTokens: number, totalTokens: number, category?: string, tier?: string, traceId?: string, local?: boolean) {
     _skipNextCapture = true
     totalTokenUsage.value.promptTokens += promptTokens
     totalTokenUsage.value.completionTokens += completionTokens
     totalTokenUsage.value.totalTokens += totalTokens
-    const cost = calculateCost(promptTokens, completionTokens, 0)
+    const cost = local ? { totalCost: 0 } : calculateCost(promptTokens, completionTokens, 0)
     totalTokenUsage.value.estimatedCostCny += cost.totalCost
-    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}, cost=${cost.totalCost.toFixed(4)}CNY${traceId ? ` [traceId=${traceId.substring(0, 8)}]` : ''}`, undefined, traceId)
-    recordLlmCost(toModelTier(tier), promptTokens, completionTokens, 0, category || 'llm')
+    emitEvent('info', 'llm', `[TokenUsage] prompt=${promptTokens}, completion=${completionTokens}, total=${totalTokens}, cost=${cost.totalCost.toFixed(4)}CNY${local ? ' [local]' : ''}${traceId ? ` [traceId=${traceId.substring(0, 8)}]` : ''}`, undefined, traceId)
+    recordLlmCost(toModelTier(tier), promptTokens, completionTokens, 0, category || 'llm', local)
     refreshBudgetStatus()
   }
 

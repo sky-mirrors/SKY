@@ -97,7 +97,7 @@ export interface ProviderConfig {
   authType: 'none' | 'bearer' | 'api-key'
   apiKey: string
   modelsEndpoint: string
-  chatFormat: 'openai' | 'anthropic' | 'custom'
+  chatFormat: 'openai' | 'anthropic' | 'custom' | 'ollama'
   models: ModelInfo[]
   isReachable: boolean
   lastCheckedAt: number

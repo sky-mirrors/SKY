@@ -230,9 +230,13 @@ export function recordLlmCost(
   promptTokens: number,
   completionTokens: number,
   cacheHitTokens: number,
-  category: string
+  category: string,
+  local?: boolean
 ): CostRecord {
-  const cost = calculateCost(promptTokens, completionTokens, cacheHitTokens)
+  // M17/M20：本地 Ollama 调用零费用——token 照记（口径不变），费用记 0
+  const cost = local
+    ? { inputCost: 0, outputCost: 0, cacheSaving: 0, totalCost: 0 }
+    : calculateCost(promptTokens, completionTokens, cacheHitTokens)
   return recordCost({
     tier,
     inputTokens: promptTokens,

@@ -6,3 +6,5 @@ factGuard.ts
 knowledgeBase.ts
 embedder.ts
 debugLog.ts
+ollamaProvider.ts
+providerChain.ts

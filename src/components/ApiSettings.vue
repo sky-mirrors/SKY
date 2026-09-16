@@ -112,7 +112,7 @@ const customApiKey = ref('')
 const editingProviderId = ref('')
 const editingKey = ref('')
 
-const presets: { id: string; name: string; baseUrl: string; authType: 'none' | 'bearer' | 'api-key'; modelsEndpoint: string; chatFormat: 'openai' | 'anthropic' }[] = [
+const presets: { id: string; name: string; baseUrl: string; authType: 'none' | 'bearer' | 'api-key'; modelsEndpoint: string; chatFormat: 'openai' | 'anthropic' | 'ollama' }[] = [
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', authType: 'api-key', modelsEndpoint: '/v1/models', chatFormat: 'anthropic' },
@@ -120,7 +120,8 @@ const presets: { id: string; name: string; baseUrl: string; authType: 'none' | '
   { id: 'zhipu', name: '智谱AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'moonshot', name: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
   { id: 'yi', name: '零一万物', baseUrl: 'https://api.lingyiwanwu.com/v1', authType: 'bearer', modelsEndpoint: '/models', chatFormat: 'openai' },
-  { id: 'ollama', name: 'Ollama(本地)', baseUrl: 'http://127.0.0.1:11434/v1', authType: 'none', modelsEndpoint: '/models', chatFormat: 'openai' }
+  // M17：Ollama 预设改原生协议（/api/tags + /api/chat NDJSON），渲染进程直连不走 IPC
+  { id: 'ollama', name: 'Ollama(本地)', baseUrl: 'http://127.0.0.1:11434', authType: 'none', modelsEndpoint: '/api/tags', chatFormat: 'ollama' }
 ]
 
 function isProviderAdded(id: string): boolean {

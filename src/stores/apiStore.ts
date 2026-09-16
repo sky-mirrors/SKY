@@ -10,6 +10,17 @@ import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
+import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
+// M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
+import {
+  buildProviderChain,
+  isRetryableProviderError,
+  probeChainTarget,
+  markChainResult,
+  pickOllamaModel,
+  emitDegraded,
+  DegradeTarget
+} from '@/services/providerChain'
 import { vault } from '@/vault'
 import { globalBus } from '@/kernel/bus'
 import { getPackIdForDomain } from '@/host/packRuntime'
@@ -139,6 +150,34 @@ export const useApiStore = defineStore('api', () => {
   }
 
   async function pingProvider(provider: ProviderConfig): Promise<boolean> {
+    // M17：Ollama 常驻 127.0.0.1——主进程 isHostAllowed 拒绝 loopback（SSRF 防护，P0-1），
+    // 跳过 IPC llmListModels，渲染进程直连 GET /api/tags 探测
+    if (provider.chatFormat === 'ollama') {
+      const probe = await probeOllama(provider.baseUrl)
+      if (probe.ok) {
+        const models: ModelInfo[] = probe.models.map(m => ({ ...m, providerId: provider.id }))
+        provider.models = models
+        provider.isReachable = true
+        provider.lastCheckedAt = Date.now()
+        if (provider.id === config.value.activeProviderId) {
+          config.value.models = models
+          config.value.isReachable = true
+          config.value.lastCheckedAt = Date.now()
+          if (!config.value.activeModel && models.length > 0) {
+            setActiveModel(models[0].id)
+          }
+        }
+        recordSuccess()
+        return true
+      }
+      provider.isReachable = false
+      provider.lastCheckedAt = Date.now()
+      if (provider.id === config.value.activeProviderId) {
+        config.value.isReachable = false
+        recordFailure()
+      }
+      return false
+    }
     if (window.electronAPI?.llmListModels) {
       try {
         const result = await window.electronAPI.llmListModels({ providerId: provider.id })
@@ -363,20 +402,91 @@ export const useApiStore = defineStore('api', () => {
     } catch { /* non-critical */ }
   }
 
+  // M20：per-request 降级态（尾参传递，绝无模块级请求全局——#2 教训）
+  interface DegradeState {
+    target: DegradeTarget
+    model: string
+  }
+
+  /** M20：按链序找第一个可用的本地 Ollama 目标（探测带 TTL 缓存） */
+  async function findDegradedTarget(): Promise<DegradeState | null> {
+    const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
+    for (const target of chain) {
+      if (!target.implicit && target.providerId === config.value.activeProviderId) continue
+      if (target.chatFormat !== 'ollama') continue
+      const probe = await probeChainTarget(target)
+      if (!probe.ok) continue
+      const model = pickOllamaModel(target, probe)
+      if (!model) continue
+      return { target, model }
+    }
+    return null
+  }
+
+  function degradeFromInfo(): { providerId: string; name: string } {
+    const id = config.value.activeProviderId || ''
+    return { providerId: id, name: activeProvider.value?.name || id || '未配置' }
+  }
+
+  const ALL_CHANNELS_DOWN = '所有 LLM 通道均不可用：远程不可达且无本地模型（离线）'
+
+  /**
+   * M20：透明降级——远程失败（网络/5xx/超时/429）时按链回退本地 Ollama，
+   * 不改 activeProvider；链上逐目标尝试，全部失败返回 null 由调用方决定后续。
+   */
+  async function tryDegradeChain(
+    originalErr: unknown,
+    messages: ChatMessage[],
+    retryOnFailure: boolean,
+    tools: ToolFunction[] | undefined,
+    maxTokens: number | undefined,
+    externalSignal: AbortSignal | undefined,
+    routingOptions: { taskType?: string; domain?: string; callerId?: string; traceId?: string } | undefined
+  ): Promise<Awaited<ReturnType<typeof chatCompletion>> | null> {
+    const reason = (originalErr instanceof Error ? originalErr.message : String(originalErr)).slice(0, 120)
+    const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
+    for (const target of chain) {
+      if (!target.implicit && target.providerId === config.value.activeProviderId) continue
+      if (target.chatFormat !== 'ollama') continue
+      const probe = await probeChainTarget(target)
+      if (!probe.ok) continue
+      const model = pickOllamaModel(target, probe)
+      if (!model) continue
+      emitDegraded(globalBus, degradeFromInfo(), target, reason)
+      try {
+        const r = await chatCompletion(messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, { target, model })
+        markChainResult(target, true)
+        return r
+      } catch (err2) {
+        if (externalSignal?.aborted) return null
+        markChainResult(target, false)
+        debugLog(`[chatCompletion:degrade] ${target.name} 也失败，继续链上下一级`)
+      }
+    }
+    return null
+  }
+
   async function chatCompletion(
     messages: ChatMessage[],
     retryOnFailure: boolean = true,
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string }
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string },
+    degradeState?: DegradeState
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
-    if (!config.value.isReachable || !config.value.activeModel) {
+    // M20：降级态绕过远程就绪/熔断检查——能走到降级态说明远程已失败
+    if (!degradeState && (!config.value.isReachable || !config.value.activeModel)) {
+      const degraded = await tryDegradeChain(new Error('API not ready'), messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions)
+      if (degraded) return degraded
       throw new Error('API not ready')
     }
-    if (isCircuitOpen.value) {
+    if (!degradeState && isCircuitOpen.value) {
       checkAndResetCircuitBreaker()
       if (isCircuitOpen.value) {
+        // M20：熔断 open → 先试降级链上下一级，链不可用再抛
+        const degraded = await tryDegradeChain(new Error('circuit breaker open'), messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions)
+        if (degraded) return degraded
         throw new Error('Circuit breaker is open - API temporarily unavailable')
       }
     }
@@ -389,7 +499,8 @@ export const useApiStore = defineStore('api', () => {
     // 与 debugStore 记账三类污染面，并避免 budget=0 恒超限时 benchmark 被 block）
     const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
-    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string) => {
+    // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string, local?: boolean) => {
       if (isBenchmarkTraffic) return
       try {
         // #2 收尾：traceId 改经 routingOptions 参数传入（原模块级全局并发下串号）
@@ -400,11 +511,12 @@ export const useApiStore = defineStore('api', () => {
           totalTokens: usage.totalTokens,
           tier,
           category,
-          ...(traceId ? { traceId } : {})
+          ...(traceId ? { traceId } : {}),
+          ...(local ? { local: true } : {})
         })
       } catch { /* non-critical */ }
     }
-    if (cacheEligible && !isBenchmarkTraffic && getCacheConfig().enabled) {
+    if (!degradeState && cacheEligible && !isBenchmarkTraffic && getCacheConfig().enabled) {
       try {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
@@ -450,7 +562,8 @@ export const useApiStore = defineStore('api', () => {
 
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
-    if (!isBenchmarkTraffic) {
+    // M20：降级态（本地零费用）不受预算 block；远程预算已在发起方检查过
+    if (!isBenchmarkTraffic && !degradeState) {
       if (!budgetResult.allowed) {
         debugLog(`[chatCompletion:budget] BLOCKED - ${budgetResult.reason}`)
         throw new Error(`Budget exceeded: ${budgetResult.reason}`)
@@ -460,7 +573,10 @@ export const useApiStore = defineStore('api', () => {
       }
     }
 
-    if (window.electronAPI?.llmChatCompletion && config.value.activeProviderId) {
+    // M17：Ollama 走渲染进程直连（主进程 isHostAllowed 拒绝 loopback），禁走 IPC
+    // M20：降级态同样直连（目标是本地 Ollama）
+    if (!degradeState && window.electronAPI?.llmChatCompletion && config.value.activeProviderId
+      && activeProvider.value?.chatFormat !== 'ollama') {
       try {
         const ipcArgs = {
           providerId: config.value.activeProviderId,
@@ -530,6 +646,13 @@ export const useApiStore = defineStore('api', () => {
           await new Promise(r => setTimeout(r, 1000 * circuitBreaker.value.retryCount))
           return chatCompletion(messages, false, tools, maxTokens, externalSignal, routingOptions)
         }
+        // M20：重试预算耗尽且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链
+        if (!degradeState && isRetryableProviderError(err)) {
+          const degraded = await tryDegradeChain(err, messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions)
+          if (degraded) return degraded
+          recordFailure()
+          throw new Error(`${ALL_CHANNELS_DOWN}｜${errMsg.slice(0, 120)}`)
+        }
         recordFailure()
         throw err
       }
@@ -544,7 +667,8 @@ export const useApiStore = defineStore('api', () => {
       headers['x-api-key'] = provider.apiKey
     }
 
-    const chatFormat = provider?.chatFormat || 'openai'
+    // M20：降级态强制走 Ollama 分支（目标是本地 Ollama，非 active provider）
+    const chatFormat = degradeState ? 'ollama' : (provider?.chatFormat || 'openai')
     let body: Record<string, unknown>
     let endpoint = '/v1/chat/completions'
 
@@ -586,6 +710,43 @@ export const useApiStore = defineStore('api', () => {
         fetchSignal = AbortSignal.any([externalSignal, tierSignal, capSignal])
       } else {
         fetchSignal = AbortSignal.any([tierSignal, capSignal])
+      }
+      // M17：Ollama 原生 /api/chat（stream:false）——单 JSON 响应，无 toolCalls
+      if (chatFormat === 'ollama') {
+        // M20：降级态使用降级目标的端点与模型
+        const ollamaBase = degradeState ? degradeState.target.baseUrl : baseUrl
+        const ollamaModel = degradeState
+          ? degradeState.model
+          : (config.value.activeModel || provider?.models?.[0]?.id || '')
+        if (!ollamaModel) {
+          throw new Error('Ollama: 无可用模型（请先 pingProvider 拉取模型清单）')
+        }
+        const ollamaMessages = messages.map(m => ({ role: m.role, content: m.content || '' }))
+        const r = await ollamaChat(ollamaBase, ollamaModel, ollamaMessages, maxTokens, fetchSignal)
+        recordSuccess()
+        debugLog(`[chatCompletion:ollama] model=${ollamaModel}, usage: prompt=${r.usage.promptTokens}, completion=${r.usage.completionTokens}, total=${r.usage.totalTokens}`)
+        const ollamaResult = { content: r.content, toolCalls: [], usage: r.usage }
+        if (cacheEligible && !isBenchmarkTraffic && r.content.length > 50) {
+          const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
+          if (userMsg) {
+            cacheStore({
+              queryText: userMsg,
+              responseText: r.content,
+              tier: effectiveTier,
+              promptTokens: r.usage.promptTokens,
+              completionTokens: r.usage.completionTokens,
+              domain,
+              packId
+            }).catch(() => {})
+          }
+        }
+        // #5：benchmark 流量不进 ZOL 路由学习
+        if (!isBenchmarkTraffic) {
+          recordOutcome(userContent, decision, effectiveTier, r.usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+        }
+        // M17/M20：本地 Ollama 零费用记账
+        emitRecordCost(r.usage, effectiveTier, 'llm', true)
+        return ollamaResult
       }
       const resp = await fetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
@@ -686,6 +847,13 @@ export const useApiStore = defineStore('api', () => {
         await new Promise(r => setTimeout(r, 1000 * circuitBreaker.value.retryCount))
         return chatCompletion(messages, false, tools, maxTokens, externalSignal, routingOptions)
       }
+      // M20：重试预算耗尽且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链
+      if (!degradeState && isRetryableProviderError(err)) {
+        const degraded = await tryDegradeChain(err, messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions)
+        if (degraded) return degraded
+        recordFailure()
+        throw new Error(`${ALL_CHANNELS_DOWN}｜${errMsg.slice(0, 120)}`)
+      }
       recordFailure()
       throw err
     }
@@ -697,17 +865,31 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string }
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string },
+    degradeState?: DegradeState
   ): Promise<{ cancel: () => void }> {
-    if (!config.value.isReachable || !config.value.activeModel) {
-      callbacks.onError(new Error('API not ready'))
-      return { cancel: () => {} }
+    // M20：远程未就绪 → 先试降级链（本地 Ollama 可能仍可用），链不可用再报错
+    if (!degradeState && (!config.value.isReachable || !config.value.activeModel)) {
+      const fallback = await findDegradedTarget()
+      if (!fallback) {
+        callbacks.onError(new Error('API not ready'))
+        return { cancel: () => {} }
+      }
+      emitDegraded(globalBus, degradeFromInfo(), fallback.target, 'API not ready')
+      degradeState = fallback
     }
-    if (isCircuitOpen.value) {
+    if (!degradeState && isCircuitOpen.value) {
       checkAndResetCircuitBreaker()
       if (isCircuitOpen.value) {
-        callbacks.onError(new Error('Circuit breaker is open'))
-        return { cancel: () => {} }
+        // M20：熔断 open → 先试降级链上下一级，链不可用再抛
+        const fallback = await findDegradedTarget()
+        if (fallback) {
+          emitDegraded(globalBus, degradeFromInfo(), fallback.target, 'circuit breaker open')
+          degradeState = fallback
+        } else {
+          callbacks.onError(new Error('Circuit breaker is open'))
+          return { cancel: () => {} }
+        }
       }
     }
 
@@ -745,7 +927,8 @@ export const useApiStore = defineStore('api', () => {
     // #4 收尾：流式成功路径原不发射 record-cost——C-10 修复、流式启用后整体绕过
     // debugStore 记账/sessionSpent 消耗；此处与非流式路径同口径补齐
     // #5：benchmark 压测流量同样隔离，不进生产记账
-    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string) => {
+    // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string, local?: boolean) => {
       if (isBenchmarkTraffic) return
       try {
         globalBus.emit('debug:record-cost', {
@@ -754,12 +937,15 @@ export const useApiStore = defineStore('api', () => {
           totalTokens: usage.totalTokens,
           tier,
           category,
-          ...(routingOptions?.traceId ? { traceId: routingOptions.traceId } : {})
+          ...(routingOptions?.traceId ? { traceId: routingOptions.traceId } : {}),
+          ...(local ? { local: true } : {})
         })
       } catch { /* non-critical */ }
     }
 
-    if (window.electronAPI?.llmChatCompletionStream && config.value.activeProviderId) {
+    // M17：Ollama 走渲染进程直连 NDJSON，禁走 IPC；M20：降级态同样直连
+    if (!degradeState && window.electronAPI?.llmChatCompletionStream && config.value.activeProviderId
+      && activeProvider.value?.chatFormat !== 'ollama') {
       try {
         const cleanup = window.electronAPI.llmChatCompletionStream(
           {
@@ -819,7 +1005,8 @@ export const useApiStore = defineStore('api', () => {
       headers['x-api-key'] = provider.apiKey
     }
 
-    const chatFormat = provider?.chatFormat || 'openai'
+    // M20：降级态强制走 Ollama NDJSON 分支（目标是本地 Ollama）
+    const chatFormat = degradeState ? 'ollama' : (provider?.chatFormat || 'openai')
     let body: Record<string, unknown>
     let endpoint = '/v1/chat/completions'
 
@@ -856,9 +1043,75 @@ export const useApiStore = defineStore('api', () => {
     const capSignal = AbortSignal.timeout(llmAbsoluteCap)
     const fetchSignal = AbortSignal.any([combinedSignal, tierSignal, capSignal])
 
+    // M20：是否已向调用方发射过 chunk——流式仅允许首 chunk 前降级切换
+    let deliveredAnyChunk = false
+
+    // M17/M20：Ollama NDJSON 流式主体——直连，供 active-ollama 与降级路径复用
+    const streamFromOllama = async (ollamaBase: string, ollamaModel: string): Promise<void> => {
+      const ollamaMessages = messages.map(m => ({ role: m.role, content: m.content || '' }))
+      let accumulated = ''
+      let usageInfo: StreamChunk['usage'] | undefined
+      await ollamaChatStream(ollamaBase, ollamaModel, ollamaMessages, (delta) => {
+        if (combinedSignal.aborted) return
+        if (delta.content) {
+          accumulated += delta.content
+          deliveredAnyChunk = true
+          callbacks.onChunk({ content: accumulated, delta: delta.content, toolCalls: undefined, usage: undefined, done: false })
+        }
+        if (delta.usage) {
+          usageInfo = {
+            promptTokens: delta.usage.promptTokens ?? 0,
+            completionTokens: delta.usage.completionTokens ?? 0,
+            totalTokens: (delta.usage.promptTokens ?? 0) + (delta.usage.completionTokens ?? 0),
+            cacheHitTokens: 0,
+            cacheMissTokens: delta.usage.promptTokens ?? 0
+          }
+        }
+        if (delta.done) {
+          recordSuccess()
+          if (!isBenchmarkTraffic && accumulated.length > 50) {
+            const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
+            if (userMsg) {
+              cacheStore({
+                queryText: userMsg,
+                responseText: accumulated,
+                tier: effectiveTier,
+                promptTokens: usageInfo?.promptTokens ?? 0,
+                completionTokens: usageInfo?.completionTokens ?? 0,
+                domain,
+                packId
+              }).catch(() => {})
+            }
+          }
+          // #5：benchmark 流量不进 ZOL 路由学习
+          if (!isBenchmarkTraffic) {
+            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+          }
+          emitRecordCost({
+            promptTokens: usageInfo?.promptTokens ?? 0,
+            completionTokens: usageInfo?.completionTokens ?? 0,
+            totalTokens: usageInfo?.totalTokens ?? 0
+          }, effectiveTier, 'llm', true)
+          callbacks.onDone({ content: accumulated, toolCalls: [], usage: usageInfo })
+        }
+      }, maxTokens, fetchSignal)
+    }
+
     ;(async () => {
       try {
-        const resp = await fetch(`${baseUrl}${endpoint}`, {
+      // M17：Ollama 原生 /api/chat NDJSON 流式；M20：降级态使用降级目标端点/模型
+      if (chatFormat === 'ollama') {
+        const ollamaBase = degradeState ? degradeState.target.baseUrl : baseUrl
+        const ollamaModel = degradeState
+          ? degradeState.model
+          : (config.value.activeModel || provider?.models?.[0]?.id || '')
+        if (!ollamaModel) {
+          throw new Error('Ollama: 无可用模型（请先 pingProvider 拉取模型清单）')
+        }
+        await streamFromOllama(ollamaBase, ollamaModel)
+        return
+      }
+      const resp = await fetch(`${baseUrl}${endpoint}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
@@ -881,6 +1134,7 @@ export const useApiStore = defineStore('api', () => {
 
           if (delta.content) {
             accumulatedContent += delta.content
+            deliveredAnyChunk = true
             callbacks.onChunk({
               content: accumulatedContent,
               delta: delta.content,
@@ -942,6 +1196,37 @@ export const useApiStore = defineStore('api', () => {
         }, fetchSignal)
       } catch (err) {
         if (!combinedSignal.aborted) {
+          // M20：首 chunk 前失败且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链；
+          // 已发射过 chunk 则不切换（避免调用方收到重复内容）
+          if (!degradeState && !deliveredAnyChunk && isRetryableProviderError(err)) {
+            const reason = (err instanceof Error ? err.message : String(err)).slice(0, 120)
+            const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
+            let degraded = false
+            for (const target of chain) {
+              if (!target.implicit && target.providerId === config.value.activeProviderId) continue
+              if (target.chatFormat !== 'ollama') continue
+              const probe = await probeChainTarget(target)
+              if (!probe.ok) continue
+              const model = pickOllamaModel(target, probe)
+              if (!model) continue
+              emitDegraded(globalBus, degradeFromInfo(), target, reason)
+              try {
+                await streamFromOllama(target.baseUrl, model)
+                markChainResult(target, true)
+                degraded = true
+                break
+              } catch (err2) {
+                if (combinedSignal.aborted) return
+                markChainResult(target, false)
+                debugLog(`[chatCompletionStream:degrade] ${target.name} 也失败，继续链上下一级`)
+                if (deliveredAnyChunk) break
+              }
+            }
+            if (degraded) return
+            recordFailure()
+            callbacks.onError(new Error(`${ALL_CHANNELS_DOWN}｜${reason}`))
+            return
+          }
           recordFailure()
           callbacks.onError(err instanceof Error ? err : new Error(String(err)))
         }

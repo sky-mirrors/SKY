@@ -184,3 +184,80 @@ export async function readSSEStream(
     reader.releaseLock()
   }
 }
+
+// M17：Ollama /api/chat NDJSON 解析——每行一个 JSON 对象（非 SSE data: 前缀），
+// 复用 StreamDelta 适配层；末行 done:true 携带 prompt_eval_count/eval_count 计数
+// （旧版 Ollama 字段可能缺失，一律回退 0）
+export function extractOllamaDelta(line: string): StreamDelta | null {
+  const trimmed = line.trim()
+  if (!trimmed) return null
+  let p: {
+    message?: { content?: string }
+    done?: boolean
+    prompt_eval_count?: number
+    eval_count?: number
+  }
+  try {
+    p = JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+  if (p.done) {
+    const content = p.message?.content || ''
+    return {
+      ...(content ? { content } : {}),
+      usage: {
+        promptTokens: p.prompt_eval_count ?? 0,
+        completionTokens: p.eval_count ?? 0,
+      },
+      done: true
+    }
+  }
+  if (p.message?.content) {
+    return { content: p.message.content, done: false }
+  }
+  return null
+}
+
+// M17：NDJSON 流读取——按 \n（兼容 \r\n）分帧逐行解析；done 行后主动 cancel 底层流
+export async function readNDJSONStream(
+  body: ReadableStream<Uint8Array>,
+  onDelta: (delta: StreamDelta) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let doneEmitted = false
+  const emitLine = (line: string): void => {
+    if (doneEmitted) return
+    const delta = extractOllamaDelta(line)
+    if (delta) {
+      onDelta(delta)
+      if (delta.done) doneEmitted = true
+    }
+  }
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => { /* 流已关闭或出错时忽略 */ })
+        return
+      }
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) emitLine(line)
+      if (doneEmitted) {
+        await reader.cancel().catch(() => { /* 流已关闭或出错时忽略 */ })
+        return
+      }
+    }
+    buffer += decoder.decode()
+    if (buffer.trim()) emitLine(buffer)
+    if (!doneEmitted) onDelta({ done: true })
+  } finally {
+    reader.releaseLock()
+  }
+}
