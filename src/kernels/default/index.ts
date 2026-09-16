@@ -14,6 +14,9 @@ import {
 } from '@/services/toolRetrieval'
 import { selectRewriteStrategy, selectDisambigStrategy, extractStrategyContext } from '@/services/strategySelector'
 import { extractEntities } from '@/services/nerExtractor'
+import { getPackIdForManifest, getPackWeight } from '@/host/packRuntime'
+import { computeBidScore, resolveCompetition, qualityEmaStore, type PackBidder } from '@/kernel/competition'
+import type { CompetitionRecord } from '@/kernel/funnel'
 
 /**
  * 默认内核插件：六层漏斗的真实服务装配（funnel.ts 是编排核，本模块是每层默认实现）。
@@ -48,12 +51,16 @@ export interface DefaultKernelContext extends FunnelBaseContext {
   chatCompletion: (messages: { role: string; content: string }[]) => Promise<{ content: string }>
   /** 请求内 toolIndex 缓存（L2 构建、L3 复用；适配层每请求新建 ctx 即重置） */
   toolIndexCache?: ToolIndex[]
+  /** M16 竞争模式 flag（vault config:holo-competitive-mode，默认关）：L2 跨 pack 歧义候选按竞标分竞争 */
+  competitiveMode?: boolean
 }
 
 // ---- 内部工具 ----
 
 const FEEDBACK_RE = /没有|不存在|找不到|不行|错误|失败|没看到|没找到|搞错了|不对|不是/i
 const SHORT_FEEDBACK_RE = /没有|不行|不对|错误|失败|找不到|不是/i
+
+export { FEEDBACK_RE, SHORT_FEEDBACK_RE }
 
 function detectedDomainOf(input: string): DetectedDomain {
   const domains = classifyDomain(input)
@@ -129,8 +136,61 @@ async function finalizeRaapPlan(raap: RaapMatchResult, input: string, ctx: Defau
   return { kind: 'plan', plan: await planTaskWithFallback(input, ctx), macroManifestId: null }
 }
 
-/** 旧 :848-956：L2 歧义黄门消歧四策略 */
-async function disambiguate(input: string, raap: RaapMatchResult, ctx: DefaultKernelContext): Promise<LayerResult> {
+/**
+ * M16 竞争分支：跨 pack 歧义候选按 竞标分=置信度×weight×质量EMA 竞争（规格 9.1）。
+ * 触发条件（全部满足，否则返回 null 走原消歧四策略）：
+ * - 候选可归因到 ≥2 个不同挂载 pack（getPackIdForManifest；未归因候选不参与）
+ * - 胜者 manifest 有可执行形态（finalizeRaapPlan 产出 plan）
+ * 同 pack 内候选歧义不触发竞争（"仅一个 pack 候选 → 退化为单匹配"）。
+ */
+async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: DefaultKernelContext): Promise<LayerResult | null> {
+  const cands = (raap.candidates || []).filter(c => c.manifest)
+  const byPack = new Map<string, { manifest: L2ToolManifest; score: number; seq: number }>()
+  let seq = 0
+  for (const c of cands) {
+    const m = c.manifest as L2ToolManifest
+    const packId = getPackIdForManifest(m.identity.id)
+    if (packId) {
+      const existing = byPack.get(packId)
+      if (!existing) {
+        byPack.set(packId, { manifest: m, score: c.score, seq })
+      } else if (c.score > existing.score) {
+        byPack.set(packId, { manifest: m, score: c.score, seq: existing.seq })
+      }
+    }
+    seq++
+  }
+  if (byPack.size < 2) return null
+
+  const bidders: PackBidder[] = [...byPack.entries()].map(([packId, top]) => ({
+    packId,
+    confidence: top.score,
+    weight: getPackWeight(packId),
+    ema: qualityEmaStore.get(packId),
+    seq: top.seq
+  }))
+  const resolved = resolveCompetition(bidders)
+  if (!resolved) return null
+
+  const winnerTop = byPack.get(resolved.winner.packId)
+  if (!winnerTop) return null
+  const result = await finalizeRaapPlan({
+    manifest: winnerTop.manifest,
+    confidence: resolved.winner.confidence,
+    matchMethod: raap.matchMethod,
+    isAmbiguous: false,
+    gate: 'green'
+  }, input, ctx)
+  if (result.kind !== 'plan') return null
+
+  const competition: CompetitionRecord = {
+    winnerPackId: resolved.winner.packId,
+    loserPackIds: resolved.losers.map(l => l.packId)
+  }
+  return { ...result, competition }
+}
+
+/** 旧 :848-956：L2 歧义黄门消歧四策略 */async function disambiguate(input: string, raap: RaapMatchResult, ctx: DefaultKernelContext): Promise<LayerResult> {
   const cands = raap.candidates || []
   const disambigCtx = extractStrategyContext({
     content: input,
@@ -348,6 +408,12 @@ async function l2(input: string, _merged: AdvisoryContribution | null, ctx: Defa
   }
   if (raap.isAmbiguous) {
     if (raap.gate !== 'yellow') return { kind: 'miss' }
+    // M16 竞争模式（flag 关闭时分支不存在，行为与原实现逐字节等价）：
+    // 跨 pack 歧义候选先尝试竞争消解；未触发条件（同 pack / 单 pack / 胜者不可执行）→ 原四策略
+    if (ctx.competitiveMode) {
+      const competed = await competeAcrossPacks(input, raap, ctx)
+      if (competed) return competed
+    }
     return disambiguate(input, raap, ctx)
   }
   return finalizeRaapPlan(raap, input, ctx)

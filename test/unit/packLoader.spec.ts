@@ -346,3 +346,83 @@ describe('PackLoader M8：加载、校验、事务回滚与适配器注入', () 
     expect(loader.getPackIdForDomain('legal')).toBeUndefined()
   })
 })
+
+describe('PackLoader M16/A2-9：manifest 归因、竞标权重与已注入约束查询', () => {
+  let loader: PackLoader
+  let events: PackLifecycleEvent[]
+
+  afterEach(() => {
+    const ids = getExternalConstraintIds()
+    if (ids.length > 0) removeExternalConstraints(ids)
+  })
+
+  it('getPackIdForManifest：execution.manifests 声明的 identity.id 可归因，unmount 后失效', async () => {
+    ;({ loader, events } = makeLoader({
+      legalpack: {
+        manifest: { ...GOOD_MANIFEST, id: 'legalpack' },
+        execution: {
+          manifests: [
+            { identity: { id: 'l2-contract-review' } },
+            { identity: { id: 'l2-labor-audit' } },
+            { identity: {} },
+            'not-an-object'
+          ]
+        }
+      },
+      finpack: {
+        manifest: { ...GOOD_MANIFEST, id: 'finpack', domain: 'finance' },
+        execution: { manifests: [{ identity: { id: 'l2-invoice-check' } }] }
+      }
+    }))
+    expect(loader.getPackIdForManifest('l2-contract-review')).toBeUndefined()
+    await loader.mountPack('legalpack')
+    await loader.mountPack('finpack')
+    expect(loader.getPackIdForManifest('l2-contract-review')).toBe('legalpack')
+    expect(loader.getPackIdForManifest('l2-labor-audit')).toBe('legalpack')
+    expect(loader.getPackIdForManifest('l2-invoice-check')).toBe('finpack')
+    expect(loader.getPackIdForManifest('l2-undeclared')).toBeUndefined()
+    await loader.unmountPack('legalpack')
+    expect(loader.getPackIdForManifest('l2-contract-review')).toBeUndefined()
+    expect(loader.getPackIdForManifest('l2-invoice-check')).toBe('finpack')
+  })
+
+  it('未声明 execution.manifests 的 pack → 归因恒为 undefined（不误归属）', async () => {
+    ;({ loader, events } = makeLoader({
+      testpack: { manifest: GOOD_MANIFEST, execution: {} },
+      nopack: { manifest: { ...GOOD_MANIFEST, id: 'nopack' }, execution: null }
+    }))
+    await loader.mountPack('testpack')
+    await loader.mountPack('nopack')
+    expect(loader.getPackIdForManifest('l2-contract-review')).toBeUndefined()
+    expect(loader.getPackIdForManifest('')).toBeUndefined()
+  })
+
+  it('getWeight：manifest.weight 生效，缺省/非法/未挂载回退 1.0', async () => {
+    ;({ loader, events } = makeLoader({
+      weightpack: { manifest: { ...GOOD_MANIFEST, id: 'weightpack', weight: 2.5 } },
+      defaultpack: { manifest: { ...GOOD_MANIFEST, id: 'defaultpack' } },
+      badpack: { manifest: { ...GOOD_MANIFEST, id: 'badpack', weight: -3 } }
+    }))
+    expect(loader.getWeight('weightpack')).toBe(1.0)
+    await loader.mountPack('weightpack')
+    await loader.mountPack('defaultpack')
+    await loader.mountPack('badpack')
+    expect(loader.getWeight('weightpack')).toBe(2.5)
+    expect(loader.getWeight('defaultpack')).toBe(1.0)
+    expect(loader.getWeight('badpack')).toBe(1.0)
+    expect(loader.getWeight('ghost')).toBe(1.0)
+  })
+
+  it('getMountedConstraintIds：返回注入 id 快照副本，unmount 后为空', async () => {
+    ;({ loader, events } = makeLoader({ testpack: { manifest: GOOD_MANIFEST, constraints: [VALID_CONSTRAINT] } }))
+    expect(loader.getMountedConstraintIds('testpack')).toEqual([])
+    await loader.mountPack('testpack')
+    const ids = loader.getMountedConstraintIds('testpack')
+    expect(ids).toContain('pack-test-alpha')
+    // 快照副本语义：外部修改返回值不得影响内部状态
+    ids.push('tampered')
+    expect(loader.getMountedConstraintIds('testpack')).not.toContain('tampered')
+    await loader.unmountPack('testpack')
+    expect(loader.getMountedConstraintIds('testpack')).toEqual([])
+  })
+})

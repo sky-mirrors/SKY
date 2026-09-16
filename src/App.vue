@@ -123,6 +123,8 @@ import { debugLog } from '@/domains/debug'
 import { createKernel, globalBus } from '@/kernel'
 import { initKernelRuntime, kernelRegistry } from '@/host/kernelRuntime'
 import { initPackRuntime, packLoader } from '@/host/packRuntime'
+import { initPackHookBridge } from '@/host/packHookBridge'
+import { qualityEmaStore } from '@/kernel/competition'
 import { registerApiHandlers } from '@/domains/api/handlers'
 import { registerAppHandlers } from '@/domains/app/handlers'
 import { registerConfigHandlers } from '@/domains/config/handlers'
@@ -548,8 +550,12 @@ onMounted(async () => {
   }
 
   const kernel = createKernel()
-  initKernelRuntime().catch(err => console.error('[kernel-runtime] 初始化失败:', err))
-  initPackRuntime().catch(err => console.error('[pack-runtime] 初始化失败:', err))
+  // A2-9：pack veto 钩子桥在内核与 pack 运行时均就绪后启动（桥内部 fail-open，失败不阻塞启动）
+  Promise.all([initKernelRuntime(), initPackRuntime()])
+    .then(() => { initPackHookBridge() })
+    .catch(err => console.error('[kernel-runtime] 初始化失败:', err))
+  // M16：质量 EMA 存储装载（main.ts syncFromVault 已在 mount 前完成；读不到的键回退 1.0）
+  qualityEmaStore.load().catch(err => console.warn('[competition] EMA 存储装载失败:', err))
 
   // P3.6 手动 dev 演练入口：控制台经 window.__holoHotplug 操作换内核 / pack 热重载 / override 演示
   if (import.meta.env.DEV) {

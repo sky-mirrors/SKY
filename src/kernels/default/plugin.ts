@@ -1,7 +1,8 @@
 import type { KernelPlugin } from '@/host/kernelRegistry'
 import type { FunnelBaseContext, FunnelGates, FunnelOutcome, LayerResult } from '@/kernel/funnel'
 import { runFunnel } from '@/kernel/funnel'
-import { HookRunner } from '@/kernel/hooks'
+import { HookRunner, runVetoGate } from '@/kernel/hooks'
+import type { VetoGateReport } from '@/kernel/hooks'
 import { createDefaultLayers, type DefaultKernelContext } from './index'
 
 /**
@@ -25,6 +26,12 @@ export interface DefaultKernelPlugin extends KernelPlugin {
   route(input: string, ctx: FunnelBaseContext, options?: FunnelRouteOptions): Promise<FunnelOutcome>
   /** 领域 pack 钩子注册表（unmount 后丢弃） */
   getHooks(): HookRunner<LayerResult>
+  /**
+   * A2-9 / M6 第二道门：pre-output 否决。
+   * 取注册表现值（非请求级快照——门发生在 route() 返回之后，快照已随请求结束）；
+   * 无钩子 = 无门，天然 fail-open。无此方法的内核由适配层判空直接放行（前向兼容）。
+   */
+  runPreOutputGate(output: string, ctx: FunnelBaseContext): VetoGateReport
 }
 
 export function createDefaultKernelPlugin(): DefaultKernelPlugin {
@@ -50,6 +57,14 @@ export function createDefaultKernelPlugin(): DefaultKernelPlugin {
     },
     getHooks() {
       return hooks
+    },
+    runPreOutputGate(output: string, ctx: FunnelBaseContext): VetoGateReport {
+      return runVetoGate(
+        hooks.getVetoes('pre-output'),
+        output,
+        { domain: ctx.domain, metadata: ctx.metadata },
+        { strict: ctx.strictVeto }
+      )
     },
     route(input, ctx, options) {
       // 适配层契约：ctx 运行时为完整 DefaultKernelContext（此处类型收窄由调用方保证）

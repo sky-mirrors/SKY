@@ -32,12 +32,21 @@ export const DEFAULT_FUNNEL_GATES: FunnelGates = { l05Pass: 0.8, l05Auto: 0.9, l
 
 /** 层产出：plan（带分值时过门评估）/ 交互暂停点 / MCP 直调 / miss（降级） */
 export type LayerResult =
-  | { kind: 'plan'; plan: TaskPlan; macroManifestId?: string | null; score?: number; autoExecutable?: boolean }
+  | { kind: 'plan'; plan: TaskPlan; macroManifestId?: string | null; score?: number; autoExecutable?: boolean; competition?: CompetitionRecord }
   | { kind: 'candidates'; candidates: Array<{ id: string; name: string; score: number }> }
   | { kind: 'intent-confirm'; intent: string; manifestId: string; params: Record<string, unknown>; originalInput: string }
   | { kind: 'slot-fill'; manifestId: string; manifestName: string; slots: Array<{ name: string; description: string; required: boolean; value: string }> }
   | { kind: 'mcp-direct'; toolName: string }
   | { kind: 'miss' }
+
+/**
+ * M16 竞争记录：胜者 pack 与败者 pack 集。
+ * 由 l2() 竞争分支产出，随 plan 层产出与 FunnelOutcome 透传给适配层（影子评估 + EMA 更新接线点）。
+ */
+export interface CompetitionRecord {
+  winnerPackId: string
+  loserPackIds: string[]
+}
 
 export type LayerImpl<T extends FunnelBaseContext> = (
   input: string,
@@ -76,7 +85,7 @@ export interface FunnelConfig<T extends FunnelBaseContext> {
 }
 
 export type FunnelOutcome =
-  | { kind: 'plan'; plan: TaskPlan; macroManifestId: string | null; autoExecutable: boolean; source: LayerId }
+  | { kind: 'plan'; plan: TaskPlan; macroManifestId: string | null; autoExecutable: boolean; source: LayerId; competition?: CompetitionRecord }
   | { kind: 'candidates'; candidates: Array<{ id: string; name: string; score: number }>; source: LayerId }
   | { kind: 'intent-confirm'; intent: string; manifestId: string; params: Record<string, unknown>; originalInput: string; source: LayerId }
   | { kind: 'slot-fill'; manifestId: string; manifestName: string; slots: Array<{ name: string; description: string; required: boolean; value: string }>; source: LayerId }
@@ -213,7 +222,8 @@ export async function runFunnel<T extends FunnelBaseContext>(
       plan: evaluated.plan,
       macroManifestId: evaluated.macroManifestId ?? null,
       autoExecutable: evaluated.autoExecutable ?? false,
-      source: layer
+      source: layer,
+      ...(evaluated.competition ? { competition: evaluated.competition } : {})
     }
   }
 

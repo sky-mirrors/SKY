@@ -4,13 +4,15 @@ import { vault } from '@/vault'
 import { globalBus } from '@/kernel/bus'
 import type { FunnelOutcome } from '@/kernel/funnel'
 
-// ===== 可控 mock：kernelRegistry.route 与 funnel 主路径 flag =====
-const { routeMock } = vi.hoisted(() => ({ routeMock: vi.fn() }))
+// ===== 可控 mock：kernelRegistry.route / getActive 与 funnel 主路径 flag =====
+const { routeMock, getActiveMock } = vi.hoisted(() => ({ routeMock: vi.fn(), getActiveMock: vi.fn() }))
 vi.mock('@/host/kernelRuntime', () => ({
-  kernelRegistry: { route: routeMock }
+  kernelRegistry: { route: routeMock, getActive: getActiveMock }
 }))
 
 let funnelMainFlag: string | null = null
+let strictVetoFlag: string | null = null
+let competitiveModeFlag: string | null = null
 
 // ===== store mocks（沿用 dialogState.spec 基建） =====
 vi.mock('@/stores/apiStore', () => ({
@@ -155,7 +157,10 @@ vi.stubGlobal('window', {
     vectorWriteBin: vi.fn().mockResolvedValue(true),
     vectorReadBin: vi.fn().mockResolvedValue(null),
     vaultRead: vi.fn().mockImplementation((ns: string, key: string) =>
-      Promise.resolve(ns === 'config' && key === 'holo-funnel-main' ? funnelMainFlag : null)),
+      Promise.resolve(ns === 'config' && key === 'holo-funnel-main' ? funnelMainFlag
+        : ns === 'config' && key === 'holo-strict-veto' ? strictVetoFlag
+        : ns === 'config' && key === 'holo-competitive-mode' ? competitiveModeFlag
+        : null)),
     vaultWrite: vi.fn().mockResolvedValue(undefined),
     vaultDelete: vi.fn().mockResolvedValue(undefined),
     vaultList: vi.fn().mockResolvedValue([])
@@ -166,6 +171,8 @@ vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => { setTimeout
 
 import { useDialogStore } from '@/stores/dialogStore'
 import { tryL0Skill } from '@/services/l0SkillRouter'
+import { qualityEmaStore } from '@/kernel/competition'
+import type { CompetitionRecord } from '@/kernel/funnel'
 
 function makePlan(overrides?: Partial<{ intent: string; tool: string }>): {
   intent: string
@@ -210,8 +217,13 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
   beforeEach(() => {
     vault.clearCache()
     globalBus.clear()
+    funnelMainFlag = null
+    strictVetoFlag = null
+    competitiveModeFlag = null
     routeMock.mockReset()
     routeMock.mockResolvedValue({ kind: 'error', error: 'unset' } as FunnelOutcome)
+    getActiveMock.mockReset()
+    getActiveMock.mockReturnValue(undefined)
     vi.mocked(tryL0Skill).mockReset()
     vi.mocked(tryL0Skill).mockResolvedValue(null)
     const pinia = createPinia()
@@ -424,5 +436,302 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     // R16：异常也发观测事件（handled=false, kind=exception）
     expect(routed).toHaveLength(1)
     expect(routed[0]).toMatchObject({ handled: false, kind: 'exception' })
+  })
+})
+
+describe('A2-9：pre-output 否决门接入 funnel 主路径（presentExecutionOutput）', () => {
+  let store: ReturnType<typeof useDialogStore>
+
+  const blockingKernel = {
+    id: 'kernel-default',
+    runPreOutputGate: () => ({
+      blocked: true,
+      entries: [{ pluginId: 'test-pack', severity: 'block' as const, reason: '输出包含风险内容' }],
+      warnings: [],
+      humanJudgmentPrompts: []
+    })
+  }
+
+  const warnKernel = {
+    id: 'kernel-default',
+    runPreOutputGate: () => ({
+      blocked: false,
+      entries: [{ pluginId: 'test-pack', severity: 'warn' as const, reason: '仅提示' }],
+      warnings: [],
+      humanJudgmentPrompts: []
+    })
+  }
+
+  const promptKernel = {
+    id: 'kernel-default',
+    runPreOutputGate: () => ({
+      blocked: false,
+      entries: [{ pluginId: 'test-pack', severity: 'warn' as const, reason: '高风险' }],
+      warnings: [],
+      humanJudgmentPrompts: ['请人工复核输出']
+    })
+  }
+
+  beforeEach(() => {
+    vault.clearCache()
+    globalBus.clear()
+    funnelMainFlag = null
+    strictVetoFlag = null
+    competitiveModeFlag = null
+    routeMock.mockReset()
+    routeMock.mockResolvedValue({ kind: 'error', error: 'unset' } as FunnelOutcome)
+    getActiveMock.mockReset()
+    getActiveMock.mockReturnValue(undefined)
+    vi.mocked(tryL0Skill).mockReset()
+    vi.mocked(tryL0Skill).mockResolvedValue(null)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    store = useDialogStore()
+  })
+
+  afterEach(() => {
+    globalBus.clear()
+  })
+
+  it('自动执行计划被 block → 不产出助手消息，复用 ⛔ 否决门拦截 UI（M6.5：不入会话记忆）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    getActiveMock.mockReturnValue(blockingKernel)
+    const plan = makePlan({ intent: '高危任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('执行高危任务')
+
+    expect(noticeTexts(store)).toContain('⛔ 否决门拦截：输出包含风险内容')
+    expect(store.messages.some(m => m.role === 'assistant' && m.type === 'text')).toBe(false)
+    expect(store.isProcessing).toBe(false)
+  })
+
+  it('warn 级门 → 不拦截，输出正常呈现', async () => {
+    funnelMainFlag = null
+    setupBus()
+    getActiveMock.mockReturnValue(warnKernel)
+    const plan = makePlan({ intent: '普通任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('执行普通任务')
+
+    expect(noticeTexts(store)).not.toContain('⛔ 否决门拦截')
+    expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
+  })
+
+  it('humanJudgmentPrompts 非空 → 保守拦截（M6.4）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    getActiveMock.mockReturnValue(promptKernel)
+    const plan = makePlan({ intent: '需复核任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('执行需复核任务')
+
+    expect(noticeTexts(store)).toContain('⛔ 否决门拦截：请人工复核输出')
+    expect(store.messages.some(m => m.role === 'assistant' && m.type === 'text')).toBe(false)
+  })
+
+  it('mcp-direct 产物同样过门：block → 工具输出不呈现', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    getActiveMock.mockReturnValue(blockingKernel)
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+
+    await store.sendMessage('算一下')
+
+    expect(noticeTexts(store)).toContain('⛔ 否决门拦截：输出包含风险内容')
+    expect(store.messages.some(m => m.content.includes('工具直调结果'))).toBe(false)
+    expect(store.isProcessing).toBe(false)
+  })
+
+  it('内核无 runPreOutputGate（前向兼容）→ 直接放行', async () => {
+    funnelMainFlag = null
+    setupBus()
+    getActiveMock.mockReturnValue({ id: 'legacy-kernel' })
+    const plan = makePlan({ intent: '旧内核任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('执行旧内核任务')
+
+    expect(noticeTexts(store)).not.toContain('⛔ 否决门拦截')
+    expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
+  })
+
+  it('getActive 抛错（桥/内核异常）→ fail-open 放行', async () => {
+    funnelMainFlag = null
+    setupBus()
+    getActiveMock.mockImplementation(() => { throw new Error('registry exploded') })
+    const plan = makePlan({ intent: '容错任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('执行容错任务')
+
+    expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
+  })
+
+  it("flag='0' 回滚 → 旧六层内联路径不过 pre-output 门（回滚开关回滚完整旧行为）", async () => {
+    funnelMainFlag = '0'
+    setupBus()
+    getActiveMock.mockReturnValue(blockingKernel)
+    vi.mocked(tryL0Skill).mockResolvedValue({
+      intent: '回滚路径任务',
+      steps: [{ step: 1, description: '旧路径步骤', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
+    })
+
+    await store.sendMessage('测试回滚')
+
+    expect(routeMock).not.toHaveBeenCalled()
+    expect(noticeTexts(store)).not.toContain('⛔ 否决门拦截')
+    expect(store.awaitingConfirmation).toBe(true)
+  })
+})
+
+describe('M16：竞争模型接入 funnel 主路径（config:holo-competitive-mode）', () => {
+  let store: ReturnType<typeof useDialogStore>
+
+  beforeEach(() => {
+    vault.clearCache()
+    globalBus.clear()
+    funnelMainFlag = null
+    strictVetoFlag = null
+    competitiveModeFlag = null
+    routeMock.mockReset()
+    routeMock.mockResolvedValue({ kind: 'error', error: 'unset' } as FunnelOutcome)
+    getActiveMock.mockReset()
+    getActiveMock.mockReturnValue(undefined)
+    vi.mocked(tryL0Skill).mockReset()
+    vi.mocked(tryL0Skill).mockResolvedValue(null)
+    qualityEmaStore.clearForTest()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    store = useDialogStore()
+  })
+
+  afterEach(() => {
+    globalBus.clear()
+  })
+
+  function makeCompetition(): CompetitionRecord {
+    return { winnerPackId: 'pack-a', loserPackIds: ['pack-b', 'pack-c'] }
+  }
+
+  /** 等待 fire-and-forget 影子评估落审计 */
+  async function flushAsync(ms = 20): Promise<void> {
+    await new Promise(r => setTimeout(r, ms))
+  }
+
+  it("flag='1' → ctx.competitiveMode=true 透传给内核；未配置 → false（默认关）", async () => {
+    funnelMainFlag = null
+    competitiveModeFlag = '1'
+    setupBus()
+    const plan = makePlan({ intent: '竞争任务' })
+    routeMock.mockImplementation(async (_input: string, ctx: Record<string, unknown>) => {
+      expect(ctx['competitiveMode']).toBe(true)
+      return { kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L0' } as FunnelOutcome
+    })
+    await store.sendMessage('竞争测试')
+    expect(routeMock).toHaveBeenCalledTimes(1)
+
+    // 默认关
+    competitiveModeFlag = null
+    vault.clearCache()
+    const pinia2 = createPinia()
+    setActivePinia(pinia2)
+    const store2 = useDialogStore()
+    routeMock.mockImplementation(async (_input: string, ctx: Record<string, unknown>) => {
+      expect(ctx['competitiveMode']).toBe(false)
+      return { kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L0' } as FunnelOutcome
+    })
+    await store2.sendMessage('默认关测试')
+    expect(routeMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('带 competition 的自动执行 plan → 胜者 EMA outcome=1.0 + 败者影子评估审计事件（action=shadow-eval）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    // 预置胜者 EMA 低于 1.0，使成功更新可观测：0.729 → 0.9×0.729+0.1×1.0
+    qualityEmaStore.update('pack-a', 0.0)
+    qualityEmaStore.update('pack-a', 0.0)
+    qualityEmaStore.update('pack-a', 0.0)
+    expect(qualityEmaStore.get('pack-a')).toBeCloseTo(0.729)
+
+    const audits: Array<Record<string, unknown>> = []
+    globalBus.on('memory:add-audit-log', (p: unknown) => audits.push(p as Record<string, unknown>))
+
+    const plan = makePlan({ intent: '竞争胜者任务' })
+    routeMock.mockResolvedValue({
+      kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4',
+      competition: makeCompetition()
+    } as FunnelOutcome)
+
+    await store.sendMessage('执行竞争任务')
+    await flushAsync()
+
+    // 胜者 EMA outcome=1.0（执行成功经 presentExecutionOutput）
+    expect(qualityEmaStore.get('pack-a')).toBeCloseTo(0.9 * 0.729 + 0.1 * 1.0)
+    // 败者影子评估：每个败者一条审计（getActive 无内核 → 无钩子 → wouldVeto=false）
+    expect(audits).toHaveLength(2)
+    expect(audits.map(a => JSON.parse(String(a['details'])).packId).sort()).toEqual(['pack-b', 'pack-c'])
+    expect(audits.every(a => a['action'] === 'shadow-eval' && a['toolId'] === 'kernel-competition')).toBe(true)
+    expect(audits.every(a => JSON.parse(String(a['details'])).wouldVeto === false)).toBe(true)
+    // 主流程不受影响：产出正常呈现
+    expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
+    expect(store.isProcessing).toBe(false)
+  })
+
+  it('确认暂停点的 competition 记录 → 用户负反馈消息 → 胜者 EMA outcome=0.2', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: '待确认竞争任务' })
+    routeMock.mockResolvedValue({
+      kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L2',
+      competition: makeCompetition()
+    } as FunnelOutcome)
+
+    await store.sendMessage('竞争任务待确认')
+    expect(store.awaitingConfirmation).toBe(true)
+
+    await store.sendMessage('不对，这个结果是错误的')
+    // EMA = 0.9×1.0 + 0.1×0.2
+    expect(qualityEmaStore.get('pack-a')).toBeCloseTo(0.92)
+  })
+
+  it('rejectPlan → 竞争记录作废，后续负反馈不触发 EMA 更新', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: '取消竞争任务' })
+    routeMock.mockResolvedValue({
+      kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L2',
+      competition: makeCompetition()
+    } as FunnelOutcome)
+
+    await store.sendMessage('竞争任务将取消')
+    expect(store.awaitingConfirmation).toBe(true)
+    store.rejectPlan()
+
+    await store.sendMessage('不对，这个结果是错误的')
+    // 记录已被 rejectPlan 清理 → EMA 维持初始 1.0
+    expect(qualityEmaStore.get('pack-a')).toBe(1.0)
+  })
+
+  it('非负反馈新消息 → 陈旧竞争记录清理（不产生 EMA 更新）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: '陈旧记录任务' })
+    routeMock.mockResolvedValue({
+      kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L2',
+      competition: makeCompetition()
+    } as FunnelOutcome)
+
+    await store.sendMessage('竞争任务陈旧记录')
+    expect(store.awaitingConfirmation).toBe(true)
+
+    await store.sendMessage('帮我查一下天气')
+    expect(qualityEmaStore.get('pack-a')).toBe(1.0)
   })
 })

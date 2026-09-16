@@ -14,6 +14,21 @@ export function getPackIdForDomain(domain: string): string | undefined {
   return packLoader.getPackIdForDomain(domain)
 }
 
+/** M16：manifest→packId 归因转发（pack execution/manifests.json 声明；未声明/未挂载返回 undefined） */
+export function getPackIdForManifest(manifestId: string): string | undefined {
+  return packLoader.getPackIdForManifest(manifestId)
+}
+
+/** M16：pack 竞标权重转发（manifest.weight ?? 1.0） */
+export function getPackWeight(packId: string): number {
+  return packLoader.getWeight(packId)
+}
+
+/** A2-9：pack 已注入约束 id 集转发（快照副本；未挂载返回空数组） */
+export function getMountedConstraintIds(packId: string): string[] {
+  return packLoader.getMountedConstraintIds(packId)
+}
+
 let initPromise: Promise<void> | null = null
 
 export function initPackRuntime(): Promise<void> {

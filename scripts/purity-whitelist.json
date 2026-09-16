@@ -8,23 +8,23 @@
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 60,
+    "line": 67,
     "literal": "legal",
     "reason": "默认内核遗留域优先级检测（detectedDomainOf，自旧 funnel 域检测迁移）；待 pack 驱动的域检测机制收编（Phase 4+ 路线图跟踪）",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 61,
+    "line": 68,
     "literal": "finance",
-    "reason": "同本文件 line 60：默认内核遗留域优先级检测，待 pack 驱动机制收编",
+    "reason": "同本文件 line 67：默认内核遗留域优先级检测，待 pack 驱动机制收编",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 62,
+    "line": 69,
     "literal": "hr",
-    "reason": "同本文件 line 60：默认内核遗留域优先级检测，待 pack 驱动机制收编",
+    "reason": "同本文件 line 67：默认内核遗留域优先级检测，待 pack 驱动机制收编",
     "approvedBy": "sky-mirrors"
   },
   {
@@ -36,7 +36,7 @@
   },
   {
     "file": "src/host/pack/loader.ts",
-    "line": 341,
+    "line": 366,
     "literal": "legal",
     "reason": "规格 2.2 泄漏④残余：pack manifest 域不在封闭枚举内时约束被兜底编译为 'legal'（未来新 pack 域会被误标）；随类型泛化一并移除",
     "approvedBy": "sky-mirrors"

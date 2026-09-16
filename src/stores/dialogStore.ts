@@ -28,7 +28,17 @@ import type { L0DirectPlan } from '@/services/l0SkillRouter'
 import { vault } from '@/vault'
 import { kernelRegistry } from '@/host/kernelRuntime'
 import type { DefaultKernelContext } from '@/kernels/default'
-import type { FunnelOutcome } from '@/kernel/funnel'
+import { FEEDBACK_RE, SHORT_FEEDBACK_RE } from '@/kernels/default'
+import type { DefaultKernelPlugin } from '@/kernels/default/plugin'
+import type { CompetitionRecord, FunnelBaseContext, FunnelOutcome } from '@/kernel/funnel'
+import {
+  runShadowEvaluation,
+  qualityEmaStore,
+  EMA_OUTCOME_SUCCESS,
+  EMA_OUTCOME_FAILURE,
+  EMA_OUTCOME_NEGATIVE_FEEDBACK,
+  type ShadowAuditEntry
+} from '@/kernel/competition'
 
 function planContainsShellExec(plan: TaskPlan): boolean {
   return plan.steps.some(s => s.tool === 'shell_exec')
@@ -684,6 +694,117 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     funnelMainEnabled = null
   }
 
+  // ===== A2-9 / 规格 9.2：pre-output 严格否决 flag（vault config:holo-strict-veto = '1' 开，默认关，无 UI）=====
+  let strictVetoEnabled: boolean | null = null
+
+  async function isStrictVetoEnabled(): Promise<boolean> {
+    if (strictVetoEnabled === null) {
+      try {
+        strictVetoEnabled = (await vault.read('config', 'holo-strict-veto')) === '1'
+      } catch {
+        strictVetoEnabled = false
+      }
+    }
+    return strictVetoEnabled
+  }
+
+  /** 开发者经 vault 改写后清除闭包缓存 */
+  function refreshStrictVetoFlag(): void {
+    strictVetoEnabled = null
+  }
+
+  // ===== M16 竞争模式 flag（vault config:holo-competitive-mode = '1' 开，默认关，无 UI——规格 9.1 普通用户不可见）=====
+  let competitiveModeEnabled: boolean | null = null
+
+  async function isCompetitiveModeEnabled(): Promise<boolean> {
+    if (competitiveModeEnabled === null) {
+      try {
+        competitiveModeEnabled = (await vault.read('config', 'holo-competitive-mode')) === '1'
+      } catch {
+        competitiveModeEnabled = false
+      }
+    }
+    return competitiveModeEnabled
+  }
+
+  /** 开发者经 vault 改写后清除闭包缓存 */
+  function refreshCompetitiveModeFlag(): void {
+    competitiveModeEnabled = null
+  }
+
+  // ===== M16：请求级竞争记录（生命周期：consumeFunnelOutcome 置位 → EMA 更新消费 / rejectPlan / 下轮消息清理）=====
+  let pendingCompetitionRecord: CompetitionRecord | null = null
+
+  /** EMA 更新接线点：执行成功=1.0 / 执行失败=0.0 / 用户负反馈=0.2；消费后记录即清 */
+  function applyCompetitionOutcome(outcome: number): void {
+    if (!pendingCompetitionRecord) return
+    const record = pendingCompetitionRecord
+    pendingCompetitionRecord = null
+    try {
+      qualityEmaStore.update(record.winnerPackId, outcome)
+    } catch (err) {
+      debugLog(`[competition] EMA 更新失败（不影响主流程）: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
+   * M16 影子评估（规格 9.1）：败者 pack 对最终产出只读 wouldVeto 判定。
+   * fire-and-forget：不阻塞呈现；内部全捕获，绝不影响主流程。
+   * 审计经 bus 桥落 memoryStore.addAuditLog（action: shadow-eval）。
+   */
+  function dispatchShadowEvaluation(record: CompetitionRecord, payload: unknown): void {
+    void (async () => {
+      try {
+        const kernel = kernelRegistry.getActive() as DefaultKernelPlugin | undefined
+        const vetoes = kernel && typeof kernel.getHooks === 'function'
+          ? kernel.getHooks().getVetoes('pre-output')
+          : []
+        await runShadowEvaluation(record.loserPackIds, payload, {
+          vetoes,
+          auditSink: (entry: ShadowAuditEntry) => {
+            globalBus.emit('memory:add-audit-log', {
+              userId: 'local',
+              action: 'shadow-eval',
+              toolId: 'kernel-competition',
+              details: JSON.stringify({ packId: entry.packId, wouldVeto: entry.wouldVeto, ...(entry.severity ? { severity: entry.severity } : {}), ...(entry.reason ? { reason: entry.reason } : {}), ts: entry.ts })
+            })
+          }
+        })
+      } catch (err) {
+        debugLog(`[competition] 影子评估异常（不影响主流程）: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    })()
+  }
+
+  /**
+   * A2-9 / M6.5：执行输出统一呈现点（pre-output 否决门）。
+   * 拦截 → 复用 blocked UI（⛔ 否决门拦截），不 addAssistantMessage——blocked 输出自然不入会话记忆；
+   * 放行 → addAssistantMessage。返回 true = 已呈现；false = 被拦截。
+   * 无 runPreOutputGate 方法的内核（前向兼容）与门自身异常（fail-open）均直接放行。
+   */
+  async function presentExecutionOutput(finalText: string, lineage?: MacroLineage): Promise<boolean> {
+    try {
+      const kernel = kernelRegistry.getActive() as DefaultKernelPlugin | undefined
+      if (kernel && typeof kernel.runPreOutputGate === 'function') {
+        const gateCtx: FunnelBaseContext = { strictVeto: await isStrictVetoEnabled() }
+        const report = kernel.runPreOutputGate(finalText, gateCtx)
+        for (const w of report.warnings) console.warn(`[dialog] pre-output ${w}`)
+        if (report.blocked || report.humanJudgmentPrompts.length > 0) {
+          const reasons = report.entries.filter(e => e.severity === 'block').map(e => e.reason)
+            .concat(report.humanJudgmentPrompts).join('；')
+          addSystemNotice(`⛔ 否决门拦截：${reasons || '人工复核'}`)
+          return false
+        }
+      }
+    } catch (err) {
+      debugLog(`[funnel:main] pre-output 门异常（fail-open 放行）: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    addAssistantMessage(finalText, undefined, undefined, undefined, undefined, lineage)
+    // M16：竞争胜者执行成功 → EMA outcome = 1.0（无竞争记录时无操作）
+    applyCompetitionOutcome(EMA_OUTCOME_SUCCESS)
+    return true
+  }
+
   /** 旧各层确认摘要文案复刻（matchMethod/gate/置信度等 FunnelOutcome 不携带的字段已简化，偏差记录于 R14） */
   function funnelPlanSummary(source: string, plan: TaskPlan, macroManifestId: string | null): string {
     const stepsText = plan.steps.map(s => `${s.step}. ${s.description} → ${s.tool}`).join('\n')
@@ -758,9 +879,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             // P1-25：执行模型返回的 toolCalls（此前从不执行 → 恒显"(无输出)"）
             const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
             if (toolOutput != null) {
-              addAssistantMessage(toolOutput)
+              await presentExecutionOutput(toolOutput)
             } else {
-              addAssistantMessage(apiResult.content || '(模型未发起工具调用)')
+              await presentExecutionOutput(apiResult.content || '(模型未发起工具调用)')
             }
           }
         } catch (e) {
@@ -779,7 +900,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     // ===== kind === 'plan'：层来源通知 + 自检/thought（L2/L3）+ 确认暂停/自动执行 =====
     const { plan, macroManifestId, autoExecutable, source } = outcome
-    globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `[Router] funnel(${source}) → ${plan.intent} | macro=${macroManifestId ?? '无'} | auto=${autoExecutable}` })
+    // M16：捕获竞争记录（请求级隔离：仅本轮 plan 携带时置位；影子评估用最终 plan 作 payload）
+    pendingCompetitionRecord = outcome.competition ?? null
+    if (outcome.competition) {
+      dispatchShadowEvaluation(outcome.competition, plan)
+    }
+    globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `[Router] funnel(${source}) → ${plan.intent} | macro=${macroManifestId ?? '无'} | auto=${autoExecutable}${outcome.competition ? ` | competition: winner=${outcome.competition.winnerPackId} losers=${outcome.competition.loserPackIds.join(',')}` : ''}` })
     globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
     if (source !== 'L1') {
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
@@ -855,6 +981,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         lastAssistantContent,
         recentUserMsg,
         isEmptyInput: content.trim() === '',
+        // A2-9：pre-execute 门（funnel :201）与 pre-output 门共用严格否决 flag
+        strictVeto: await isStrictVetoEnabled(),
+        // M16：竞争模式 flag（默认关）——L2 跨 pack 歧义候选竞标分竞争
+        competitiveMode: await isCompetitiveModeEnabled(),
         chatCompletion: async (msgs) => {
           const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128 })
           return { content: (r as { content?: string }).content || '' }
@@ -900,6 +1030,14 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
     // §5.2：用户请求入口生成 traceId（须在 addUserMessage 之前，消息落记忆时携带）
     activeTraceId.value = newTraceId()
+    // M16：上一轮存在竞争记录时——负反馈消息 → EMA outcome = 0.2；其余新消息 → 记录作废
+    if (pendingCompetitionRecord) {
+      if (FEEDBACK_RE.test(content) || (content.length < 30 && SHORT_FEEDBACK_RE.test(content))) {
+        applyCompetitionOutcome(EMA_OUTCOME_NEGATIVE_FEEDBACK)
+      } else {
+        pendingCompetitionRecord = null
+      }
+    }
     // B-02：排队重发时消息已在首次入队时 addUserMessage，跳过避免重复
     if (!isQueuedReplay) addUserMessage(content)
     try {
@@ -1596,7 +1734,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
       if (allOk && lastResult) {
         const finalText = stripHtml(beautify(lastResult))
-        addAssistantMessage(finalText)
+        await presentExecutionOutput(finalText)
+      } else if (!allOk) {
+        // M16：竞争胜者执行失败（步骤 break）→ EMA outcome = 0.0
+        applyCompetitionOutcome(EMA_OUTCOME_FAILURE)
       }
       globalBus.emit('node:mark-task-chain-complete', {})
       isProcessing.value = false
@@ -1617,7 +1758,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
           const finalText = stripHtml(beautify(resp.content || '(无输出)'))
-          addAssistantMessage(finalText)
+          await presentExecutionOutput(finalText)
           globalBus.emit('node:mark-task-chain-complete', {})
           isProcessing.value = false
           return finalText
@@ -1627,6 +1768,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice(`❌ 直调失败（${classifyError(errStr)}）`)
         globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `直调失败: ${errStr}`, detail: errStr })
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'error' })
+        // M16：竞争胜者执行失败（直调抛错）→ EMA outcome = 0.0
+        applyCompetitionOutcome(EMA_OUTCOME_FAILURE)
       }
     }
 
@@ -1691,7 +1834,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         logManifestUsage(macroManifest.identity.id)
 
         const finalText = stripHtml(beautify(macroResult.lastResult || '(执行完成)'))
-        addAssistantMessage(finalText, undefined, undefined, undefined, undefined, macroResult.lineage)
+        await presentExecutionOutput(finalText, macroResult.lineage)
         globalBus.emit('node:mark-task-chain-complete', {})
         setTimeout(() => { globalBus.emit('node:clear-dag-chain', {}) }, 3000)
         isProcessing.value = false
@@ -1712,6 +1855,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice(`❌ 宏执行失败（${classifyError(errMsg)}），回退到普通模式`)
         globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `宏执行失败，回退到普通模式: ${errMsg}`, detail: errMsg })
         globalBus.emit('node:clear-dag-chain', {})
+        // M16：竞争胜者执行失败（宏/链抛错）→ EMA outcome = 0.0
+        applyCompetitionOutcome(EMA_OUTCOME_FAILURE)
         // Fall through to normal execution
       }
     }
@@ -2240,6 +2385,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     pendingContent.value = ''
     awaitingConfirmation.value = false
     pendingMacroManifestId.value = null
+    // M16：用户取消 → 竞争记录作废（不产生 EMA 更新）
+    pendingCompetitionRecord = null
     addSystemNotice('❌ 用户取消了执行计划')
   }
 
@@ -2768,6 +2915,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     sendMessage,
     confirmPlan,
     rejectPlan,
+    refreshStrictVetoFlag,
+    refreshCompetitiveModeFlag,
     translatedIntent,
     awaitingIntentConfirm,
     confirmTranslatedIntent,

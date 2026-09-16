@@ -41,6 +41,7 @@ interface MountedPack {
   manifest: PackManifest
   injectedConstraintIds: string[]
   knowledgeEntryIds: string[]
+  manifestIds: string[]
   warnings: string[]
 }
 
@@ -225,6 +226,30 @@ export class PackLoader {
     return undefined
   }
 
+  /**
+   * M16：manifest → 挂载 packId 归因（execution/manifests.json 声明的 identity.id）。
+   * 竞争模式用它把 L2 候选归因到 pack；pack 未声明或已卸载返回 undefined。
+   */
+  getPackIdForManifest(manifestId: string): string | undefined {
+    for (const [packId, m] of this.mounted) {
+      if (m.manifestIds.includes(manifestId)) return packId
+    }
+    return undefined
+  }
+
+  /** M16：pack 竞标权重（manifest.weight ?? 1.0；未挂载同样返回默认值） */
+  getWeight(packId: string): number {
+    const m = this.mounted.get(packId)
+    const w = m?.manifest.weight
+    return typeof w === 'number' && Number.isFinite(w) && w >= 0 ? w : 1.0
+  }
+
+  /** A2-9：pack 注入 runConstraints 管道的约束 id 集（快照副本；未挂载返回空） */
+  getMountedConstraintIds(packId: string): string[] {
+    const m = this.mounted.get(packId)
+    return m ? [...m.injectedConstraintIds] : []
+  }
+
   onLifecycle(cb: (e: PackLifecycleEvent) => void): () => void {
     this.lifecycleCallbacks.add(cb)
     return () => this.lifecycleCallbacks.delete(cb)
@@ -368,11 +393,20 @@ export class PackLoader {
     if (execution === null) {
       // 缺 execution/ 子目录 → 视为空层，合法（规格 8.4 边界情况）
     }
+    // M16：收集 execution/manifests.json 声明的 manifest identity.id（manifest→packId 归因表）
+    const manifestIds: string[] = []
+    if (Array.isArray(execution?.manifests)) {
+      for (const item of execution.manifests) {
+        const id = (item as { identity?: { id?: unknown } } | null)?.identity?.id
+        if (typeof id === 'string' && id.length > 0) manifestIds.push(id)
+      }
+    }
 
     this.mounted.set(packId, {
       manifest,
       injectedConstraintIds: injection.injected,
       knowledgeEntryIds,
+      manifestIds,
       warnings
     })
     this.emit({ type: 'pack:mounted', packId })
