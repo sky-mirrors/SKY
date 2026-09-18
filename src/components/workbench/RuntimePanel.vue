@@ -88,6 +88,24 @@
           <span class="wb-rt-tag" :class="hotplugStore.funnelMainEnabled ? 'ok' : 'bad'">{{ hotplugStore.funnelMainEnabled ? '开启' : '已回滚' }}</span>
         </span>
       </div>
+      <!-- A6：浸泡验证汇总（数据源 soakStore；未启用 shadow 时显示启用指引） -->
+      <div class="wb-rt-card">
+        <div class="wb-rt-card-head">
+          浸泡验证
+          <span class="wb-rt-tag" :class="soakStore.soakEnabled ? 'ok' : 'warn'">{{ soakStore.soakEnabled ? '启用' : '未启用' }}</span>
+        </div>
+        <div class="wb-rt-card-body" v-if="soakStore.soakEnabled">
+          <div>样本 {{ soakStore.soakSummary.shadowTotal }}（一致 {{ (soakStore.soakSummary.matchRate * 100).toFixed(0) }}% / 不一致 {{ soakStore.soakSummary.mismatchCount }} / 待核对 {{ soakStore.soakSummary.manualReviewCount }}）</div>
+          <div>funnel 接管 {{ soakStore.soakSummary.handledCount }}/{{ soakStore.soakSummary.routedTotal }}</div>
+          <button
+            class="wb-rt-candidate-btn"
+            :disabled="soakStore.soakSummary.shadowTotal === 0 || soakExporting"
+            :title="soakStore.lastExportPath"
+            @click="exportSoakReport"
+          >{{ soakExportLabel }}</button>
+        </div>
+        <div class="wb-rt-card-body" v-else>DevTools 执行 vaultWrite('config','holo-funnel-shadow','1') 后重载启用</div>
+      </div>
       <div class="wb-rt-log">
         <div v-for="(e, i) in hotplugStore.eventLog" :key="i" class="wb-rt-log-item" :class="e.level">
           <span class="wb-rt-log-kind">{{ kindIcon(e.kind) }}</span>
@@ -150,12 +168,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDialogStore } from '@/domains/dialog'
 import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
 import { useDebugStore } from '@/domains/debug'
 import { useHotplugStore } from '@/stores/hotplugStore'
+import { useSoakStore } from '@/stores/soakStore'
 import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
 import type { ProbeSnapshot } from '@/models'
 
@@ -164,6 +183,7 @@ const nodeStore = useNodeStore()
 const apiStore = useApiStore()
 const debugStore = useDebugStore()
 const hotplugStore = useHotplugStore()
+const soakStore = useSoakStore()
 
 const budgetModeLabel = computed(() => {
   const mode = getBudgetMode()
@@ -220,6 +240,20 @@ function probeLabel(p: ProbeSnapshot): string {
 function openDebugWindow() {
   const api = (window as unknown as { electronAPI?: { openDebugWindow?: () => void } }).electronAPI
   api?.openDebugWindow?.()
+}
+
+// ===== A6：浸泡验证汇总导出（soakStore 数据管道，R15 证据采集） =====
+const soakExporting = ref(false)
+const soakExportLabel = ref('导出浸泡报告')
+
+async function exportSoakReport(): Promise<void> {
+  if (soakExporting.value) return
+  soakExporting.value = true
+  soakExportLabel.value = '导出中…'
+  const path = await soakStore.exportSoakReport()
+  soakExporting.value = false
+  soakExportLabel.value = path ? '已导出' : '导出失败'
+  setTimeout(() => { soakExportLabel.value = '导出浸泡报告' }, 3000)
 }
 </script>
 

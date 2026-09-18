@@ -23,6 +23,7 @@ import RuntimePanel from './RuntimePanel.vue'
 import StatusBar from './StatusBar.vue'
 import DialogPanel from '@/components/DialogPanel.vue'
 import { useHotplugStore } from '@/stores/hotplugStore'
+import { useSoakStore } from '@/stores/soakStore'
 import type { DialogMessage } from '@/models'
 
 defineEmits<{
@@ -33,10 +34,13 @@ defineEmits<{
 }>()
 
 const hotplugStore = useHotplugStore()
+const soakStore = useSoakStore()
 
 onMounted(() => {
   // 幂等：订阅 kernelRegistry/packLoader/funnel 总线事件 + 单例快照
   hotplugStore.init()
+  // A6：浸泡验证数据管道（未启用 shadow 时零订阅，幂等）
+  soakStore.init()
 })
 </script>
 

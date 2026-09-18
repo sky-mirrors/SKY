@@ -892,7 +892,7 @@ generate-comparison-doc.ts(1,099 行,生成对比文档)、generate-analysis-rep
 | 星图 | 125 节点 = 1 L0 + 6 L1 + 20 L2 + 98 L3;21 技能;24 L2 清单(direct 6/macro 17/chain 1,A5 批新增 2 宏未入星图节点表);5 MCP |
 | 安全 | Shell 白名单 12 命令 / 55 危险模式;路径基目录 5 / 禁读正则 18 / 危险扩展 33;HTTP 上限 1MB;法规规则 55 条;VULN 回归 18 条 |
 | Token 体系 | 5 级漏斗;4 档模型(512/1024/4096/8192);11 种血缘;实测节省 token 24–25% / 成本 22–25% |
-| 测试 | 64 spec / 1,238 用例(默认运行 61);mock 68 方法;coverage 仅 services+stores(40%/30%) |
+| 测试 | 89 spec / 1,699 用例;mock 68 方法;coverage 仅 services+stores(40%/30%) |
 
 ### 18.2 附录 B:全项目文件清单(293 文件)
 
