@@ -890,7 +890,7 @@ generate-comparison-doc.ts(1,099 行,生成对比文档)、generate-analysis-rep
 | 状态 | 15 store 6,760 行(最大 dialogStore 2,298 行) |
 | UI | 31 组件 + App.vue(1,412)+ 2 composables(useThreeScene 2,810 行);孤儿组件 3;执行可视化三重断裂(8.6) |
 | 星图 | 125 节点 = 1 L0 + 6 L1 + 20 L2 + 98 L3;21 技能;20 L2 清单(direct 6/macro 13/chain 1);5 MCP |
-| 安全 | Shell 白名单 13 命令 / 55 危险模式;路径基目录 5 / 禁读正则 18 / 危险扩展 33;HTTP 上限 1MB;法规规则 55 条;VULN 回归 18 条 |
+| 安全 | Shell 白名单 12 命令 / 55 危险模式;路径基目录 5 / 禁读正则 18 / 危险扩展 33;HTTP 上限 1MB;法规规则 55 条;VULN 回归 18 条 |
 | Token 体系 | 5 级漏斗;4 档模型(512/1024/4096/8192);11 种血缘;实测节省 token 24–25% / 成本 22–25% |
 | 测试 | 64 spec / 1,238 用例(默认运行 61);mock 68 方法;coverage 仅 services+stores(40%/30%) |
 

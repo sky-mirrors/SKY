@@ -4,7 +4,7 @@ A local-first AI tool console — route, validate, and optimize your LLM calls f
 
 Built by a solo developer who got tired of copying prompts between browser tabs.
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-442%2F442-brightgreen.svg)](TEST_REPORT.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-1685%2F1685-brightgreen.svg)](TEST_REPORT.md)
 
 <!-- ![HoloStarmap Screenshot](docs/screenshot.png) -->
 
@@ -107,7 +107,7 @@ npx electron-builder --win portable
 | Embeddings | @xenova/transformers | Local vector search, no API needed |
 | Documents | docx, xlsx, pdf-parse, mammoth | Read/write Word, Excel, PDF |
 | Security | DOMPurify | HTML sanitization |
-| Testing | Vitest | 442 tests, 100% pass rate |
+| Testing | Vitest | 1685 tests, 100% pass rate |
 
 ---
 
@@ -155,8 +155,8 @@ This project takes a **fail-closed** approach: if the security check can't give 
 
 | Metric | Value |
 |--------|-------|
-| Test files | 15 |
-| Total cases | 442 |
+| Test files | 87 |
+| Total cases | 1685 |
 | Pass rate | 100% |
 
 See [TEST_REPORT.md](TEST_REPORT.md) for details.

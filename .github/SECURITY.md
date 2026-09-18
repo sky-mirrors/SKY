@@ -46,4 +46,4 @@ HoloStarmap implements multiple security layers:
 - **Dual Engine Validator**: Rule-based + LLM-based validation for write operations
 - **Safe Storage**: Electron safeStorage API for API key encryption
 - **Write Path Whitelist**: Only Desktop/Documents directories allowed for file writes
-- **HTTP Safety**: Method whitelist + 1.2MB body size limit + timeout tiers
+- **HTTP Safety**: Method whitelist + 1MB body size limit + timeout tiers
