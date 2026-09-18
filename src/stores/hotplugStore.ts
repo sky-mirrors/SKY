@@ -27,6 +27,8 @@ export interface FunnelRoutedRecord {
   intent?: string
   autoExecutable?: boolean
   ts: number
+  /** C-11：请求级 traceId（数据层归因用，工作台暂不渲染） */
+  traceId?: string
 }
 
 const EVENT_LOG_LIMIT = 50
@@ -136,6 +138,13 @@ export const useHotplugStore = defineStore('hotplug', () => {
           return
         }
         pushEvent('funnel', `路由：funnel${d.source ? `(${d.source})` : ''} → ${d.kind}${d.handled ? '' : '（回退旧路径）'}`, d.handled ? 'info' : 'warn')
+      }),
+      // A2-5：shadow-diff 对照报告回流工作台 eventLog（浸泡验证数据管道）；
+      // match=null 为暂停点类终点，无法自动判定 → 提示人工核对
+      globalBus.on('funnel:shadow-diff', p => {
+        const d = p as { funnelEndpoint?: string; legacyEndpoint?: string; match?: boolean | null }
+        const verdict = d.match === null || d.match === undefined ? '待人工核对' : (d.match ? '一致' : '不一致')
+        pushEvent('funnel', `影子对照：funnel(${d.funnelEndpoint ?? '?'}) vs 旧路径(${d.legacyEndpoint ?? '?'}) ${verdict}`, d.match ? 'info' : 'warn')
       })
     )
   }

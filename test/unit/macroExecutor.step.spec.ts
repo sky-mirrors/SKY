@@ -179,6 +179,18 @@ describe('executeStep', () => {
     expect(onStepDone).toHaveBeenCalledWith(3, 'shell-output')
   })
 
+  it('C-11：traceId 贯穿 executeStep → probe 快照（数据层全链携带，渲染不做）', async () => {
+    const snapshots: any[] = []
+    globalBus.on('debug:log-probe', (p: any) => { if (p?.snapshot) snapshots.push(p.snapshot) })
+    const traceId = 'trace-c11-fixed-0001'
+    const result = await executeStep(makeStep(), makeManifest(), userInput, stepResults, undefined, undefined, undefined, undefined, undefined, traceId)
+    expect(result.done).toBe(true)
+    expect(snapshots.length).toBeGreaterThan(0)
+    for (const s of snapshots) {
+      expect(s.traceId).toBe(traceId)
+    }
+  })
+
   it('shell_exec失败时onStepFailed被调用', async () => {
     shellExecFn.mockRejectedValueOnce(new Error('exec failed'))
     const { classifyError } = await import('@/services/errorClassifier')

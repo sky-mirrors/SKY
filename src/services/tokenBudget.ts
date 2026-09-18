@@ -36,9 +36,11 @@ function calculateMonthlySpent(): number {
   return costRecords.filter(r => r.timestamp >= monthStart).reduce((sum, r) => sum + r.totalCost, 0)
 }
 
+// A3-16：预算三态——budget>0 限额（超支即 exceeded）；budget<=0 不限额（percent=0、永不超支）。
+// 原 `spent >= budget` 在 budget=0 时恒 exceeded（0>=0），"设 0"被解释为全拦截，无 UI 入口支撑该意图。
 function getPeriodStatus(spent: number, budget: number, warnThreshold: number): BudgetPeriodStatus {
   const percent = budget > 0 ? spent / budget : 0
-  const overBudget = spent >= budget
+  const overBudget = budget > 0 && spent >= budget
   let warnLevel: BudgetPeriodStatus['warnLevel'] = 'ok'
   if (overBudget) warnLevel = 'exceeded'
   else if (percent >= 0.95) warnLevel = 'critical'
@@ -82,9 +84,11 @@ export function setTierWhitelist(whitelist: Partial<TierWhitelist>): void {
 export function getBudgetStatus(): BudgetStatus {
   const dailySpent = calculateDailySpent()
   const monthlySpent = calculateMonthlySpent()
-  const daily = getPeriodStatus(dailySpent + sessionSpent, currentBudget.dailyBudgetCny, currentBudget.warnThreshold)
+  // A3-5：日/月口径以持久化 costRecords 为唯一真源——recordCost 已将本会话记录写入
+  // costRecords（持久化并重载），再叠加 sessionSpent 会把当日会话花费计两次
+  const daily = getPeriodStatus(dailySpent, currentBudget.dailyBudgetCny, currentBudget.warnThreshold)
   const session = getPeriodStatus(sessionSpent, currentBudget.sessionBudgetCny, currentBudget.warnThreshold)
-  const monthly = getPeriodStatus(monthlySpent + sessionSpent, currentBudget.monthlyBudgetCny, currentBudget.warnThreshold)
+  const monthly = getPeriodStatus(monthlySpent, currentBudget.monthlyBudgetCny, currentBudget.warnThreshold)
   const recommendedTier = getRecommendedTier(daily, session, monthly)
   return {
     daily,
@@ -254,12 +258,14 @@ export function getSessionSpent(): number {
   return sessionSpent
 }
 
+// A3-5：双计修复——costRecords 已含本会话记录，日/月口径仅以 costRecords 为准
+// （MAX_COST_RECORDS 截断为接受的边界，不做补偿）
 export function getDailySpent(): number {
-  return calculateDailySpent() + sessionSpent
+  return calculateDailySpent()
 }
 
 export function getMonthlySpent(): number {
-  return calculateMonthlySpent() + sessionSpent
+  return calculateMonthlySpent()
 }
 
 export function getCostRecords(since?: number): CostRecord[] {

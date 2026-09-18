@@ -1,5 +1,9 @@
 import type { HoloEventBus } from '@/kernel/bus'
 import { useDialogStore } from '@/stores/dialogStore'
+import { useNotificationStore } from '@/stores/notificationStore'
+
+// A2-5：add-notice 经 emit() 发布 → 必须 on() 桥接（HMR 重挂载先释放旧订阅）
+let _disposeNotice: (() => void) | null = null
 
 export function registerDialogHandlers(bus: HoloEventBus) {
   bus.registerHandler('dialog:confirm-risk', async (payload) => {
@@ -34,4 +38,14 @@ export function registerDialogHandlers(bus: HoloEventBus) {
     const store = useDialogStore()
     return store.requestTakeover(payload.stepNum)
   })
+
+  // A2-5：运行时通知（步骤暂停等）回流通知中心，既有通知铃/状态栏消费，模板零改动；
+  // 复用 tool_complete 通道与优先级映射，不新增 NotificationType（前端实用主义）
+  const noticeHandler = (payload: unknown) => {
+    const d = payload as { message?: string } | null
+    if (!d?.message) return
+    useNotificationStore().addNotification('tool_complete', '执行通知', d.message)
+  }
+  _disposeNotice?.()
+  _disposeNotice = bus.on('dialog:add-notice', noticeHandler)
 }

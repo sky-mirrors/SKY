@@ -662,7 +662,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           legacyEndpoint,
           funnelEndpoint,
           match,
-          durationMs: Date.now() - started
+          durationMs: Date.now() - started,
+          // C-11：对照报告携带请求级 traceId，浸泡期可与 probe/cost 记录按请求归因
+          traceId: activeTraceId.value || undefined
         }
         debugLog(`[funnel:shadow] ${JSON.stringify(report)}`)
         globalBus.emit('funnel:shadow-diff', { ...report, legacyTrail: legacyTrail.slice(-30) })
@@ -993,18 +995,20 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const outcome = await kernelRegistry.route(content, ctx)
       const handled = await consumeFunnelOutcome(content, outcome, allMcpTools)
       // 观测事件（R16）：工作台运行时面板订阅渲染最近路由结果
+      // C-11：携带请求级 traceId（数据层归因，显示渲染不做）
       globalBus.emit('funnel:routed', {
         handled,
         kind: outcome.kind,
         source: outcome.kind === 'plan' ? outcome.source : undefined,
         intent: outcome.kind === 'plan' ? outcome.plan.intent : undefined,
         autoExecutable: outcome.kind === 'plan' ? outcome.autoExecutable : undefined,
-        ts: Date.now()
+        ts: Date.now(),
+        traceId: activeTraceId.value || undefined
       })
       return handled
     } catch (e) {
       debugLog(`[funnel:main] 主路径异常，回退旧六层内联路由: ${e instanceof Error ? e.message : String(e)}`)
-      globalBus.emit('funnel:routed', { handled: false, kind: 'exception', ts: Date.now() })
+      globalBus.emit('funnel:routed', { handled: false, kind: 'exception', ts: Date.now(), traceId: activeTraceId.value || undefined })
       return false
     }
   }
@@ -1110,7 +1114,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         if (await routeViaFunnel(content, allMcpTools, recentUserMsg)) return ''
       } else {
         // 回滚模式（config:holo-funnel-main='0'）：仅跑 shadow 对照；emit 路由事件供工作台观测（handled=false 表示走旧路径）
-        globalBus.emit('funnel:routed', { handled: false, kind: 'funnel-disabled', ts: Date.now() })
+        globalBus.emit('funnel:routed', { handled: false, kind: 'funnel-disabled', ts: Date.now(), traceId: activeTraceId.value || undefined })
         void runFunnelShadow(content, allMcpTools, recentUserMsg)
       }
 
@@ -1808,7 +1812,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           (stepNum) => {
             globalBus.emit('node:update-dag-step', { stepNum: stepNum, status: 'reuse' })
             globalBus.emit('debug:log-probe', { level: 'info', domain: 'cache', message: `步骤${stepNum}复用缓存结果` })
-            globalBus.emit('node:visual-event', { nodeId: macroManifest.identity.id, eventType: 'cache_hit', duration: 2000 })
+            // node:visual-event 频道随星图冻结移除（A2-5），事件契约待 UI 插件化后重新定义
           },
           (stepNum) => {
             globalBus.emit('node:update-dag-step', { stepNum: stepNum, status: 'skip' })

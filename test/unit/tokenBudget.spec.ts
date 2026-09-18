@@ -16,6 +16,8 @@ import {
   initBudgetSystem,
   getCostBreakdownByTier,
   getCostBreakdownByCategory,
+  getDailySpent,
+  getMonthlySpent,
   getBudgetMode,
   setBudgetMode,
   getTierWhitelist,
@@ -85,6 +87,63 @@ describe('tokenBudget', () => {
       const status = getBudgetStatus()
       expect(status.session.warnLevel).toBe('exceeded')
       expect(status.recommendedTier).toBe('nano')
+    })
+  })
+
+  describe('A3-5 daily/monthly spent single source (no double count)', () => {
+    it('daily/monthly spent equals costRecords sum, not records + sessionSpent', () => {
+      const entry = recordLlmCost('pro', 1000, 500, 0, 'chat') // totalCost 0.0125
+      const status = getBudgetStatus()
+      expect(status.daily.spent).toBeCloseTo(entry.totalCost, 6)
+      expect(status.monthly.spent).toBeCloseTo(entry.totalCost, 6)
+      expect(getDailySpent()).toBeCloseTo(entry.totalCost, 6)
+      expect(getMonthlySpent()).toBeCloseTo(entry.totalCost, 6)
+    })
+
+    it('daily status not exceeded from sessionSpent double count', () => {
+      setBudget({ dailyBudgetCny: 0.02, monthlyBudgetCny: 1 })
+      recordLlmCost('pro', 1000, 500, 0, 'chat') // 0.0125 < 0.02，双计则为 0.025 会误报超支
+      const status = getBudgetStatus()
+      expect(status.daily.warnLevel).toBe('ok')
+      expect(status.daily.overBudget).toBe(false)
+      expect(status.monthly.warnLevel).toBe('ok')
+    })
+
+    it('session spent still tracked independently by sessionSpent', () => {
+      setBudget({ sessionBudgetCny: 0.015 })
+      recordLlmCost('pro', 1000, 500, 0, 'chat')
+      const status = getBudgetStatus()
+      expect(status.session.spent).toBeCloseTo(0.0125, 6)
+      expect(status.session.warnLevel).toBe('warning') // 0.0125/0.015 ≈ 0.83 > 0.8 默认阈值
+    })
+  })
+
+  describe('A3-16 zero/negative budget means unlimited', () => {
+    it('daily budget 0 with spend stays ok and never over budget', () => {
+      setBudget({ dailyBudgetCny: 0, monthlyBudgetCny: 0, sessionBudgetCny: 0 })
+      recordLlmCost('pro', 1000, 500, 0, 'chat')
+      const status = getBudgetStatus()
+      expect(status.daily.overBudget).toBe(false)
+      expect(status.daily.warnLevel).toBe('ok')
+      expect(status.daily.percent).toBe(0)
+      expect(status.session.overBudget).toBe(false)
+      expect(status.session.warnLevel).toBe('ok')
+      expect(status.monthly.overBudget).toBe(false)
+      expect(status.monthly.warnLevel).toBe('ok')
+    })
+
+    it('zero budget does not degrade recommended tier', () => {
+      setBudget({ dailyBudgetCny: 0, monthlyBudgetCny: 0, sessionBudgetCny: 0 })
+      recordLlmCost('pro', 1000, 500, 0, 'chat')
+      expect(getBudgetStatus().recommendedTier).toBe('pro')
+    })
+
+    it('positive budget still exceeds normally', () => {
+      setBudget({ dailyBudgetCny: 0.001 })
+      recordLlmCost('pro', 1000, 500, 0, 'chat')
+      const status = getBudgetStatus()
+      expect(status.daily.overBudget).toBe(true)
+      expect(status.daily.warnLevel).toBe('exceeded')
     })
   })
 

@@ -150,6 +150,22 @@ describe('hotplugStore（工作台右栏数据源，R16）', () => {
     expect(store.eventLog[1].text).toContain('funnel(L0) → plan')
   })
 
+  it('funnel:shadow-diff → 影子对照事件（一致/不一致/待人工核对分级）', () => {
+    const store = useHotplugStore()
+    store.init()
+
+    globalBus.emit('funnel:shadow-diff', { funnelEndpoint: 'macro', legacyEndpoint: 'macro', match: true, durationMs: 5 })
+    globalBus.emit('funnel:shadow-diff', { funnelEndpoint: 'chat', legacyEndpoint: 'macro', match: false, durationMs: 5 })
+    globalBus.emit('funnel:shadow-diff', { funnelEndpoint: 'intent-confirm', legacyEndpoint: 'unknown', match: null })
+
+    expect(store.eventLog[0]).toMatchObject({ kind: 'funnel', level: 'warn' })
+    expect(store.eventLog[0].text).toContain('待人工核对')
+    expect(store.eventLog[1]).toMatchObject({ level: 'warn' })
+    expect(store.eventLog[1].text).toContain('不一致')
+    expect(store.eventLog[2]).toMatchObject({ level: 'info' })
+    expect(store.eventLog[2].text).toBe('影子对照：funnel(macro) vs 旧路径(macro) 一致')
+  })
+
   it('toggleFunnelMain → vault 写入 + dialogStore 缓存清除 + 事件', () => {
     const store = useHotplugStore()
     store.init()
