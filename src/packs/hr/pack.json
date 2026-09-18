@@ -1,0 +1,15 @@
+{
+  "id": "hr",
+  "name": "人力资源专家包",
+  "version": "1.0.0",
+  "license": "open-source",
+  "domain": "hr",
+  "priority": 0,
+  "weight": 1.0,
+  "needsUserKnowledge": false,
+  "capabilities": {
+    "hooks": { "advisory": ["L0", "L1", "L2", "L3", "L4"], "veto": ["pre-output"], "override": [] },
+    "clusters": []
+  },
+  "compatibility": { "minHostVersion": "0.1.0" }
+}

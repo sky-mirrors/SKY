@@ -947,7 +947,15 @@ packs/legal/
 
 ### 8.9 hr pack 说明
 
-勘察实测：**hr 域约束为 0 条**（类型支持 'hr' 但无约束数组——[domainConstraints.ts](../src/services/domainConstraints.ts) 中不存在 HR_CONSTRAINTS）。首批仅 **legal / finance 两个 pack**；hr pack 延后至有真实领域数据时再建（届时至少含术语/路由偏置，边界层可空）。
+**已建（A5 批，运营层第一批）**。勘察期 hr 域约束实测为 0 条（类型支持 'hr' 但无约束数组——[domainConstraints.ts](../src/services/domainConstraints.ts) 中不存在 HR_CONSTRAINTS），故 hr pack 边界层为空，属合法空层（见 8.8）。
+
+现结构（[src/packs/hr/](../src/packs/hr/)）：
+
+- **pack.json**：domain 'hr'，weight 1.0；
+- **execution/manifests.json**：归因表声明 5 个 HR 宏（resume-screening / onboarding-guide-gen / announcement-draft / attendance-exception-note / offboarding-checklist）。归因纪律：`l2-policy-doc-qa-v1` 为 HR/Legal 双角色宏，已由 legal 声明，hr 不重复声明（loader 首声明者赢，glob 字母序 finance→hr→legal）；
+- **knowledge/hr-terms.json**：术语层（~21 条，含"非法律意见"声明），经 knowledge 层管线注入 pack 分区 KB。
+
+新增 2 个实战宏（执行真源在 [l2Manifests.ts](../src/data/l2Manifests.ts)，非 pack 内）：`l2-attendance-exception-note-v1`（口述考勤异常→正式说明）与 `l2-offboarding-checklist-v1`（岗位描述→四类交接清单）。均为 2 步 DAG（knowledge_search nano + llm_generate standard，无 shell_exec），不进星图节点表（星图冻结，仅靠 routing.keywords 参与 funnel 候选匹配）。
 
 ---
 
@@ -1087,7 +1095,7 @@ M4 状态机              M10/M11/M12 知识隔离            M5/M6/M7/M13/M15 �
 | 5 | 超时默认值 mount 10s / drain 5s / override 3s | 如左 | 6.2/5.3 |
 | 6 | DSL 新增 numericCapture 能力（勘察驱动） | 纳入 v1 | 8.3 |
 | 7 | DSL v2 扩展项：两捕获值算术表达式（可收编 #11/#51/#55） | 待定 | 附录 C |
-| 8 | hr pack 延后（hr 域约束实测 0 条） | 延后 | 8.9 |
+| 8 | hr pack（hr 域约束实测 0 条 → 空边界层合法） | 已建（A5 批：归因 5 宏 + 术语层 + 2 实战宏） | 8.9 |
 
 ## 附录 B：术语表
 

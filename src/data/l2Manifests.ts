@@ -419,6 +419,44 @@ const l2Manifests: L2ToolManifest[] = [
       rules: [],
       fallbackToLLM: true
     }
+  },
+  {
+    // A5 批新增（hr pack 供给扩充）：用户输入经 prompt 模板变量 {{input}} 注入（macroExecutor 编译填充），
+    // bindings 不指向 prompt（binding 为参数整体替换，会覆盖模板）；slots 仅作 funnel 输入声明
+    identity: { id: 'l2-attendance-exception-note-v1', name: '考勤异常说明生成', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-attendance-note' },
+    visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain', 'lightning'], hoverLabel: '口述考勤异常→正式说明', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
+    routing: { keywords: ['考勤', '迟到', '早退', '缺卡', '补卡', '异常说明', '考勤说明'], targetRoles: ['hr', 'general'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'text', retrievalSummary: '根据口述的考勤异常情况，生成正式的考勤异常说明', userSummary: '口述异常→正式考勤说明', confidenceThreshold: 0.65 },
+    execution: {
+      mode: 'macro',
+      dagPlan: {
+        steps: [
+          { step: 1, description: '检索知识库获取考勤制度与说明规范', tool: 'knowledge_search', depends_on: [], params: { query: '考勤制度 迟到 早退 缺卡 补考勤 说明规范' }, expectedOutput: '考勤制度知识要点', fallback: 'llm_generate', modelTier: 'nano', outputExtract: '$.summary' },
+          { step: 2, description: '生成正式考勤异常说明', tool: 'llm_generate', depends_on: [1], params: { prompt: '你是一名HR专员。根据以下考勤制度要点和员工口述的异常情况，生成一份正式的考勤异常说明，包含：称谓、异常日期与时间、具体情况说明、后续处理（如补卡/调休申请）、承诺与落款。措辞正式客观。\n\n考勤制度要点：{{step_1_result}}\n\n员工口述的异常情况：{{input}}' }, expectedOutput: '考勤异常说明文本', modelTier: 'standard' }
+        ],
+        fallbackStrategy: 'retry',
+        maxRetries: 2
+      },
+      paramMapping: { slots: [{ name: '{{input}}', source: 'input_text', description: '考勤异常情况口述', required: true }], bindings: [] }
+    },
+    cacheMeta: { estimatedTokenSaving: 900, avgExecutionTime: 8000, cacheable: true, cacheKeyTemplate: 'attendance-note-{{input_hash}}-v1.0.0', cacheTTL: 86400000 }
+  },
+  {
+    identity: { id: 'l2-offboarding-checklist-v1', name: '离职交接清单生成', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-offboarding-checklist' },
+    visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain', 'sparkle'], hoverLabel: '岗位信息→交接清单', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
+    routing: { keywords: ['离职', '辞职', '交接', '工作交接', '离职交接', '交接清单'], targetRoles: ['hr', 'general'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'text', retrievalSummary: '根据岗位与职责描述，生成分类的离职交接清单', userSummary: '岗位信息→离职交接清单', confidenceThreshold: 0.65 },
+    execution: {
+      mode: 'macro',
+      dagPlan: {
+        steps: [
+          { step: 1, description: '检索知识库获取离职交接流程要点', tool: 'knowledge_search', depends_on: [], params: { query: '离职交接 流程 工作交接 离职证明 经济补偿' }, expectedOutput: '离职交接流程知识要点', fallback: 'llm_generate', modelTier: 'nano', outputExtract: '$.summary' },
+          { step: 2, description: '生成分类的离职交接清单', tool: 'llm_generate', depends_on: [1], params: { prompt: '你是一名HR专员。根据以下交接流程要点和岗位描述，生成一份离职交接清单，按四类组织：①文档与资料交接 ②系统权限与账户 ③办公资产归还 ④工作知识与项目交接。每项标注交接对象与完成标准。\n\n交接流程要点：{{step_1_result}}\n\n岗位描述：{{input}}' }, expectedOutput: '离职交接清单文本', modelTier: 'standard' }
+        ],
+        fallbackStrategy: 'retry',
+        maxRetries: 2
+      },
+      paramMapping: { slots: [{ name: '{{input}}', source: 'input_text', description: '岗位与职责描述', required: true }], bindings: [] }
+    },
+    cacheMeta: { estimatedTokenSaving: 1000, avgExecutionTime: 9000, cacheable: true, cacheKeyTemplate: 'offboarding-{{input_hash}}-v1.0.0', cacheTTL: 604800000 }
   }
 ]
 
