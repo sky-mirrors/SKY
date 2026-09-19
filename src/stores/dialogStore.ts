@@ -26,6 +26,7 @@ import type { RaapMatchResult, UniversalMatchResult, MatchableItem } from '@/ser
 import { tryL0Skill, buildExplorePlan, classifyDomain, tryL05QuickMatch, checkL1Capability } from '@/services/l0SkillRouter'
 import type { L0DirectPlan } from '@/services/l0SkillRouter'
 import { vault } from '@/vault'
+import { registerExamTrace } from '@/exam/examRegistry'
 import { kernelRegistry } from '@/host/kernelRuntime'
 import type { DefaultKernelContext } from '@/kernels/default'
 import { FEEDBACK_RE, SHORT_FEEDBACK_RE } from '@/kernels/default'
@@ -187,6 +188,11 @@ export const useDialogStore = defineStore('dialog', () => {
       case 'dagPaused': dagPaused.value = true; break
       case 'takeover': awaitingTakeover.value = true; break
     }
+    // EXAM-2：监考信号——每次暂停点获取即一次用户干预机会
+    // （考试器订阅 dialog:pause-acquired 计干预数，见 ACCEPTANCE-SPEC「监考记录字段」）
+    try {
+      globalBus.emit('dialog:pause-acquired', { point, traceId: activeTraceId.value || undefined, ts: Date.now() })
+    } catch { /* non-critical */ }
   }
 
   function setMode(m: 'command' | 'plan' | 'teach') {
@@ -1013,7 +1019,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
   }
 
-  async function sendMessage(content: string, isQueuedReplay = false): Promise<string> {
+  async function sendMessage(content: string, isQueuedReplay = false, opts?: { taskType?: 'exam' }): Promise<string> {
     if (content.trim() === '/debug') {
       if (globalBus.request('debug:is-enabled', {})) {
         globalBus.emit('debug:deactivate', {})
@@ -1034,6 +1040,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
     // §5.2：用户请求入口生成 traceId（须在 addUserMessage 之前，消息落记忆时携带）
     activeTraceId.value = newTraceId()
+    // EXAM-1：考试发题入口——traceId 注册进 exam 注册表，
+    // apiStore 反查识别 exam 流量做学习回路隔离（record-cost 照常记账供监考归因）
+    if (opts?.taskType === 'exam') registerExamTrace(activeTraceId.value)
     // M16：上一轮存在竞争记录时——负反馈消息 → EMA outcome = 0.2；其余新消息 → 记录作废
     if (pendingCompetitionRecord) {
       if (FEEDBACK_RE.test(content) || (content.length < 30 && SHORT_FEEDBACK_RE.test(content))) {

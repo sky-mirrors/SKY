@@ -25,6 +25,7 @@ import {
 import { vault } from '@/vault'
 import { globalBus } from '@/kernel/bus'
 import { getPackIdForDomain } from '@/host/packRuntime'
+import { isExamTraceId } from '@/exam/examRegistry'
 
 interface AnthropicResponse {
   content?: { text?: string }[]
@@ -507,6 +508,11 @@ export const useApiStore = defineStore('api', () => {
     // （P1-33 只隔离了指纹库；此处补齐 tokenBudget/sessionSpent、routingHistory
     // 与 debugStore 记账三类污染面，并避免 budget=0 恒超限时 benchmark 被 block）
     const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
+    // EXAM-1：考试流量走真实主路径，taskType 不显式（主路径/宏路径 LLM 调用只带 traceId）
+    // ——经 examRegistry 反查识别。隔离面与 benchmark 不同：学习回路（语义缓存/预算/ZOL）
+    // 隔离，record-cost 照常记账（监考按 traceId 归因 token/费用，行为等价真实使用）
+    const isExamTraffic = routingOptions?.taskType === 'exam' || isExamTraceId(routingOptions?.traceId)
+    const isLearningIsolated = isBenchmarkTraffic || isExamTraffic
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
     // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
     const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens?: number }, tier?: string, category?: string, local?: boolean) => {
@@ -527,7 +533,7 @@ export const useApiStore = defineStore('api', () => {
         })
       } catch { /* non-critical */ }
     }
-    if (!degradeState && cacheEligible && !isBenchmarkTraffic && getCacheConfig().enabled) {
+    if (!degradeState && cacheEligible && !isLearningIsolated && getCacheConfig().enabled) {
       try {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
@@ -574,7 +580,8 @@ export const useApiStore = defineStore('api', () => {
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
     // M20：降级态（本地零费用）不受预算 block；远程预算已在发起方检查过
-    if (!isBenchmarkTraffic && !degradeState) {
+    // EXAM-1：考试流量同 benchmark 不受预算 block（record-cost 照常记账可见消耗）
+    if (!isLearningIsolated && !degradeState) {
       if (!budgetResult.allowed) {
         debugLog(`[chatCompletion:budget] BLOCKED - ${budgetResult.reason}`)
         throw new Error(`Budget exceeded: ${budgetResult.reason}`)
@@ -628,7 +635,7 @@ export const useApiStore = defineStore('api', () => {
           toolCalls: result.toolCalls ?? [],
           usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
         }
-        if (cacheEligible && !isBenchmarkTraffic && ipcResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && ipcResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -642,8 +649,8 @@ export const useApiStore = defineStore('api', () => {
             }).catch(() => {})
           }
         }
-        // #5：benchmark 流量不进 ZOL 路由学习（recordOutcome→routingHistory）
-        if (!isBenchmarkTraffic) {
+        // #5：benchmark/exam 流量不进 ZOL 路由学习（recordOutcome→routingHistory）
+        if (!isLearningIsolated) {
           recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: ipcResult.usage?.promptTokens ?? 0, completionTokens: ipcResult.usage?.completionTokens ?? 0, cacheHitTokens: ipcResult.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
         }
         emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
@@ -743,7 +750,7 @@ export const useApiStore = defineStore('api', () => {
         recordSuccess()
         debugLog(`[chatCompletion:ollama] model=${ollamaModel}, usage: prompt=${r.usage.promptTokens}, completion=${r.usage.completionTokens}, total=${r.usage.totalTokens}`)
         const ollamaResult = { content: r.content, toolCalls: [], usage: r.usage }
-        if (cacheEligible && !isBenchmarkTraffic && r.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && r.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -757,8 +764,8 @@ export const useApiStore = defineStore('api', () => {
             }).catch(() => {})
           }
         }
-        // #5：benchmark 流量不进 ZOL 路由学习
-        if (!isBenchmarkTraffic) {
+        // #5：benchmark/exam 流量不进 ZOL 路由学习
+        if (!isLearningIsolated) {
           recordOutcome(userContent, decision, effectiveTier, r.usage.completionTokens, actualCostOf(r.usage, true), routingOptions?.taskType)
         }
         // M17/M20：本地 Ollama 零费用记账
@@ -786,7 +793,7 @@ export const useApiStore = defineStore('api', () => {
         const ct = aResp?.usage?.output_tokens || 0
         debugLog(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
         const anthropicResult = { content: text ? String(text) : '', toolCalls: [] }
-        if (cacheEligible && !isBenchmarkTraffic && anthropicResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && anthropicResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -800,8 +807,8 @@ export const useApiStore = defineStore('api', () => {
             }).catch(() => {})
           }
         }
-        // #5：benchmark 流量不进 ZOL 路由学习
-        if (!isBenchmarkTraffic) {
+        // #5：benchmark/exam 流量不进 ZOL 路由学习
+        if (!isLearningIsolated) {
           recordOutcome(userContent, decision, effectiveTier, ct, actualCostOf({ promptTokens: pt, completionTokens: ct }, false), routingOptions?.taskType)
         }
         emitRecordCost({ promptTokens: pt, completionTokens: ct, totalTokens: pt + ct }, effectiveTier, 'llm')
@@ -829,7 +836,7 @@ export const useApiStore = defineStore('api', () => {
       const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
       debugLog(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       const directResult = { content, toolCalls, usage }
-      if (cacheEligible && !isBenchmarkTraffic && content.length > 50 && toolCalls.length === 0) {
+      if (cacheEligible && !isLearningIsolated && content.length > 50 && toolCalls.length === 0) {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
         if (userMsg) {
           cacheStore({
@@ -843,8 +850,8 @@ export const useApiStore = defineStore('api', () => {
           }).catch(() => {})
         }
       }
-      // #5：benchmark 流量不进 ZOL 路由学习
-      if (!isBenchmarkTraffic) {
+      // #5：benchmark/exam 流量不进 ZOL 路由学习
+      if (!isLearningIsolated) {
         recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, actualCostOf(usage, false), routingOptions?.taskType)
       }
       emitRecordCost(usage, effectiveTier, 'llm')
@@ -929,7 +936,10 @@ export const useApiStore = defineStore('api', () => {
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
     // #5：benchmark 压测流量不受预算 block（budget=0 恒超限时 benchmark 会被误拦）
     const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
-    if (!budgetResult.allowed && !isBenchmarkTraffic) {
+    // EXAM-1：同非流式路径——exam 隔离学习回路、保留记账
+    const isExamTraffic = routingOptions?.taskType === 'exam' || isExamTraceId(routingOptions?.traceId)
+    const isLearningIsolated = isBenchmarkTraffic || isExamTraffic
+    if (!budgetResult.allowed && !isLearningIsolated) {
       callbacks.onError(new Error(`Budget exceeded: ${budgetResult.reason}`))
       return { cancel: () => {} }
     }
@@ -988,7 +998,11 @@ export const useApiStore = defineStore('api', () => {
             onDone: (final) => {
               if (!combinedSignal.aborted) {
                 recordSuccess()
-                recordOutcome(userContent, decision, effectiveTier, final.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: final.usage?.promptTokens ?? 0, completionTokens: final.usage?.completionTokens ?? 0, cacheHitTokens: final.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
+                // G-17：流式 IPC 成功路径原缺隔离守卫——benchmark 流量泄漏 ZOL routingHistory；
+                // exam 流量恰走流式主路径，不修则考试污染生产学习（EXAM-1 一并接入）
+                if (!isLearningIsolated) {
+                  recordOutcome(userContent, decision, effectiveTier, final.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: final.usage?.promptTokens ?? 0, completionTokens: final.usage?.completionTokens ?? 0, cacheHitTokens: final.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
+                }
                 emitRecordCost({
                   promptTokens: final.usage?.promptTokens ?? 0,
                   completionTokens: final.usage?.completionTokens ?? 0,
@@ -1095,7 +1109,7 @@ export const useApiStore = defineStore('api', () => {
         }
         if (delta.done) {
           recordSuccess()
-          if (!isBenchmarkTraffic && accumulated.length > 50) {
+          if (!isLearningIsolated && accumulated.length > 50) {
             const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
             if (userMsg) {
               cacheStore({
@@ -1109,8 +1123,8 @@ export const useApiStore = defineStore('api', () => {
               }).catch(() => {})
             }
           }
-          // #5：benchmark 流量不进 ZOL 路由学习
-          if (!isBenchmarkTraffic) {
+          // #5：benchmark/exam 流量不进 ZOL 路由学习
+          if (!isLearningIsolated) {
             recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, actualCostOf({ promptTokens: usageInfo?.promptTokens ?? 0, completionTokens: usageInfo?.completionTokens ?? 0 }, true), routingOptions?.taskType)
           }
           emitRecordCost({
@@ -1197,7 +1211,7 @@ export const useApiStore = defineStore('api', () => {
             const toolCalls = Array.from(toolCallMap.values())
             recordSuccess()
             const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
-            if (cacheEligible && !isBenchmarkTraffic && accumulatedContent.length > 50 && toolCalls.length === 0) {
+            if (cacheEligible && !isLearningIsolated && accumulatedContent.length > 50 && toolCalls.length === 0) {
               const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
               if (userMsg) {
                 cacheStore({
@@ -1211,7 +1225,10 @@ export const useApiStore = defineStore('api', () => {
                 }).catch(() => {})
               }
             }
-            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, actualCostOf({ promptTokens: usageInfo?.promptTokens ?? 0, completionTokens: usageInfo?.completionTokens ?? 0, cacheHitTokens: usageInfo?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
+            // G-17：Ollama NDJSON 流式收尾路径原缺隔离守卫——benchmark/exam 流量泄漏 ZOL routingHistory
+            if (!isLearningIsolated) {
+              recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, actualCostOf({ promptTokens: usageInfo?.promptTokens ?? 0, completionTokens: usageInfo?.completionTokens ?? 0, cacheHitTokens: usageInfo?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
+            }
             emitRecordCost({
               promptTokens: usageInfo?.promptTokens ?? 0,
               completionTokens: usageInfo?.completionTokens ?? 0,

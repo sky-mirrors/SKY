@@ -350,4 +350,113 @@ describe('apiStore', () => {
       expect(costs[0].traceId).toBe('trace-main-001')
     })
   })
+
+  describe('EXAM-1 exam 流量隔离（学习回路隔离 / 记账保留）', () => {
+    it('exam taskType：record-cost 照常发射（监考归因），routingHistory 不记录（学习隔离）', async () => {
+      const { globalBus } = await import('@/kernel/bus')
+      const { getRoutingHistory, clearRoutingHistory } = await import('@/services/smartRouter')
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+
+      const costs: Record<string, unknown>[] = []
+      const handler = (e: Record<string, unknown>) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+      clearRoutingHistory()
+
+      // 6 条消息绕过语义缓存资格路径（generateVector 在测试环境不可用会挂起）
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `exam probe ${i}` }))
+      await store.chatCompletion(
+        msgs,
+        false, undefined, undefined, undefined,
+        { taskType: 'exam', traceId: 'trace-exam-001' }
+      )
+      // 与 benchmark 相反：exam 记账保留（监考按 traceId 归因 token/费用）
+      expect(costs.length).toBe(1)
+      expect(costs[0].traceId).toBe('trace-exam-001')
+      // 学习回路与 benchmark 同口径隔离
+      expect(getRoutingHistory()).toHaveLength(0)
+
+      globalBus.off('debug:record-cost', handler)
+      clearRoutingHistory()
+    })
+
+    it('注册 exam traceId（无显式 taskType，主路径形态）：同样隔离学习回路、保留记账', async () => {
+      const { registerExamTrace, clearExamTraces } = await import('@/exam/examRegistry')
+      const { globalBus } = await import('@/kernel/bus')
+      const { getRoutingHistory, clearRoutingHistory } = await import('@/services/smartRouter')
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+
+      const costs: Record<string, unknown>[] = []
+      const handler = (e: Record<string, unknown>) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+      clearRoutingHistory()
+      registerExamTrace('trace-exam-002')
+
+      const examMsgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `registry exam probe ${i}` }))
+      await store.chatCompletion(
+        examMsgs,
+        false, undefined, undefined, undefined,
+        { traceId: 'trace-exam-002' }
+      )
+      expect(costs.length).toBe(1)
+      expect(getRoutingHistory()).toHaveLength(0)
+
+      // 对照：未注册的普通 traceId → 两者均记录（生产行为不变）
+      const normalMsgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `registry normal probe ${i}` }))
+      await store.chatCompletion(
+        normalMsgs,
+        false, undefined, undefined, undefined,
+        { traceId: 'trace-normal-002' }
+      )
+      expect(costs.length).toBe(2)
+      expect(getRoutingHistory().length).toBeGreaterThan(0)
+
+      clearExamTraces()
+      globalBus.off('debug:record-cost', handler)
+      clearRoutingHistory()
+    })
+
+    it('G-17：流式 benchmark 流量不写 routingHistory（原流式两处 recordOutcome 无隔离守卫）', async () => {
+      const { getRoutingHistory, clearRoutingHistory } = await import('@/services/smartRouter')
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      clearRoutingHistory()
+
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `g17 stream probe ${i}` }))
+      await store.chatCompletionStream(
+        msgs,
+        { onChunk: () => {}, onDone: () => {}, onError: () => {} },
+        undefined, undefined, undefined,
+        { taskType: 'benchmark' }
+      )
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(getRoutingHistory()).toHaveLength(0)
+
+      // 对照：普通流式调用仍记录（生产学习行为不变）
+      await store.chatCompletionStream(
+        msgs,
+        { onChunk: () => {}, onDone: () => {}, onError: () => {} },
+        undefined, undefined, undefined,
+        { taskType: 'chat' }
+      )
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(getRoutingHistory().length).toBeGreaterThan(0)
+      clearRoutingHistory()
+    })
+  })
 })

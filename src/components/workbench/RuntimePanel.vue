@@ -106,6 +106,44 @@
         </div>
         <div class="wb-rt-card-body" v-else>DevTools 执行 vaultWrite('config','holo-funnel-shadow','1') 后重载启用</div>
       </div>
+      <!-- EXAM-5：验收考试卡（ACCEPTANCE-SPEC v1.0，控制面在主窗，题目经 DialogPanel 真实主路径执行） -->
+      <div class="wb-rt-card">
+        <div class="wb-rt-card-head">
+          验收考试
+          <span class="wb-rt-tag" :class="examPhaseTagClass">{{ examPhaseLabel }}</span>
+        </div>
+        <div class="wb-rt-card-body">
+          <template v-if="examRunner === null">
+            <label class="wb-rt-exam-check">
+              <input type="checkbox" v-model="examFixtureReady" />
+              桌面考试素材已就位（HoloExam 目录，见考试手册）
+            </label>
+            <button class="wb-rt-candidate-btn" @click="startExam">开始考试（18 题，约 40 分钟）</button>
+            <div class="wb-rt-candidate-hint">考试期间请勿在对话框手动输入；暂停点出现时在确认条上正常裁决</div>
+          </template>
+          <template v-else>
+            <div v-if="examRunner.progress.phase === 'running'">
+              <div>第 {{ examRunner.progress.current }}/{{ examRunner.progress.total }} 题：{{ examRunner.progress.currentLabel }}</div>
+              <div>{{ examRunner.progress.currentStatus }}</div>
+              <button class="wb-rt-candidate-btn" @click="examRunner.cancel()">中止考试</button>
+            </div>
+            <div v-else-if="examRunner.progress.phase === 'done' || examRunner.progress.phase === 'cancelled'">
+              <div>可交付 {{ ((examRunner.progress.report?.summary.deliverableRate ?? 0) * 100).toFixed(0) }}%（线 80%）/ 零干预 {{ ((examRunner.progress.report?.summary.zeroInterventionRate ?? 0) * 100).toFixed(0) }}%（线 60%）</div>
+              <div>平均耗时 {{ formatExamDuration(examRunner.progress.report?.summary.avgDurationMs ?? 0) }}（线 2min）</div>
+              <div v-if="examRunner.progress.phase === 'cancelled'" class="wb-rt-candidate-hint">已中止（已完成题目仍计入成绩单）</div>
+              <button
+                class="wb-rt-candidate-btn"
+                :disabled="examExporting"
+                :title="examExportPath"
+                @click="exportExamReport"
+              >{{ examExportLabel }}</button>
+            </div>
+            <div v-else-if="examRunner.progress.phase === 'error'" class="wb-rt-candidate-hint">
+              考试异常：{{ examRunner.progress.errorMessage }}
+            </div>
+          </template>
+        </div>
+      </div>
       <div class="wb-rt-log">
         <div v-for="(e, i) in hotplugStore.eventLog" :key="i" class="wb-rt-log-item" :class="e.level">
           <span class="wb-rt-log-kind">{{ kindIcon(e.kind) }}</span>
@@ -175,6 +213,7 @@ import { useApiStore } from '@/domains/api'
 import { useDebugStore } from '@/domains/debug'
 import { useHotplugStore } from '@/stores/hotplugStore'
 import { useSoakStore } from '@/stores/soakStore'
+import { createExamRunner, createDefaultExamDeps, type ExamRunner } from '@/exam/examRunner'
 import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
 import type { ProbeSnapshot } from '@/models'
 
@@ -255,6 +294,55 @@ async function exportSoakReport(): Promise<void> {
   soakExportLabel.value = path ? '已导出' : '导出失败'
   setTimeout(() => { soakExportLabel.value = '导出浸泡报告' }, 3000)
 }
+
+// ===== EXAM-5：验收考试卡（examRunner 控制面；发题走真实主路径） =====
+const examRunner = ref<ExamRunner | null>(null)
+const examFixtureReady = ref(false)
+const examExporting = ref(false)
+const examExportLabel = ref('导出成绩单')
+const examExportPath = ref('')
+
+const examPhaseLabel = computed(() => {
+  const phase = examRunner.value?.progress.phase ?? 'idle'
+  if (phase === 'running') return '进行中'
+  if (phase === 'done') return '已完成'
+  if (phase === 'cancelled') return '已中止'
+  if (phase === 'error') return '异常'
+  return '未开始'
+})
+
+const examPhaseTagClass = computed(() => {
+  const phase = examRunner.value?.progress.phase ?? 'idle'
+  if (phase === 'running') return 'warn'
+  if (phase === 'done') return 'ok'
+  if (phase === 'error') return 'bad'
+  return phase === 'cancelled' ? 'warn' : ''
+})
+
+function startExam(): void {
+  if (examRunner.value) return
+  const runner = createExamRunner(createDefaultExamDeps())
+  examRunner.value = runner
+  void runner.run({ fixtureReady: examFixtureReady.value }).finally(() => {
+    // 考试结束后保留 runner 供导出成绩单；重新开考需刷新页面
+  })
+}
+
+async function exportExamReport(): Promise<void> {
+  if (examExporting.value || !examRunner.value) return
+  examExporting.value = true
+  examExportLabel.value = '导出中…'
+  const path = await examRunner.value.exportReport()
+  examExportPath.value = path ?? ''
+  examExporting.value = false
+  examExportLabel.value = path ? '已导出' : '导出失败'
+  setTimeout(() => { examExportLabel.value = '导出成绩单' }, 3000)
+}
+
+function formatExamDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${s % 60}s`
+}
 </script>
 
 <style scoped>
@@ -317,6 +405,7 @@ async function exportSoakReport(): Promise<void> {
 .wb-rt-candidate-btn:hover:not(:disabled) { background: rgba(80, 120, 255, 0.22); }
 .wb-rt-candidate-btn:disabled { opacity: 0.5; cursor: default; }
 .wb-rt-candidate-hint { font-size: 10px; opacity: 0.6; margin-top: 4px; }
+.wb-rt-exam-check { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--rt-text-dim); cursor: pointer; }
 .wb-rt-card.wb-rt-card { flex-direction: column; align-items: stretch; }
 .wb-rt-card .wb-rt-dot { align-self: auto; }
 

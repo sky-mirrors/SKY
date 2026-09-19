@@ -97,6 +97,11 @@ L0.5 门 0.8/0.9、L1 门 0.6、margin 0.10、green 0.95（funnel.ts:31、toolRe
 
 ## 状态归档与优先级建议
 
+### G-17 流式路径 ZOL 隔离缺失 ✅（EXAM 批已修）
+
+EXAM 批设计侦查（2026-09-20）发现：非流式路径的 4 处 `recordOutcome` 均有 `!isBenchmarkTraffic` 守卫，但**流式两处收尾路径无守卫**——IPC 流式 `onDone`（apiStore.ts:1003 附近）与 Ollama NDJSON 流式收尾（apiStore.ts:1230 附近）的 `recordOutcome` 无条件调用，benchmark 流式流量会泄漏进 ZOL routingHistory，污染生产路由学习。benchmark 现仅走非流式故未发作，属潜伏缺口；exam 流量恰走流式主路径，不修则考试污染生产学习。
+**修复**（EXAM-1/G-17）：引入 `isLearningIsolated = isBenchmarkTraffic || isExamTraffic`，流式两处补守卫（与非流式同口径），全部 8 处 recordOutcome 统一判定。测试：apiStore.spec「G-17：流式 benchmark 流量不写 routingHistory」。
+
 | 编号 | 问题 | 认领状态 | 建议优先级 |
 |---|---|---|---|
 | G-2 | temperature 未发送 | ✅ H-2 已修 | ~~P0~~ 关闭 |
@@ -107,6 +112,7 @@ L0.5 门 0.8/0.9、L1 门 0.6、margin 0.10、green 0.95（funnel.ts:31、toolRe
 | G-3 | FactGuard 5000 字盲区 | ❌ | P1 |
 | G-6 | 双引擎审核费效比 | ❌ | P1 |
 | G-8 | 主路径 traceId 断链 | ✅ H-1 已修 | ~~P1~~ 关闭 |
+| G-17 | 流式路径 ZOL 隔离缺失 | ✅ EXAM 批已修 | ~~P2~~ 关闭 |
 | G-7 | 降档安慰剂/盲选/无归因 | ✅ Phase A+B（审阅关卡中） | 已排期 |
 | G-9 | 熔断/重试暗坑 | ❌ | P2 |
 | G-13 | 指纹重启失忆 | ❌ | P2 |
