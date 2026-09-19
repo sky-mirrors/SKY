@@ -269,4 +269,85 @@ describe('apiStore', () => {
       globalBus.off('debug:record-cost', handler)
     })
   })
+
+  describe('H-1 诚实账本批（G-2/G-4/G-5/G-8）', () => {
+    async function setupReadyStore() {
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      return store
+    }
+
+    it('G-2: routingOptions.temperature 经 IPC 透传；未传时 ipcArgs 无 temperature（冷启动等价现状）', async () => {
+      const store = await setupReadyStore()
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `temp probe ${i}` }))
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat', temperature: 0.3 })
+      let ipcOpts = electronApi.llmChatCompletion.mock.calls[0][0] as Record<string, unknown>
+      expect(ipcOpts.temperature).toBe(0.3)
+
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+      ipcOpts = electronApi.llmChatCompletion.mock.calls[1][0] as Record<string, unknown>
+      expect(ipcOpts.temperature).toBeUndefined()
+    })
+
+    it('G-5: recordOutcome actualCost 按实际 usage 计价，非 budgetResult.estimatedCost；qualityScore 为显式占位 0（G-4）', async () => {
+      const { getRoutingHistory, clearRoutingHistory } = await import('@/services/smartRouter')
+      const { calculateCost } = await import('@/services/tokenPricing')
+      const store = await setupReadyStore()
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 1000, completionTokens: 500, totalTokens: 1500, cacheHitTokens: 0, cacheMissTokens: 1000 }
+      })
+      clearRoutingHistory()
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `cost probe ${i}` }))
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+
+      const history = getRoutingHistory()
+      expect(history).toHaveLength(1)
+      const expected = calculateCost(1000, 500, 0).totalCost
+      expect(history[0].actualCost).toBe(expected)
+      // G-4：不再编造 overkill?5:3 的质量分；0=未评测占位
+      expect(history[0].qualityScore).toBe(0)
+      clearRoutingHistory()
+    })
+
+    it('G-5: cacheHitTokens 真实值经 record-cost 透传（原硬编码 0）', async () => {
+      const { globalBus } = await import('@/kernel/bus')
+      const store = await setupReadyStore()
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 1000, completionTokens: 500, totalTokens: 1500, cacheHitTokens: 400, cacheMissTokens: 600 }
+      })
+      const costs: Record<string, unknown>[] = []
+      const handler = (e: Record<string, unknown>) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `cache probe ${i}` }))
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+      globalBus.off('debug:record-cost', handler)
+      expect(costs.length).toBe(1)
+      expect(costs[0].cacheHitTokens).toBe(400)
+    })
+
+    it('G-8: 非流式主路径 routingOptions.traceId 贯穿 record-cost 归因', async () => {
+      const { globalBus } = await import('@/kernel/bus')
+      const store = await setupReadyStore()
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+      const costs: Record<string, unknown>[] = []
+      const handler = (e: Record<string, unknown>) => costs.push(e)
+      globalBus.on('debug:record-cost', handler)
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `trace probe ${i}` }))
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat', traceId: 'trace-main-001' })
+      globalBus.off('debug:record-cost', handler)
+      expect(costs.length).toBe(1)
+      expect(costs[0].traceId).toBe('trace-main-001')
+    })
+  })
 })

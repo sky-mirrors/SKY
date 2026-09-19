@@ -305,7 +305,8 @@ export async function callToolDirectWithTier(
           messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
           maxTokens: Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
           signal: controller.signal,
-          routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, ...(traceId ? { traceId } : {}) }
+          // G-2：tierConfig.temperature 首次真实送达模型（原从未进请求体）
+          routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
         })
         clearTimeout(timeoutId)
         return resp.content || '(LLM无输出)'

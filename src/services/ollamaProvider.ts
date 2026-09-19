@@ -53,10 +53,15 @@ export async function ollamaChat(
   model: string,
   messages: Array<{ role: string; content: string }>,
   maxTokens?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  temperature?: number
 ): Promise<{ content: string; usage: OllamaUsage }> {
   const body: Record<string, unknown> = { model, messages, stream: false }
-  if (maxTokens) body.options = { num_predict: maxTokens }
+  // G-2：temperature 可选透传——未传时请求体与现状逐字节等价（冷启动等价现状）
+  const options: Record<string, number> = {}
+  if (maxTokens) options.num_predict = maxTokens
+  if (temperature !== undefined) options.temperature = temperature
+  if (Object.keys(options).length > 0) body.options = options
   const resp = await fetch(joinUrl(baseUrl, '/api/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,10 +94,15 @@ export async function ollamaChatStream(
   messages: Array<{ role: string; content: string }>,
   onDelta: (delta: StreamDelta) => void,
   maxTokens?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  temperature?: number
 ): Promise<void> {
   const body: Record<string, unknown> = { model, messages, stream: true }
-  if (maxTokens) body.options = { num_predict: maxTokens }
+  // G-2：同 ollamaChat——temperature 可选透传，未传时请求体与现状等价
+  const options: Record<string, number> = {}
+  if (maxTokens) options.num_predict = maxTokens
+  if (temperature !== undefined) options.temperature = temperature
+  if (Object.keys(options).length > 0) body.options = options
   const resp = await fetch(joinUrl(baseUrl, '/api/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

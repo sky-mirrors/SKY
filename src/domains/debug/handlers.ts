@@ -36,10 +36,11 @@ export function registerDebugHandlers(bus: HoloEventBus) {
 
   // P1-40：record-cost 经 emit() 发布 → 必须 on() 桥接（带 tier/category/traceId/local 落记账）
   // M17/M20：local=true 为本地 Ollama 调用，费用记 0
-  const recordCostHandler = (payload: { promptTokens: number; completionTokens: number; totalTokens: number; category?: string; tier?: string; traceId?: string; local?: boolean }) => {
+  // G-5：cacheHitTokens 透传真实值（原链路硬编码 0）
+  const recordCostHandler = (payload: { promptTokens: number; completionTokens: number; totalTokens: number; category?: string; tier?: string; traceId?: string; local?: boolean; cacheHitTokens?: number }) => {
     if (!payload || typeof payload.promptTokens !== 'number') return
     const store = useDebugStore()
-    store.recordTokenUsage(payload.promptTokens, payload.completionTokens, payload.totalTokens, payload.category, payload.tier, payload.traceId, payload.local)
+    store.recordTokenUsage(payload.promptTokens, payload.completionTokens, payload.totalTokens, payload.category, payload.tier, payload.traceId, payload.local, payload.cacheHitTokens)
   }
   bus.registerHandler('debug:record-cost', recordCostHandler)
   _disposeRecordCost?.()

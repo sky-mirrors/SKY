@@ -17,7 +17,10 @@ export const DEFAULT_ZOL_CONFIG: ZOLConfig = {
 export interface ZOLOutcome {
   decisionPoint: string
   selectedStrategy: string
-  outcome: 'success' | 'failure'
+  // G-4 拆分：'overkill' 是预算效率信号（执行成功但档位过高），不是执行失败。
+  // successRate 只统计 success/(success+failure)；overkillRate 单独计算，
+  // 阈值调整按 overkillRate 驱动——行为与原"overkill 伪造 failure"等价，语义诚实
+  outcome: 'success' | 'failure' | 'overkill'
   timestamp: number
   contextSnapshot: Record<string, number>
 }
@@ -26,6 +29,7 @@ export interface ZOLState<T extends Record<string, number>> {
   thresholds: T
   outcomeCount: number
   recentSuccessRate: number
+  overkillRate: number
 }
 
 export type ZOLAdjustFn<T extends Record<string, number>> = (
@@ -33,6 +37,7 @@ export type ZOLAdjustFn<T extends Record<string, number>> = (
   successRate: number,
   defaults: Readonly<T>,
   config: Readonly<ZOLConfig>,
+  overkillRate: number,
 ) => void
 
 export function clampThreshold(current: number, defaultVal: number, clampRange: number): number {
@@ -75,7 +80,7 @@ export class ZeroTokenLearner<T extends Record<string, number>> {
     return this.thresholds
   }
 
-  recordOutcome(strategy: string, outcome: 'success' | 'failure', contextSnapshot?: Record<string, number>): void {
+  recordOutcome(strategy: string, outcome: 'success' | 'failure' | 'overkill', contextSnapshot?: Record<string, number>): void {
     this.outcomes.push({
       decisionPoint: this.decisionPoint,
       selectedStrategy: strategy,
@@ -93,16 +98,19 @@ export class ZeroTokenLearner<T extends Record<string, number>> {
   }
 
   getState(): ZOLState<T> {
-    const recent = this.outcomes
-      .filter(o => o.decisionPoint === this.decisionPoint)
-      .slice(-this.config.adjustSampleSize)
-    const successRate = recent.length > 0
-      ? recent.filter(o => o.outcome === 'success').length / recent.length
+    const recent = this.recentOutcomes()
+    const rated = recent.filter(o => o.outcome === 'success' || o.outcome === 'failure')
+    const successRate = rated.length > 0
+      ? rated.filter(o => o.outcome === 'success').length / rated.length
       : 0.5
+    const overkillRate = recent.length > 0
+      ? recent.filter(o => o.outcome === 'overkill').length / recent.length
+      : 0
     return {
       thresholds: { ...this.thresholds },
       outcomeCount: this.outcomes.length,
       recentSuccessRate: successRate,
+      overkillRate,
     }
   }
 
@@ -116,14 +124,22 @@ export class ZeroTokenLearner<T extends Record<string, number>> {
     this.adjustThresholds()
   }
 
-  private adjustThresholds(): void {
-    const recent = this.outcomes
+  private recentOutcomes(): ZOLOutcome[] {
+    return this.outcomes
       .filter(o => o.decisionPoint === this.decisionPoint)
       .slice(-this.config.adjustSampleSize)
+  }
+
+  private adjustThresholds(): void {
+    const recent = this.recentOutcomes()
     if (recent.length < this.config.adjustWindow) return
 
-    const successRate = recent.filter(o => o.outcome === 'success').length / recent.length
-    this.adjustFn(this.thresholds, successRate, this.defaultThresholds, this.config)
+    const rated = recent.filter(o => o.outcome === 'success' || o.outcome === 'failure')
+    const successRate = rated.length > 0
+      ? rated.filter(o => o.outcome === 'success').length / rated.length
+      : 0.5
+    const overkillRate = recent.filter(o => o.outcome === 'overkill').length / recent.length
+    this.adjustFn(this.thresholds, successRate, this.defaultThresholds, this.config, overkillRate)
     this.clampAllThresholds()
   }
 

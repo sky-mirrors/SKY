@@ -236,6 +236,87 @@ describe('zeroTokenLearning', () => {
         storageKey: STORAGE_KEY,
       })
       expect(learner.getState().recentSuccessRate).toBe(0.5)
+      expect(learner.getState().overkillRate).toBe(0)
+    })
+
+    describe('G-4 语义拆分：overkill 是预算信号非执行失败', () => {
+      it('overkill 不计入 successRate 分母（3 overkill + 1 success + 1 failure → 0.5 而非 0.2）', () => {
+        const learner = new ZeroTokenLearner<TestThresholds>({
+          decisionPoint: 'test',
+          defaultThresholds: DEFAULTS,
+          adjustFn: simpleAdjust,
+          storageKey: STORAGE_KEY,
+          config: { adjustSampleSize: 100 },
+        })
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'success')
+        learner.recordOutcome('a', 'failure')
+        const state = learner.getState()
+        expect(state.recentSuccessRate).toBeCloseTo(0.5, 5)
+        expect(state.overkillRate).toBeCloseTo(0.6, 5)
+      })
+
+      it('纯 overkill 历史的 successRate 走空集默认 0.5（执行本身全成功，不得记为 0）', () => {
+        const learner = new ZeroTokenLearner<TestThresholds>({
+          decisionPoint: 'test',
+          defaultThresholds: DEFAULTS,
+          adjustFn: simpleAdjust,
+          storageKey: STORAGE_KEY,
+          config: { adjustSampleSize: 100 },
+        })
+        for (let i = 0; i < 5; i++) learner.recordOutcome('a', 'overkill')
+        expect(learner.getState().recentSuccessRate).toBe(0.5)
+        expect(learner.getState().overkillRate).toBe(1.0)
+      })
+
+      it('adjustFn 收到 overkillRate（第 5 参），可按预算浪费率驱动阈值', () => {
+        const seen: { successRate: number; overkillRate: number }[] = []
+        const overkillAdjust: ZOLAdjustFn<TestThresholds> = (thresholds, _s, _d, _c, overkillRate) => {
+          seen.push({ successRate: _s, overkillRate })
+          if (overkillRate > 0.3) thresholds.threshold1 *= 1.05
+        }
+        const learner = new ZeroTokenLearner<TestThresholds>({
+          decisionPoint: 'test',
+          defaultThresholds: DEFAULTS,
+          adjustFn: overkillAdjust,
+          storageKey: STORAGE_KEY,
+          config: { adjustWindow: 4, adjustSampleSize: 10 },
+        })
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'success')
+        learner.recordOutcome('a', 'success')
+        expect(seen.length).toBe(1)
+        expect(seen[0].overkillRate).toBeCloseTo(0.5, 5)
+        expect(seen[0].successRate).toBe(1.0)
+        expect(learner.getThresholds().threshold1).toBeCloseTo(DEFAULTS.threshold1 * 1.05, 5)
+      })
+
+      it('overkill 经持久化往返保留语义（vault outcomes 含 overkill 条目）', () => {
+        const learner = new ZeroTokenLearner<TestThresholds>({
+          decisionPoint: 'test',
+          defaultThresholds: DEFAULTS,
+          adjustFn: simpleAdjust,
+          storageKey: STORAGE_KEY,
+          config: { adjustWindow: 2, adjustSampleSize: 5 },
+        })
+        learner.recordOutcome('a', 'overkill')
+        learner.recordOutcome('a', 'overkill')
+
+        vi.useFakeTimers()
+        learner.recordOutcome('a', 'overkill')
+        vi.advanceTimersByTime(2000)
+        vi.useRealTimers()
+
+        const stored = vault.readCache(VAULT_NS, STORAGE_KEY)
+        expect(stored).not.toBeNull()
+        if (stored) {
+          const parsed = JSON.parse(stored) as { outcomes: Array<{ outcome: string }> }
+          expect(parsed.outcomes.every(o => o.outcome === 'overkill')).toBe(true)
+        }
+      })
     })
   })
 

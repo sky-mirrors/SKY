@@ -5,6 +5,7 @@ import type { DetectedDomain } from '@/models'
 import { storeGet, storeSet } from '@/services/secureStore'
 import { debugLog } from '@/services/debugLog'
 import { checkBudget } from '@/services/tokenBudget'
+import { calculateCost } from '@/services/tokenPricing'
 import { estimateTokens } from '@/services/tokenEstimate'
 import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig } from '@/services/semanticCache'
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
@@ -378,6 +379,13 @@ export const useApiStore = defineStore('api', () => {
     return d === 'legal' || d === 'finance' || d === 'hr' ? d : 'general'
   }
 
+  // G-5：actualCost 按实际 usage 计价——原实现 7 处全传 budgetResult.estimatedCost，
+  // 账本记的是"预测"而非"实付"；本地 Ollama 调用与记账口径一致记 0
+  function actualCostOf(usage: { promptTokens: number; completionTokens: number; cacheHitTokens?: number }, local: boolean): number {
+    if (local) return 0
+    return calculateCost(usage.promptTokens, usage.completionTokens, usage.cacheHitTokens ?? 0).totalCost
+  }
+
   function recordOutcome(
     userContent: string,
     decision: RoutingDecision,
@@ -395,10 +403,11 @@ export const useApiStore = defineStore('api', () => {
         selectedTier: effectiveTier,
         actualTokens: actualCompletionTokens,
         actualCost,
-        qualityScore: overkill ? 5 : 3,
+        // G-4：显式占位 0=未评测（无真实质量信号可用）；原 overkill?5:3 系编造且倒挂
+        qualityScore: 0,
         overkill
       })
-      debugLog(`[chatCompletion:outcome] tier=${effectiveTier}, tokens=${actualCompletionTokens}, overkill=${overkill}`)
+      debugLog(`[chatCompletion:outcome] tier=${effectiveTier}, tokens=${actualCompletionTokens}, cost=${actualCost.toFixed(4)}, overkill=${overkill}`)
     } catch { /* non-critical */ }
   }
 
@@ -441,7 +450,7 @@ export const useApiStore = defineStore('api', () => {
     tools: ToolFunction[] | undefined,
     maxTokens: number | undefined,
     externalSignal: AbortSignal | undefined,
-    routingOptions: { taskType?: string; domain?: string; callerId?: string; traceId?: string } | undefined
+    routingOptions: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number } | undefined
   ): Promise<Awaited<ReturnType<typeof chatCompletion>> | null> {
     const reason = (originalErr instanceof Error ? originalErr.message : String(originalErr)).slice(0, 120)
     const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
@@ -472,7 +481,7 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string },
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number },
     degradeState?: DegradeState
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     // M20：降级态绕过远程就绪/熔断检查——能走到降级态说明远程已失败
@@ -500,7 +509,7 @@ export const useApiStore = defineStore('api', () => {
     const isBenchmarkTraffic = routingOptions?.taskType === 'benchmark'
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
     // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
-    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string, local?: boolean) => {
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens?: number }, tier?: string, category?: string, local?: boolean) => {
       if (isBenchmarkTraffic) return
       try {
         // #2 收尾：traceId 改经 routingOptions 参数传入（原模块级全局并发下串号）
@@ -509,6 +518,8 @@ export const useApiStore = defineStore('api', () => {
           promptTokens: usage.promptTokens,
           completionTokens: usage.completionTokens,
           totalTokens: usage.totalTokens,
+          // G-5：cacheHitTokens 透传真实值（原记账链路硬编码 0，缓存节省从未入账）
+          ...(usage.cacheHitTokens ? { cacheHitTokens: usage.cacheHitTokens } : {}),
           tier,
           category,
           ...(traceId ? { traceId } : {}),
@@ -588,7 +599,9 @@ export const useApiStore = defineStore('api', () => {
             ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {})
           })),
           tools,
-          maxTokens
+          maxTokens,
+          // G-2：temperature 随 IPC 透传（主进程侧入请求体；不传时行为不变）
+          ...(routingOptions?.temperature !== undefined ? { temperature: routingOptions.temperature } : {})
         }
         // B-07：IPC 无法携带 AbortSignal，原实现直接忽略 externalSignal——
         // 用 race 让调用方侧中止即时生效（主进程侧请求由其自身超时兜底）
@@ -631,7 +644,7 @@ export const useApiStore = defineStore('api', () => {
         }
         // #5：benchmark 流量不进 ZOL 路由学习（recordOutcome→routingHistory）
         if (!isBenchmarkTraffic) {
-          recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+          recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: ipcResult.usage?.promptTokens ?? 0, completionTokens: ipcResult.usage?.completionTokens ?? 0, cacheHitTokens: ipcResult.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
         }
         emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
         return ipcResult
@@ -694,6 +707,10 @@ export const useApiStore = defineStore('api', () => {
         }))
       }
     }
+    // G-2：temperature 经 routingOptions 可选透传——未传时请求体与现状等价
+    if (routingOptions?.temperature !== undefined) {
+      body.temperature = routingOptions.temperature
+    }
 
     try {
       const hasTools = !!body.tools
@@ -722,7 +739,7 @@ export const useApiStore = defineStore('api', () => {
           throw new Error('Ollama: 无可用模型（请先 pingProvider 拉取模型清单）')
         }
         const ollamaMessages = messages.map(m => ({ role: m.role, content: m.content || '' }))
-        const r = await ollamaChat(ollamaBase, ollamaModel, ollamaMessages, maxTokens, fetchSignal)
+        const r = await ollamaChat(ollamaBase, ollamaModel, ollamaMessages, maxTokens, fetchSignal, routingOptions?.temperature)
         recordSuccess()
         debugLog(`[chatCompletion:ollama] model=${ollamaModel}, usage: prompt=${r.usage.promptTokens}, completion=${r.usage.completionTokens}, total=${r.usage.totalTokens}`)
         const ollamaResult = { content: r.content, toolCalls: [], usage: r.usage }
@@ -742,7 +759,7 @@ export const useApiStore = defineStore('api', () => {
         }
         // #5：benchmark 流量不进 ZOL 路由学习
         if (!isBenchmarkTraffic) {
-          recordOutcome(userContent, decision, effectiveTier, r.usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+          recordOutcome(userContent, decision, effectiveTier, r.usage.completionTokens, actualCostOf(r.usage, true), routingOptions?.taskType)
         }
         // M17/M20：本地 Ollama 零费用记账
         emitRecordCost(r.usage, effectiveTier, 'llm', true)
@@ -785,7 +802,7 @@ export const useApiStore = defineStore('api', () => {
         }
         // #5：benchmark 流量不进 ZOL 路由学习
         if (!isBenchmarkTraffic) {
-          recordOutcome(userContent, decision, effectiveTier, ct, budgetResult.estimatedCost, routingOptions?.taskType)
+          recordOutcome(userContent, decision, effectiveTier, ct, actualCostOf({ promptTokens: pt, completionTokens: ct }, false), routingOptions?.taskType)
         }
         emitRecordCost({ promptTokens: pt, completionTokens: ct, totalTokens: pt + ct }, effectiveTier, 'llm')
         return anthropicResult
@@ -828,7 +845,7 @@ export const useApiStore = defineStore('api', () => {
       }
       // #5：benchmark 流量不进 ZOL 路由学习
       if (!isBenchmarkTraffic) {
-        recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, budgetResult.estimatedCost, routingOptions?.taskType)
+        recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, actualCostOf(usage, false), routingOptions?.taskType)
       }
       emitRecordCost(usage, effectiveTier, 'llm')
       return directResult
@@ -865,7 +882,7 @@ export const useApiStore = defineStore('api', () => {
     tools?: ToolFunction[],
     maxTokens?: number,
     externalSignal?: AbortSignal,
-    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string },
+    routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number },
     degradeState?: DegradeState
   ): Promise<{ cancel: () => void }> {
     // M20：远程未就绪 → 先试降级链（本地 Ollama 可能仍可用），链不可用再报错
@@ -928,13 +945,15 @@ export const useApiStore = defineStore('api', () => {
     // debugStore 记账/sessionSpent 消耗；此处与非流式路径同口径补齐
     // #5：benchmark 压测流量同样隔离，不进生产记账
     // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
-    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number }, tier?: string, category?: string, local?: boolean) => {
+    const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens?: number }, tier?: string, category?: string, local?: boolean) => {
       if (isBenchmarkTraffic) return
       try {
         globalBus.emit('debug:record-cost', {
           promptTokens: usage.promptTokens,
           completionTokens: usage.completionTokens,
           totalTokens: usage.totalTokens,
+          // G-5：cacheHitTokens 透传真实值（原记账链路硬编码 0）
+          ...(usage.cacheHitTokens ? { cacheHitTokens: usage.cacheHitTokens } : {}),
           tier,
           category,
           ...(routingOptions?.traceId ? { traceId: routingOptions.traceId } : {}),
@@ -958,7 +977,9 @@ export const useApiStore = defineStore('api', () => {
               ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {})
             })),
             tools,
-            maxTokens
+            maxTokens,
+            // G-2：temperature 随 IPC 透传（主进程侧入请求体；不传时行为不变）
+            ...(routingOptions?.temperature !== undefined ? { temperature: routingOptions.temperature } : {})
           },
           {
             onChunk: (chunk: StreamChunk) => {
@@ -967,11 +988,12 @@ export const useApiStore = defineStore('api', () => {
             onDone: (final) => {
               if (!combinedSignal.aborted) {
                 recordSuccess()
-                recordOutcome(userContent, decision, effectiveTier, final.usage?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+                recordOutcome(userContent, decision, effectiveTier, final.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: final.usage?.promptTokens ?? 0, completionTokens: final.usage?.completionTokens ?? 0, cacheHitTokens: final.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
                 emitRecordCost({
                   promptTokens: final.usage?.promptTokens ?? 0,
                   completionTokens: final.usage?.completionTokens ?? 0,
-                  totalTokens: final.usage?.totalTokens ?? (final.usage?.promptTokens ?? 0) + (final.usage?.completionTokens ?? 0)
+                  totalTokens: final.usage?.totalTokens ?? (final.usage?.promptTokens ?? 0) + (final.usage?.completionTokens ?? 0),
+                  cacheHitTokens: final.usage?.cacheHitTokens ?? 0
                 }, effectiveTier, 'llm')
                 callbacks.onDone(final)
               }
@@ -1035,6 +1057,10 @@ export const useApiStore = defineStore('api', () => {
         }))
       }
     }
+    // G-2：temperature 经 routingOptions 可选透传——未传时请求体与现状等价
+    if (routingOptions?.temperature !== undefined) {
+      body.temperature = routingOptions.temperature
+    }
 
     const maxTok = maxTokens || (body.max_tokens as number) || 16384
     const llmTierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
@@ -1085,7 +1111,7 @@ export const useApiStore = defineStore('api', () => {
           }
           // #5：benchmark 流量不进 ZOL 路由学习
           if (!isBenchmarkTraffic) {
-            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, actualCostOf({ promptTokens: usageInfo?.promptTokens ?? 0, completionTokens: usageInfo?.completionTokens ?? 0 }, true), routingOptions?.taskType)
           }
           emitRecordCost({
             promptTokens: usageInfo?.promptTokens ?? 0,
@@ -1094,7 +1120,7 @@ export const useApiStore = defineStore('api', () => {
           }, effectiveTier, 'llm', true)
           callbacks.onDone({ content: accumulated, toolCalls: [], usage: usageInfo })
         }
-      }, maxTokens, fetchSignal)
+      }, maxTokens, fetchSignal, routingOptions?.temperature)
     }
 
     ;(async () => {
@@ -1185,11 +1211,12 @@ export const useApiStore = defineStore('api', () => {
                 }).catch(() => {})
               }
             }
-            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, budgetResult.estimatedCost, routingOptions?.taskType)
+            recordOutcome(userContent, decision, effectiveTier, usageInfo?.completionTokens ?? 0, actualCostOf({ promptTokens: usageInfo?.promptTokens ?? 0, completionTokens: usageInfo?.completionTokens ?? 0, cacheHitTokens: usageInfo?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
             emitRecordCost({
               promptTokens: usageInfo?.promptTokens ?? 0,
               completionTokens: usageInfo?.completionTokens ?? 0,
-              totalTokens: usageInfo?.totalTokens ?? (usageInfo?.promptTokens ?? 0) + (usageInfo?.completionTokens ?? 0)
+              totalTokens: usageInfo?.totalTokens ?? (usageInfo?.promptTokens ?? 0) + (usageInfo?.completionTokens ?? 0),
+              cacheHitTokens: usageInfo?.cacheHitTokens ?? 0
             }, effectiveTier, 'llm')
             callbacks.onDone({ content: accumulatedContent, toolCalls, usage: usageInfo })
           }

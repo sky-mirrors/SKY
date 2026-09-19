@@ -171,4 +171,49 @@ describe('M17 ollamaProvider', () => {
     await expect(ollamaChatStream(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], () => {}))
       .rejects.toThrow('Ollama API error 500')
   })
+
+  it('G-2: ollamaChat temperature 传入 → body.options.temperature；未传 → 请求体无 temperature', async () => {
+    const mock = globalThis.fetch as ReturnType<typeof vi.fn>
+    mock.mockResolvedValueOnce(new Response(
+      JSON.stringify({ message: { role: 'assistant', content: 'ok' }, prompt_eval_count: 1, eval_count: 2, done: true }),
+      { status: 200 }
+    )).mockResolvedValueOnce(new Response(
+      JSON.stringify({ message: { role: 'assistant', content: 'ok' }, prompt_eval_count: 1, eval_count: 2, done: true }),
+      { status: 200 }
+    ))
+    await ollamaChat(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], 512, undefined, 0.3)
+    let body = JSON.parse(String((mock.mock.calls[0] as [string, RequestInit])[1].body))
+    expect(body.options.temperature).toBe(0.3)
+    expect(body.options.num_predict).toBe(512)
+
+    await ollamaChat(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], 512)
+    body = JSON.parse(String((mock.mock.calls[1] as [string, RequestInit])[1].body))
+    expect(body.options.temperature).toBeUndefined()
+  })
+
+  it('G-2: ollamaChatStream temperature 传入 → body.options.temperature；未传 → 请求体无 temperature', async () => {
+    const mock = globalThis.fetch as ReturnType<typeof vi.fn>
+    const ndjson = '{"message":{"content":"x"},"done":false}\n{"message":{"content":""},"done":true,"prompt_eval_count":1,"eval_count":2}\n'
+    mock.mockResolvedValueOnce(new Response(streamFromChunks([ndjson]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(streamFromChunks([ndjson]), { status: 200 }))
+    await ollamaChatStream(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], () => {}, 512, undefined, 0.7)
+    let body = JSON.parse(String((mock.mock.calls[0] as [string, RequestInit])[1].body))
+    expect(body.options.temperature).toBe(0.7)
+    expect(body.options.num_predict).toBe(512)
+
+    await ollamaChatStream(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], () => {}, 512)
+    body = JSON.parse(String((mock.mock.calls[1] as [string, RequestInit])[1].body))
+    expect(body.options.temperature).toBeUndefined()
+  })
+
+  it('G-2: ollamaChat 只传 temperature 不传 maxTokens → options 仅含 temperature', async () => {
+    const mock = globalThis.fetch as ReturnType<typeof vi.fn>
+    mock.mockResolvedValue(new Response(
+      JSON.stringify({ message: { role: 'assistant', content: 'ok' }, prompt_eval_count: 1, eval_count: 2, done: true }),
+      { status: 200 }
+    ))
+    await ollamaChat(OLLAMA_DEFAULT_BASE, 'llama3.2', [{ role: 'user', content: 'hi' }], undefined, undefined, 0.1)
+    const body = JSON.parse(String((mock.mock.calls[0] as [string, RequestInit])[1].body))
+    expect(body.options).toEqual({ temperature: 0.1 })
+  })
 })

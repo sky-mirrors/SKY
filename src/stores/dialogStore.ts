@@ -2033,7 +2033,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
         let result: { content: string; toolCalls: { id: string; name: string; arguments: string }[] }
         try {
-          result = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: activeTools.length > 0 ? activeTools : undefined })
+          // G-8：主路径记账归因——traceId 经 routingOptions 贯穿 record-cost（仅 traceId，路由行为不变）
+          result = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: activeTools.length > 0 ? activeTools : undefined, routingOptions: { traceId: activeTraceId.value || undefined } })
         } catch (callErr) {
           const e = String(callErr)
           addSystemNotice(`❌ 请求失败（${classifyError(e)}）`)
@@ -2274,7 +2275,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         })
 
         try {
-          const supplementResult = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: allMcpTools.length > 0 ? allMcpTools : undefined })
+          const supplementResult = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: allMcpTools.length > 0 ? allMcpTools : undefined, routingOptions: { traceId: activeTraceId.value || undefined } })
           if (supplementResult.toolCalls.length > 0) {
             const supplementMsg: ChatMessage = {
               role: 'assistant',
@@ -2316,7 +2317,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       if (!finalContent) {
         chatHistory.push({ role: 'user', content: '请根据以上工具调用的实际结果，给用户一个完整的、基于真实数据的总结回复。必须引用工具返回的具体内容，不要编造。不要再调用工具。' })
         try {
-          const summaryResult = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: undefined })
+          const summaryResult = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: undefined, routingOptions: { traceId: activeTraceId.value || undefined } })
           finalContent = summaryResult.content || '(模型未返回总结)'
         } catch {
           finalContent = '(模型总结请求失败，但工具已执行完毕)'

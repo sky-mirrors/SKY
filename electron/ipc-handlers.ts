@@ -930,8 +930,9 @@ export function setupIpc(_win: BrowserWindow | null) {
     messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
     tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
     maxTokens?: number
+    temperature?: number
   }) => {
-    const { providerId, model, messages, tools, maxTokens } = opts
+    const { providerId, model, messages, tools, maxTokens, temperature } = opts
     if (!providerId || !model || !messages) {
       return { success: false, error: 'Missing providerId, model, or messages' }
     }
@@ -1005,6 +1006,10 @@ export function setupIpc(_win: BrowserWindow | null) {
             function: { name: t.name, description: t.description, parameters: t.parameters }
           }))
         }
+      }
+      // G-2：temperature 可选透传进请求体（渲染进程 routingOptions.temperature → IPC）
+      if (temperature !== undefined) {
+        body.temperature = temperature
       }
       const maxTok = maxTokens || 16384
       const tierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
@@ -1323,8 +1328,9 @@ ipcMain.on('llm:stream:start', async (event, opts: {
   messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
   tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
   maxTokens?: number
+  temperature?: number
 }) => {
-  const { streamId, providerId, model, messages, tools, maxTokens } = opts
+  const { streamId, providerId, model, messages, tools, maxTokens, temperature } = opts
   const abortCtrl = new AbortController()
   activeStreamControllers.set(streamId, abortCtrl)
 
@@ -1422,6 +1428,10 @@ ipcMain.on('llm:stream:start', async (event, opts: {
           function: { name: t.name, description: t.description, parameters: t.parameters }
         }))
       }
+    }
+    // G-2：temperature 可选透传进请求体（渲染进程 routingOptions.temperature → IPC）
+    if (temperature !== undefined) {
+      body.temperature = temperature
     }
 
     const maxTok = maxTokens || 16384

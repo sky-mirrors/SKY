@@ -177,6 +177,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
     tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
     maxTokens?: number
+    temperature?: number
   }) =>
     ipcRenderer.invoke('llm:chatCompletion', opts),
 
@@ -187,6 +188,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       messages: Array<{ role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>; tool_call_id?: string }>
       tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
       maxTokens?: number
+      temperature?: number
     },
     callbacks: {
       onChunk: (chunk: { content: string; delta: string; done: boolean }) => void

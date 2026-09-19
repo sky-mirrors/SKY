@@ -4,6 +4,7 @@
 > **作者**:sky-mirrors | **许可**:Apache-2.0 | **平台**:Windows(Electron 桌面应用)
 > **报告基线**:293 个源码/配置/文档文件,合计 70,863 行(其中 `src/` 41,011 行),统计不含 node_modules/dist/out/coverage/.git/.idea、package-lock.json 与二进制图标。
 > **阅读方法**:架构关键路径(electron/、kernel/、domains/、入口文件、data/topology、benchmark)由本报告逐一精读原文;services(41 文件)、stores(15)+composables(2)、components(31+App.vue)、test(86 文件)与 config/l2_manifests(20)通过并行子任务全量阅读后汇总,关键数字均回溯源码核实。完整覆盖表见附录 B。
+> **姊妹文档**:[REQUEST-LIFECYCLE.md](./REQUEST-LIFECYCLE.md) —— 请求视角的细粒度机制旅程(含全部阈值与置信度公式)
 
 ---
 

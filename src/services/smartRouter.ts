@@ -109,21 +109,25 @@ const ROUTING_HISTORY_KEY = 'holo-routing-history'
 
 const routingAdjustFn: ZOLAdjustFn<FlatRoutingThresholds> = (
   thresholds,
-  successRate,
+  _successRate,
   _defaults,
   config,
+  overkillRate,
 ) => {
+  // G-4 拆分：档位阈值按预算浪费率（overkillRate）驱动，不再把成功执行伪造成
+  // failure。触发点与原"successRate<0.7 收紧 / >0.95 放松"完全等价
+  //（overkillRate>0.3 ⇔ successRate<0.7；overkillRate<0.05 ⇔ successRate>0.95）
   const step = config.adjustStep
-  if (successRate < 0.7) {
+  if (overkillRate > 0.3) {
     for (const key of Object.keys(thresholds) as (keyof FlatRoutingThresholds)[]) {
       thresholds[key] *= (1 + step)
     }
-    debugLog(`[smartRouter] ZOL: successRate=${(successRate * 100).toFixed(0)}% < 70%, tightening thresholds (too many overkills)`)
-  } else if (successRate > 0.95) {
+    debugLog(`[smartRouter] ZOL: overkillRate=${(overkillRate * 100).toFixed(0)}% > 30%, tightening thresholds (too many overkills)`)
+  } else if (overkillRate < 0.05) {
     for (const key of Object.keys(thresholds) as (keyof FlatRoutingThresholds)[]) {
       thresholds[key] *= (1 - step)
     }
-    debugLog(`[smartRouter] ZOL: successRate=${(successRate * 100).toFixed(0)}% > 95%, loosening thresholds (few overkills, improve quality)`)
+    debugLog(`[smartRouter] ZOL: overkillRate=${(overkillRate * 100).toFixed(0)}% < 5%, loosening thresholds (few overkills, improve quality)`)
   }
 }
 
@@ -269,7 +273,8 @@ export function recordRoutingOutcome(entry: Omit<RoutingHistoryEntry, 'id' | 'ti
   }
   routingLearner.recordOutcome(
     entry.selectedTier,
-    entry.overkill ? 'failure' : 'success',
+    // G-4：预算浪费与执行成败拆分——overkill 不再伪造 failure 污染成功率口径
+    entry.overkill ? 'overkill' : 'success',
     { actualTokens: entry.actualTokens, overkill: entry.overkill ? 1 : 0, qualityScore: entry.qualityScore }
   )
   scheduleSave()
