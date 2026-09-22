@@ -258,7 +258,7 @@ export async function callToolDirectWithTier(
       const header = result.isBinary ? '' : `[文件: ${path}, 大小: ${result.size}字节]\n`
       return header + result.content
     }
-    throw new Error(result.error || 'read_file failed')
+    throw new Error(`${result.error || 'read_file failed'}（路径：${path}）`)
   }
 
   if (fullName === 'http_request') {
