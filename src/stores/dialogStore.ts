@@ -1649,7 +1649,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             needs: ['探索模式'],
             steps: explorePlan.steps.map(s => ({
               step: s.step, description: s.description, tool: s.tool,
-              depends_on: [], params: s.params, expectedOutput: s.expectedOutput
+              depends_on: s.depends_on ?? [], params: s.params, expectedOutput: s.expectedOutput
             }))
           }
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })

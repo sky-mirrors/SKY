@@ -13,7 +13,7 @@ interface L0SkillRule {
 
 interface L0DirectPlan {
   intent: string
-  steps: { step: number; description: string; tool: string; params: Record<string, string>; expectedOutput: string }[]
+  steps: { step: number; description: string; tool: string; params: Record<string, string>; expectedOutput: string; depends_on?: number[] }[]
   isExploration: boolean
 }
 
@@ -522,6 +522,27 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
   return { canHandle: false, nodeId: '', nodeName: '', confidence: 0, plan: null }
 }
 
+/**
+ * N2：从「文件相关但无显式路径」的输入里提取要列出的目录（验收考试 Q14/Q16 修复）。
+ * - 提到「X 文件夹」/「文件夹 X」→ %USERPROFILE%\Desktop\X
+ * - 提到「桌面」→ %USERPROFILE%\Desktop
+ * 仅在同时含「文件意图 + 检索意图」时返回，避免劫持普通请求（润色/算术等）。
+ */
+function extractMentionedDir(input: string): string | null {
+  const FILE_INTENT = /(桌面|文件夹|目录|docx|word|pdf|txt|xlsx|文件)/i
+  const FIND_INTENT = /(列出|列举|清单|有哪些|找一下|查找|找出|查一下|看一下|看看|读取|打开|里的|里面的)/
+  if (!FILE_INTENT.test(input) || !FIND_INTENT.test(input)) return null
+
+  const DESKTOP = '%USERPROFILE%\\Desktop'
+  const folderMatch = input.match(/([A-Za-z0-9_\u4e00-\u9fff]{2,30})\s*文件夹/)
+    || input.match(/文件夹\s*([A-Za-z0-9_\u4e00-\u9fff]{2,30})/)
+  if (folderMatch) {
+    const name = folderMatch[1].replace(/[（(].*$/, '').trim()
+    if (name && name !== '桌面') return `${DESKTOP}\\${name}`
+  }
+  return DESKTOP
+}
+
 export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
   const filePath = extractFilePath(input)
   const targetFormat = extractTargetFormat(input)
@@ -532,6 +553,22 @@ export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
     if (skillPlan) {
       debugLog(`[Explore] 文件操作探索模式：${skillPlan.intent}`)
       return skillPlan
+    }
+  }
+
+  // N2：文件相关但无显式路径（如「列桌面 .docx 清单」「在 HoloExam 文件夹里找张三的报销单」）
+  // → 由框架**确定性**列目录，把真实清单喂给 LLM。此前这类输入落到下面的通用单步 llm_generate，
+  // 计划里没有任何文件步骤，框架把「调不调工具」交给 3b 小模型、而它用散文回「我无法访问你的文件」。
+  const mentionedDir = extractMentionedDir(input)
+  if (mentionedDir) {
+    debugLog(`[Explore] 文件检索探索模式：列目录 ${mentionedDir}`)
+    return {
+      intent: `列出目录并回答：${input.substring(0, 50)}`,
+      steps: [
+        { step: 1, description: `列出目录内容：${mentionedDir}`, tool: 'list_directory', params: { path: mentionedDir }, expectedOutput: '目录中的文件清单' },
+        { step: 2, description: '依据真实清单回答用户', tool: 'llm_generate', params: { prompt: `用户请求：${input}\n\n目录 ${mentionedDir} 的实际内容清单：\n{{step_1_result}}\n\n请严格基于以上真实清单回答用户请求。` }, expectedOutput: '回答结果', depends_on: [1] }
+      ],
+      isExploration: true
     }
   }
 
