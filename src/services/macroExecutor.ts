@@ -463,6 +463,42 @@ export function pickTopFileFromListing(stepResult: string, userText: string): st
   return bestScore >= 2 ? best : names[0]
 }
 
+/**
+ * 在「模型驱动循环」里替换工具参数中的步骤占位符。
+ * 背景：探索计划（`l0SkillRouter.buildExplorePlan`）不在 macroExecutor 里执行——`confirmPlan` 的
+ * Direct/Macro 捷径均以 `macroManifest` 为前提，而探索路径在 `dialogStore.ts:1655` 把
+ * `pendingMacroManifestId` 置 null，故落到 dialogStore 的模型驱动循环；该循环把计划文本交给模型、
+ * 由模型给出 tool_call 参数，**从不解析 `{{step_N_*}}`** ⇒ 3b 模型照抄字面量 `{{step_1_top_files}}`
+ * 当作 path（实测 `文件不存在（路径：{{step_1_top_files}}）`）。
+ */
+export function substitutePlaceholdersInArgs(
+  args: Record<string, unknown>,
+  stepResults: Record<number, string>,
+  planSteps: L2DagStep[],
+  userText = ''
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v !== 'string' || !v.includes('{{step_')) {
+      resolved[k] = v
+      continue
+    }
+    resolved[k] = v.replace(/\{\{step_(\d+)_(result|top_files)\}\}/g, (whole, n: string, kind: string) => {
+      const num = Number(n)
+      const res = stepResults[num]
+      if (!res) return whole
+      if (kind === 'result') return res.substring(0, 8000)
+      const topName = pickTopFileFromListing(res, userText)
+      if (!topName) return whole
+      const src = planSteps.find(s => s.step === num)
+      const rawDir = src && typeof src.params.path === 'string' ? src.params.path : ''
+      const dir = rawDir.replace(/\{\{[^}]+\}\}/g, '')
+      return dir ? `${dir}\\${topName}` : topName
+    })
+  }
+  return resolved
+}
+
 export function resolveParams(
   step: L2DagStep,
   manifest: L2ToolManifest,

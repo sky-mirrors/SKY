@@ -5,7 +5,7 @@ import type { DecisionContext, RewriteStrategy, DisambigStrategy, DetectedDomain
 import { globalBus } from '@/kernel/bus'
 import { searchKnowledge, SearchScope } from '@/services/knowledgeBase'
 import { planTask, reflectOnResult, saveTaskCase, replan, disambiguateChoice, translateIntent } from '@/services/promptTranslator'
-import { executeMacro, resolveDirectPrompt, formatLineage, computeLineageSavings } from '@/services/macroExecutor'
+import { executeMacro, resolveDirectPrompt, formatLineage, computeLineageSavings, substitutePlaceholdersInArgs } from '@/services/macroExecutor'
 import type { MacroLineage } from '@/services/macroExecutor'
 import { beautify } from '@/services/resultBeautifier'
 import { contentHash, truncateForLog } from '@/services/scheduleOptimizer'
@@ -2244,6 +2244,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             try {
               let args: Record<string, unknown> = {}
               try { args = JSON.parse(tc.arguments) } catch { args = {} }
+              // 模型驱动循环不经 resolveParams——在此补齐 {{step_N_*}} 替换，
+              // 否则 3b 会把计划文本里的字面量占位符照抄成工具参数（Q16 实测）
+              args = substitutePlaceholdersInArgs(args, completedStepResults, currentPlanSteps, content)
               toolResult = await executeToolCall(tc.name, args)
 
               if (toolResult.includes('Error') || toolResult.includes('失败') || toolResult.includes('error')) {
