@@ -67,6 +67,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileRead: (filePath: string, maxBytes?: number) =>
     ipcRenderer.invoke('file:read', filePath, maxBytes),
 
+  fileList: (dirPath: string) =>
+    ipcRenderer.invoke('file:list', dirPath),
+
   fileWrite: (opts: { filePath: string; content: string; encoding?: string }) =>
     ipcRenderer.invoke('file:write', opts),
 

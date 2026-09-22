@@ -363,14 +363,21 @@ export async function callToolDirectWithTier(
   }
 
   if (fullName === 'list_directory') {
-    // P1-17：directory_tree/list_directory 此前无原生实现，翻译器种子与官方清单
-    // （l2-weekly-report-draft-v1 步骤1）一经规划必抛"无效工具名"。
-    // 主进程 shell 白名单含 dir/ls，借此实现只读列举；敏感路径走双引擎的判定口径。
-    if (!window.electronAPI?.shellExec) throw new Error('list_directory not available')
+    // P1-17：directory_tree/list_directory 此前无原生实现。Q16 定案：shell 版（dir /b）在本环境
+    // 拿不到输出 →「成功但结果为空」→ {{step_N_top_files}} 无值。故优先走 fs 直读 IPC file:list。
     const dirPath = await resolveFilePath(String(args.path || args.dirPath || ''))
     if (!dirPath) throw new Error('list_directory: missing path')
     const { isPathUnsafe } = await import('./dualEngineValidator')
     if (isPathUnsafe(dirPath)) throw new Error(`list_directory: 拒绝敏感路径 ${dirPath}`)
+    const api = window.electronAPI as unknown as {
+      fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; error?: string }>
+    }
+    if (api?.fileList) {
+      const r = await api.fileList(dirPath)
+      if (!r?.success) throw new Error(`list_directory failed: ${r?.error || 'unknown'}`)
+      return (r.entries && r.entries.length > 0) ? r.entries.join('\n') : '(空目录)'
+    }
+    if (!window.electronAPI?.shellExec) throw new Error('list_directory not available')
     const safePath = dirPath.replace(/["%&|<>^]/g, '')
     const listCmd = isWin ? `dir /b "${safePath}"` : `ls -1 "${safePath}"`
     const result = await window.electronAPI.shellExec({ command: listCmd, timeout: timeoutMs || 10000 })
@@ -432,7 +439,7 @@ export function pickTopFileFromListing(stepResult: string, userText: string): st
   const names = stepResult
     .split(/\r?\n/)
     .map(s => s.trim().replace(/^[-*•]\s*/, ''))
-    .filter(s => s.length > 0 && !s.startsWith('(') && !s.startsWith('【'))
+    .filter(s => s.length > 0 && !s.startsWith('(') && !s.startsWith('【') && !/[\\/]$/.test(s))
   if (names.length === 0) return ''
 
   const longestCommon = (a: string, b: string): number => {

@@ -405,6 +405,24 @@ export function setupIpc(_win: BrowserWindow | null) {
     }
   })
 
+  // 读目录：fs 直读取代 shell 版——shellExec 跑 `dir /b` 在本环境拿不到输出，
+  // 导致 macroExecutor 的 list_directory「成功但结果为空」→ {{step_N_top_files}} 无值 → Q16 读取失败。
+  ipcMain.handle('file:list', (_event, dirPath: string) => {
+    try {
+      const pathCheck = validateReadPath(dirPath)
+      if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+      const validatedPath = pathCheck.resolved
+      if (!validatedPath || !existsSync(validatedPath)) return { success: false, error: '目录不存在' }
+      if (!statSync(validatedPath).isDirectory()) return { success: false, error: '不是目录' }
+      const entries = readdirSync(validatedPath, { withFileTypes: true })
+        .map(e => (e.isDirectory() ? `${e.name}/` : e.name))
+        .sort()
+      return { success: true, entries }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   ipcMain.handle('file:read', async (_event, filePath: string, maxBytes?: number) => {
     const pathCheck = validateReadPath(filePath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }

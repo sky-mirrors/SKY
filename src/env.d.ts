@@ -26,6 +26,7 @@ interface ElectronAPI {
   vectorListKeys: () => Promise<string[]>
   vectorDeleteBin: (key: string) => Promise<boolean>
   fileRead: (filePath: string, maxBytes?: number) => Promise<{ success: boolean; content?: string; error?: string; size?: number; isBinary?: boolean; encoding?: string }>
+  fileList: (dirPath: string) => Promise<{ success: boolean; entries?: string[]; error?: string }>
   httpFetch: (opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number }) => Promise<{ success: boolean; status: number; headers?: Record<string, string>; body?: string; error?: string }>
   backupCreate: () => Promise<{ success: boolean; path?: string; error?: string }>
   backupRestore: () => Promise<{ success: boolean; message?: string; error?: string }>
