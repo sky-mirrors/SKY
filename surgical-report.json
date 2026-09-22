@@ -1,0 +1,38 @@
+{
+  "spec": "ACCEPTANCE-SPEC v1.0 手术题（G-16 专测）",
+  "executedAt": "2026-09-20T16:33~17:58",
+  "provenance": "数据取自 vault session/holo-sessions（每会话内嵌消息数组，完整可靠）；dialog/holo-dialog-messages 键因 last-write-wins 覆盖不可靠（见新发现 F-2）",
+  "verdict": {
+    "g16": "坐实（三项全灭）",
+    "repeatTask": "坐实跨会话零学习：会议纪要任务第 3~5 次执行（考试Q1 → S1 → S2×2），RaaP 匹配/DAG 计划/自动确认/步骤1失败（文件不存在）一字不差，干预数 1→1 不降",
+    "preference": "坐实死存储：偏好「输出要简洁」已写入 globalMemory（16:46:46 持久化成功，写路径正常），但周报任务的路由/计划/输出与偏好零关联——globalMemory 从未注入任何上下文（与静态审查 memoryStore.ts:312-330 精确互证）"
+  },
+  "cases": [
+    {
+      "id": "S1", "type": "重复任务·第1场", "session": "session-1789893195591-n6y1", "sentAt": "16:33:22",
+      "task": "帮我把这段话整理成一段简短的会议纪要：…（内嵌材料）",
+      "route": "RaaP:会议纪要生成（LLM仲裁）", "interventions": 1, "outcome": "步骤1 read_file 失败：文件不存在；无回复",
+      "note": "同场事故：用户发送后切换会话，路由/DAG 反馈弹入会话 32hw，且同一条消息被执行两次（两笔相同哈希仲裁调用 16:33:28/29）；确认/步骤/失败行留在本会话——消息碎片散落两会话"
+    },
+    {
+      "id": "S2", "type": "重复任务·第2场", "session": "session-1789893903562-uwxm + session-1789894015999-qqtb", "sentAt": "16:45:22 / 16:46:58",
+      "task": "与 S1 同文（半角冒号差异）",
+      "route": "RaaP:会议纪要生成（LLM仲裁）×2", "interventions": 1, "outcome": "两次均步骤1失败：文件不存在；无回复",
+      "note": "与 S1 完全同构：零学习、零干预下降；qqtb 场的失败行未持久化（疑似持久化时序缺陷，与 F-2 同族）"
+    },
+    {
+      "id": "S3", "type": "偏好题", "session": "session-1789898246447-t9iw", "sentAt": "17:57:41",
+      "task": "面板偏好「输出要简洁」→ 本周工作周报（内嵌要点）",
+      "route": "RaaP:周报自动草稿（LLM仲裁）", "interventions": 1, "outcome": "步骤1 list_directory 失败：找不到文件（GBK 乱码）；无回复",
+      "note": "偏好写路径正常（globalMemory.preferences 已持久化）但零注入零行为改变；用户内嵌要点同样未进计划（技能硬编码『列目录找文档』前置）；首次尝试（16:47 前后）疑似被卡住的宏阻塞，消息未发出且无任何痕迹"
+    }
+  ],
+  "newFindings": [
+    { "id": "F-1", "severity": "P0", "title": "对话消息无会话归属", "evidence": "消息 schema 无 sessionId；跨会话弹窗（S1 反馈弹入 32hw）；同一发送被执行两次（16:33:28/29 双仲裁调用）；消息碎片散落两会话", "impact": "用户视角『会话』不可信，且产生双倍 LLM 成本" },
+    { "id": "F-2", "severity": "P1", "title": "会话持久化双写不一致", "evidence": "dialog/holo-dialog-messages（1437B，仅含最后活跃会话）被 last-write-wins 覆盖；真身为 session/holo-sessions 内嵌数组（66KB）；两处数据随时间发散", "impact": "单一事实源缺失，依赖 dialog 键的任何消费方读到残缺数据" },
+    { "id": "F-3", "severity": "P2", "title": "shell 错误消息 GBK 乱码", "evidence": "S3 步骤1失败消息显示为 GBK 字节流（找不到文件）", "impact": "失败原因对用户不可读，排障成本高" },
+    { "id": "F-4", "severity": "P1", "title": "自动确认伪装成用户确认", "evidence": "『✅ 用户确认，直接执行原生工具』在用户不在场/未点击时出现（S1 用户当时在另一会话；S3 3 秒内自动确认）", "impact": "承诺显式兑现原则被隐性违反；考试零干预率口径失真（11 题 pause 全部为自动确认）" },
+    { "id": "F-5", "severity": "观察级", "title": "宏执行疑似阻塞新输入", "evidence": "S3 首次尝试（qqtb 宏卡在步骤1期间）消息未发出且无任何持久化痕迹", "impact": "待复现坐实；若坐实属交互级死锁" }
+  ],
+  "g16Conclusion": "G-16 协作记忆循环断线：坐实，P0 维持。修复排序建议：globalMemory 注入上下文组装为小改动先行；会话内协作约定的隐式蒸馏（从反馈/纠正/复用行为学，与 EMA 同构）为后续机制活。注意：F-1/F-2 会话隔离缺陷不修，记忆修复了也无处安放——建议 F-1 与 G-16 注入同批处理。"
+}

@@ -1,0 +1,39 @@
+{
+  "spec": "ACCEPTANCE-SPEC v1.0 手术题（A3 修复后复考）",
+  "executedAt": "2026-09-21T13:12~13:20",
+  "provenance": "数据取自 vault session/holo-sessions + memory/holo-session + budget/holo-cost-records（ELECTRON_RUN_AS_NODE 只读探针）；考试成绩单见 ../exam-report.json（2026-09-21 导出，已覆盖首考版，首考关键指标存档于 docs/LIFECYCLE-GAPS.md 验收考试节）",
+  "verdict": {
+    "preference": "PASS（P0-C5 偏好注入实证生效）：偏好「输出要简洁」下周报题回复 106 token 三段干净收尾、零虚构；对照组为复考 Q2（G-17 隔离不注入）同题材 670 token 且凭空编造「风险与问题」节。13s 真实调用（非缓存），nano in=62 与注入前缀吻合",
+    "sessionAttribution": "PASS（F-1/P0-C 会话归属实证生效）：远程办公短文长任务发送后立刻新建会话切换，响应 13:17:16 完整落入原会话（session-1789898246447-t9iw，246→260 条），新会话（session-1789967820277-8a2t）0 条零污染；appendSessionMessage 持久化在生产路径验证通过",
+    "repeatTask": "结果符合 G-16 修复范围声明（仅显式偏好注入，隐式蒸馏未实现）：同一会议纪要任务连发两次，第一次 15s 真实生成（in=127 out=103），第二次 2s 秒回且记账 in=0 out=0 = 语义缓存命中（正常流量指纹未隔离，P1-33 设计决策），响应为缓存副本逐字相同——加速来自缓存机制而非学习，无质量改善"
+  },
+  "cases": [
+    {
+      "id": "R1", "type": "偏好题（P0-C5）", "session": "session-1789898246447-t9iw", "sentAt": "13:12:33",
+      "task": "周报题（全新内容避免缓存命中）：完成了搜索功能开发；修复了1个线上bug；下周计划做移动端性能优化",
+      "route": "plan（六层漏斗）", "outcome": "13s 回复 106 token 简洁周报，无虚构章节",
+      "control": "复考 Q2 同题材（exam 流量 G-17 隔离不注入）：670 token 冗长周报 + 凭空编造支付接口风险节",
+      "note": "注入为 system 前缀，vault 无 prompt 落盘，判定依据为行为学对照 + 单测（apiStore.spec P0-C5 describe）覆盖注入逻辑本身"
+    },
+    {
+      "id": "R2", "type": "会话切换题（F-1/C1）", "session": "session-1789898246447-t9iw → 新建 session-1789967820277-8a2t", "sentAt": "13:16:59",
+      "task": "写一篇400字左右关于远程办公利弊的短文（长任务），发送后立刻新建会话切换",
+      "route": "plan", "outcome": "响应 13:17:16 落原会话（含系统步骤通知），新会话 0 条消息，isProcessing 正常复位",
+      "note": "原会话消息数 246→260，经 appendSessionMessage 写入 vault——P0-C 路由+持久化生产路径双验证；首考 S1 同场景为消息碎片散落两会话+双倍仲裁成本（surgical-report.json F-1），现已消除"
+    },
+    {
+      "id": "R3+R4", "type": "重复任务题×2（G-16 隐式蒸馏探针）", "session": "session-1789898246447-t9iw", "sentAt": "13:19:49 / 13:20:09",
+      "task": "帮我把这段话整理成一段简短的会议纪要：下周三下午2点开预算评审会……（全新内容）",
+      "route": "plan", "outcome": "第一次 15s（in=127 out=103 真实生成 128 字纪要）；第二次 2s（in=0 out=0 缓存命中，响应逐字相同）",
+      "note": "确认隐式蒸馏未实现（符合修复范围声明）；重复任务加速由语义缓存提供。附带观察：RaaP 仲裁调用（in=285 out=2）两次均在缓存判定前执行，缓存可更早短路（效率备忘，非缺陷）"
+    }
+  ],
+  "newFindings": [
+    {
+      "id": "EXAM-6", "severity": "P1", "title": "考试器进度对象绕过 Vue 响应性——完成后 UI 冻结、成绩单仅存内存",
+      "evidence": "examRunner.progress 为普通对象，runner 闭包内直接改 raw 对象（progress.phase='done'）绕过 ref 深层代理 set trap，不触发重渲染；考试期间靠 hotplugStore.eventLog 高频更新顺带刷新显示，考试流量停止后 UI 冻结在「第18题 执行中」（实际 10:58:41 已完成，用户 11:05 仍见 running）；点「中止考试」无效（cancelled 亦非响应式）",
+      "impact": "考试完成状态不可见，需手动触发面板内其他响应式控件（如导出浸泡报告）才能刷出成绩单；叠加 EXAM-1（progress 寄生组件实例）意味着成绩单持续内存扣押，刷新/切模式即丢失。修复建议：progress 用 reactive() 包装或将考试状态迁入 Pinia store（与 EXAM-1 同批）"
+    }
+  ],
+  "conclusion": "手术题 4/4 全部完成：P0-C5 偏好注入 PASS、F-1 会话归属 PASS、重复任务符合 G-16 范围声明（缓存命中而非蒸馏）。A3 批三项 P0 修复（RaaP 误路由/超时体系/会话归属+记忆注入）在真实使用形态下全部实证生效。"
+}
