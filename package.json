@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "vue-tsc --noEmit -p tsconfig.json && vue-tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "vue-tsc -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.json",
     "postinstall": "electron-vite postinstall"
   },
   "dependencies": {

@@ -22,6 +22,8 @@ import * as iconv from 'iconv-lite'
 // B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
 // A-19：closeVault 移至 main.ts 的 before-quit 调用，此处不再导入
 import { openVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+// P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
+import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
 
 // A-06/A-01：不再持有 setupIpc 时的固定引用（macOS activate 重建窗口后变野指针、
 // 关闭后 isDestroyed 判不住），统一经 window-manager 动态获取（内含 isDestroyed 校验）
@@ -1012,8 +1014,10 @@ export function setupIpc(_win: BrowserWindow | null) {
         body.temperature = temperature
       }
       const maxTok = maxTokens || 16384
-      const tierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
-      const absoluteCap = 180000
+      // P0-B1：统一超时阶梯（llmTimeouts.ts 唯一定义点，CPU 校准值）；
+      // AbortSignal.timeout 原生抛 TimeoutError DOMException，供 errorClassifier 确定性归类
+      const tierTimeout = tierTimeoutFor(maxTok)
+      const absoluteCap = LLM_TIMEOUT_ABSOLUTE_CAP_MS
       // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
       const resp = await safeFetch(`${baseUrl}${endpoint}`, {
         method: 'POST',
@@ -1435,8 +1439,9 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     }
 
     const maxTok = maxTokens || 16384
-    const tierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
-    const absoluteCap = 180000
+    // P0-B1：统一超时阶梯（同非流式 IPC 路径）
+    const tierTimeout = tierTimeoutFor(maxTok)
+    const absoluteCap = LLM_TIMEOUT_ABSOLUTE_CAP_MS
     const fetchSignal = AbortSignal.any([abortCtrl.signal, AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))])
 
     // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU（SSE 流透传）

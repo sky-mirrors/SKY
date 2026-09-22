@@ -43,6 +43,23 @@
             </div>
           </div>
 
+          <div v-if="activeTab === 'perf'" class="sp-section">
+            <div class="sp-field">
+              <label>LLM 超时倍率</label>
+              <!-- P0-B4：CPU 慢机可调大超时（乘各档基准阶梯，绝对上限 10 分钟不变） -->
+              <select
+                :value="configStore.config.llmTimeoutScale ?? 1"
+                @change="configStore.setLlmTimeoutScale(Number(($event.target as HTMLSelectElement).value))"
+              >
+                <option :value="0.5">0.5x（快机）</option>
+                <option :value="1">1x（默认）</option>
+                <option :value="2">2x</option>
+                <option :value="3">3x（慢机）</option>
+                <option :value="5">5x</option>
+              </select>
+            </div>
+          </div>
+
           <div v-if="activeTab === 'notifications'" class="sp-section">
             <div class="sp-field" v-for="(val, key) in notificationStore.settings" :key="key">
               <label>{{ settingLabel(key) }}</label>
@@ -132,6 +149,7 @@ const dataMgmtRef = ref()
 
 const tabs = [
   { id: 'appearance', icon: '🎨', label: '外观' },
+  { id: 'perf', icon: '⚡', label: '性能' },
   { id: 'notifications', icon: '🔔', label: '通知' },
   { id: 'data', icon: '💾', label: '数据' },
   { id: 'shortcuts', icon: '⌨', label: '快捷键' },

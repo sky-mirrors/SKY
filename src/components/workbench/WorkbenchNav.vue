@@ -107,20 +107,17 @@ function openWindow(fn: 'openPipelineWindow' | 'openDebugWindow' | 'openBenchmar
   api?.[fn]?.()
 }
 
+// P0-C4：统一走 dialogStore 入口——原实现直接别名赋值 dialogStore.messages = switched.messages
+// （P0-8 违例：push 会直改会话存储数组），且不清暂停点/不复位 isProcessing
 function onNewSession() {
-  const s = sessionStore.createSession()
-  const switched = sessionStore.switchToSession(s.id, dialogStore.messages)
-  if (switched) {
-    dialogStore.messages = switched.messages
-  }
+  const s = dialogStore.newSession()
   dialogStore.showTransientHint(`✅ 已创建并切换到: ${s.name}`)
 }
 
 function onSwitchSession(sessionId: string) {
   if (sessionId === sessionStore.activeSessionId) return
-  const switched = sessionStore.switchToSession(sessionId, dialogStore.messages)
+  const switched = dialogStore.switchSession(sessionId)
   if (switched) {
-    dialogStore.messages = switched.messages
     dialogStore.showTransientHint(`🔄 已切换到: ${switched.name}`)
   }
 }

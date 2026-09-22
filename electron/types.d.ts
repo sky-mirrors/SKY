@@ -52,3 +52,24 @@ declare module 'iconv-lite' {
   const _iconv: { decode: typeof decode; encodingExists: typeof encodingExists }
   export = _iconv
 }
+
+declare module 'better-sqlite3' {
+  interface Statement {
+    get(...params: unknown[]): unknown
+    all(...params: unknown[]): unknown[]
+    run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint }
+  }
+  interface DatabaseConnection {
+    pragma(source: string): unknown
+    exec(source: string): void
+    prepare(source: string): Statement
+    close(): void
+  }
+  const _betterSqlite3: {
+    new (filename: string, options?: Record<string, unknown>): DatabaseConnection
+  }
+  namespace _betterSqlite3 {
+    export type Database = DatabaseConnection
+  }
+  export = _betterSqlite3
+}

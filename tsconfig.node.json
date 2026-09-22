@@ -12,11 +12,12 @@
     "skipLibCheck": true,
     "composite": true,
     "noEmit": false,
+    "emitDeclarationOnly": true,
     "declaration": true,
     "declarationDir": "./out/main",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["electron/**/*.ts", "electron/**/*.d.ts"]
+  "include": ["electron/**/*.ts", "electron/**/*.d.ts", "src/services/llmTimeouts.ts"]
 }

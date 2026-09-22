@@ -892,6 +892,9 @@ function onSlotSubmit() {
 }
 
 function onSend() {
+  // P0-C3：Enter 路径此前无禁用（发送按钮有 :disabled 而 keydown.enter 没有），
+  // 处理中可并发第二条 sendMessage 造成管线交错——此处统一守卫
+  if (dialogStore.isProcessing) return
   if (!inputText.value.trim() && attachedFiles.value.length === 0) return
   let fullContent = inputText.value.trim()
   if (fullContent === '/debug') {
@@ -1429,21 +1432,16 @@ function lineageLabel(l: { source: string; tool: string; ruleId?: string; tier?:
   return `${base} ${l.tool} ${extra}`
 }
 
+// P0-C4：会话新建/切换统一走 dialogStore 入口（断数组别名/清暂停点/复位 isProcessing），
+// 不再直接操作 sessionStore.switchToSession + 手工赋值 messages
 function onNewSession() {
-  const s = sessionStore.createSession()
-  const switched = sessionStore.switchToSession(s.id, dialogStore.messages)
-  if (switched) {
-    // B-17：拷贝断开与 session.messages 的数组别名
-    dialogStore.messages = switched.messages.map(m => ({ ...m }))
-  }
+  const s = dialogStore.newSession()
   dialogStore.showTransientHint(`✅ 已创建并切换到: ${s.name}`)
 }
 
 function onSwitchSession(sessionId: string) {
-  const switched = sessionStore.switchToSession(sessionId, dialogStore.messages)
+  const switched = dialogStore.switchSession(sessionId)
   if (switched) {
-    // B-17：拷贝断开与 session.messages 的数组别名
-    dialogStore.messages = switched.messages.map(m => ({ ...m }))
     dialogStore.showTransientHint(`🔄 已切换到: ${switched.name}`)
   }
 }
