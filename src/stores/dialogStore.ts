@@ -83,6 +83,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
 }
 
 import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool } from '@/services/nativeTools'
+import { yieldToUI } from '@/services/uiYield'
 
 const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
 
@@ -656,14 +657,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       await yieldToUI()
     }
     return outputs.join('\n\n')
-  }
-
-  function yieldToUI(): Promise<void> {
-    return new Promise(resolve => {
-      requestAnimationFrame(() => {
-        setTimeout(resolve, 0)
-      })
-    })
   }
 
   function stripHtml(text: string): string {
