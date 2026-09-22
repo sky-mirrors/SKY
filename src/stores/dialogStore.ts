@@ -2274,6 +2274,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             }
 
             const currentStepIdx = nextStepIdx >= 0 ? nextStepIdx : Math.min(round, currentPlanSteps.length - 1)
+            // Q16 根因修复：成功路径也必须记录步骤结果——此前 completedStepResults 只在
+            // 「步骤失败→重规划」分支被写入（:2309），成功步骤的结果从不入表，于是后续步骤里
+            // 的 {{step_N_*}} 永远取不到值（实测：路径原样为字面量 → read_file 报"文件不存在"）。
+            if (!stepHadError && nextStepIdx >= 0) {
+              completedStepResults[currentPlanSteps[nextStepIdx].step] = toolResult
+            }
             const truncateLen = getTruncateLen(currentPlanSteps[currentStepIdx]?.expectedOutput || '')
             const truncatedResult = toolResult.substring(0, truncateLen)
 
