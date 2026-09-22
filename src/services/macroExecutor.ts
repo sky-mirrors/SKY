@@ -248,7 +248,10 @@ export async function callToolDirectWithTier(
 
   if (fullName === 'read_file') {
     if (!window.electronAPI?.fileRead) throw new Error('read_file not available')
-    const path = String(args.path || args.file_path || '')
+    // B1-fix：路径须展开 %USERPROFILE%/%HOME%（与 list_directory 同口径）——
+    // 此前直接透传字面量，导致 {{step_N_top_files}} 产出的「%USERPROFILE%\...\文件」读取失败
+    // （考试 Q16 实测「步骤2失败：文件不存在」即此因）。
+    const path = await resolveFilePath(String(args.path || args.file_path || ''))
     if (!path) throw new Error('read_file: missing path')
     const result = await window.electronAPI.fileRead(path, 200000)
     if (result.success && result.content) {
