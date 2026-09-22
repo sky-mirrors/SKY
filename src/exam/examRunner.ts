@@ -103,6 +103,15 @@ export interface ExamRunner {
   exportReport(): Promise<string | null>
 }
 
+export interface CreateExamRunnerOptions {
+  /**
+   * EXAM-6：注入外部 progress 对象（须为 reactive 代理）——runner 闭包内
+   * 直接改写该对象，绕过组件 ref 深层代理的 EXAM-6 病理即被消除；
+   * 同时供 Pinia store 持有（EXAM-1：模式切换孤儿化修复）。
+   */
+  progress?: ExamProgress
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
@@ -196,8 +205,8 @@ interface QuestionWindow {
   traceId: string
 }
 
-export function createExamRunner(deps: ExamRunnerDeps): ExamRunner {
-  const progress: ExamProgress = {
+export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunnerOptions): ExamRunner {
+  const progress: ExamProgress = options?.progress ?? {
     phase: 'idle',
     current: 0,
     total: 0,
