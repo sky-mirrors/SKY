@@ -25,7 +25,7 @@ const l2Manifests: L2ToolManifest[] = [
   {
     identity: { id: 'l2-weekly-report-draft-v1', name: '周报自动草稿', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-weekly-report' },
     visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain'], hoverLabel: '读取本周文档→生成周报草稿', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
-    routing: { keywords: ['周报', '工作总结', '汇报', '本周', '草稿'], targetRoles: ['finance', 'general'], requiredL1: ['l1-pipeline-builder', 'l1-workspace-memory'], inputType: 'text', retrievalSummary: '读取本周编辑过的文档，自动生成周报草稿', userSummary: '读取本周文档→生成周报', confidenceThreshold: 0.65 },
+    routing: { keywords: ['周报', '工作总结', '汇报', '本周', '草稿'], targetRoles: ['finance', 'general'], requiredL1: ['l1-pipeline-builder', 'l1-workspace-memory'], inputType: 'file_or_text', retrievalSummary: '读取本周编辑过的文档，自动生成周报草稿；也可直接粘贴本周要点', userSummary: '读取本周文档→生成周报', confidenceThreshold: 0.65 },
     execution: {
       mode: 'macro',
       dagPlan: {
@@ -192,7 +192,9 @@ const l2Manifests: L2ToolManifest[] = [
   {
     identity: { id: 'l2-sales-proposal-draft-v1', name: '销售提案草稿', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-sales-proposal' },
     visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain'], hoverLabel: '输入客户需求→生成提案', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
-    routing: { keywords: ['提案', '销售', '方案', '商务', '报价'], targetRoles: ['sales'], requiredL1: ['l1-task-translator', 'l1-result-beautifier'], inputType: 'text', retrievalSummary: '根据客户需求自动生成销售提案草稿', userSummary: '输入客户需求→生成提案', confidenceThreshold: 0.65 },
+    // A（路由假阳性修复）：意图反向门——变换（改写/翻译/润色/总结）或列查（列出/查看）类输入
+    // 要的不是"生成提案"，禁止路由到本宏（治 Q4「商务邮件改写」被误派进销售提案）
+    routing: { keywords: ['提案', '销售', '方案', '商务', '报价'], forbiddenKeywords: ['改写', '重写', '润色', '翻译', '精简', '缩写', '概括', '总结', '改成', '转成', '转换为', '转换成', '纪要', '列出', '清单', '有哪些', '查看', '找出', '列举', '搜索', '查找'], targetRoles: ['sales'], requiredL1: ['l1-task-translator', 'l1-result-beautifier'], inputType: 'text', retrievalSummary: '根据客户需求自动生成销售提案草稿', userSummary: '输入客户需求→生成提案', confidenceThreshold: 0.65 },
     execution: {
       mode: 'macro',
       dagPlan: {
@@ -375,7 +377,7 @@ const l2Manifests: L2ToolManifest[] = [
   {
     identity: { id: 'l2-file-reader-analysis-v1', name: '文件解读助手', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-file-reader' },
     visual: { baseColor: '#44aaff', ringStyle: 'dashed', badges: ['file'], hoverLabel: '上传文件→解读内容→回答问题', anchorGlow: '#66ccff', upgradeGlow: '#88ddff' },
-    routing: { keywords: ['文件', '解读', '解析', '阅读', '读懂', '理解', '内容', '说了什么', '看下文件', '分析文件', '帮我看'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'file', retrievalSummary: '上传任意文件，解读其内容并回答关于文件的问题，不生成额外文件', userSummary: '上传文件→解读内容→回答问题', confidenceThreshold: 0.5 },
+    routing: { keywords: ['文件', '解读', '解析', '阅读', '读懂', '理解', '看下文件', '分析文件'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'file', retrievalSummary: '上传任意文件，解读其内容并回答关于文件的问题，不生成额外文件', userSummary: '上传文件→解读内容→回答问题', confidenceThreshold: 0.65 },
     execution: {
       mode: 'macro',
       dagPlan: {
@@ -400,7 +402,11 @@ const l2Manifests: L2ToolManifest[] = [
   {
     identity: { id: 'l2-file-creator-v1', name: '文件创建器', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-file-creator' },
     visual: { baseColor: '#66ffaa', ringStyle: 'solid', badges: ['lightning'], hoverLabel: '描述内容→创建文件→保存到桌面', anchorGlow: '#88ffcc', upgradeGlow: '#aaffdd' },
-    routing: { keywords: ['创建', '新建', '写文件', '生成文件', '写文档', '生成文档', '创建docx', '新建docx', '写docx', '保存文件', '创建txt', '新建txt', '创建word', '新建word', '生成word', '写word', 'docx', '文档', '文件', '桌面', '保存'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-task-translator'], inputType: 'text', retrievalSummary: '根据用户描述创建docx/txt等文件并保存到桌面', userSummary: '描述内容→创建文件→保存到桌面', confidenceThreshold: 0.3 },
+    // A5 修复：剔除泛词 '文档','文件','桌面','保存'（它们让任何提到"文件/保存"的输入都命中本模板，
+    // 是 Q4/Q6/Q12 误路由主因之一），阈值 0.3 → 0.65 与其他官方模板对齐
+    // P1-D5：列查/查看/转换类禁词——此类输入要求的是"读/列举/转格式"而非"创建"，
+    // 首考 Q14 即"列清单"被误投到本清单后写死 新建文档.docx 造成假完成
+    routing: { keywords: ['创建', '新建', '写文件', '生成文件', '写文档', '生成文档', '创建docx', '新建docx', '写docx', '保存文件', '创建txt', '新建txt', '创建word', '新建word', '生成word', '写word', 'docx'], forbiddenKeywords: ['列出', '清单', '有哪些', '看一下', '查看', '找出', '搜索', '查找', '列举', '转成', '转为', '转换为', '转换'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-task-translator'], inputType: 'text', retrievalSummary: '根据用户描述创建docx/txt等文件并保存到桌面', userSummary: '描述内容→创建文件→保存到桌面', confidenceThreshold: 0.65 },
     execution: {
       mode: 'macro',
       dagPlan: {

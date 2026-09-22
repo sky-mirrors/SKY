@@ -143,6 +143,29 @@ describe('keywordMatchScore', () => {
     const score = keywordMatchScore('预算预测', m)
     expect(score).toBeGreaterThan(0)
   })
+
+  it('P1-D5：禁词命中直接归零——列查类输入不得路由到文件创建器', () => {
+    const m = makeManifest({
+      routing: {
+        targetRoles: [], triggerKeywords: [], confidence: 0.9,
+        keywords: ['创建', '新建', '写文件', '生成文件', 'docx'],
+        forbiddenKeywords: ['列出', '清单', '有哪些', '看一下', '查看', '转成'],
+        retrievalSummary: '根据用户描述创建文件并保存到桌面',
+        userSummary: '描述内容→创建文件→保存到桌面'
+      }
+    })
+    // 命中"创建+文件"加权条件，但含禁词"清单" → 必须归零
+    expect(keywordMatchScore('帮我生成一份文件清单', m)).toBe(0)
+    expect(keywordMatchScore('查看一下桌面有哪些文件', m)).toBe(0)
+    expect(keywordMatchScore('把报告.docx转成pdf', m)).toBe(0)
+    // 不含禁词的正常创建输入不受影响
+    expect(keywordMatchScore('帮我创建一个docx文件', m)).toBeGreaterThan(0)
+  })
+
+  it('P1-D5：无forbiddenKeywords的清单行为不变', () => {
+    const m = makeManifest({ routing: { targetRoles: [], triggerKeywords: [], confidence: 0.9, keywords: ['创建', '文件'], retrievalSummary: '创建文件', userSummary: '创建文件' } })
+    expect(keywordMatchScore('帮我生成一份文件清单', m)).toBeGreaterThan(0)
+  })
 })
 
 describe('raapMatch', () => {
@@ -445,6 +468,83 @@ describe('llmFallback', () => {
     const mockChat = vi.fn(() => Promise.reject(new Error('API error')))
     const result = await llmFallback('测试', candidates, mockChat)
     expect(result).toBeNull()
+  })
+})
+
+describe('llmFallback P0-A：输入门控预过滤', () => {
+  function makeItem(id: string, name: string, desc: string, source: 'l2' | 'mcp', manifest?: L2ToolManifest): MatchableItem {
+    return { id, name, description: desc, keywords: [], userSummary: desc, source, manifest }
+  }
+
+  function makeFileManifest(id: string, inputType: 'file' | 'text' | 'file_or_text'): L2ToolManifest {
+    return {
+      identity: { id, name: id, version: '1', author: 'official', createdAt: 0, updatedAt: 0, templateId: '' },
+      visual: { baseColor: '', ringStyle: 'solid', badges: [], hoverLabel: '', anchorGlow: '', upgradeGlow: '' },
+      routing: { keywords: [], targetRoles: [], requiredL1: [], inputType, retrievalSummary: '', userSummary: '', confidenceThreshold: 0.5 },
+      execution: { mode: 'macro', paramMapping: { slots: [], bindings: [] } },
+      cacheMeta: { estimatedTokenSaving: 0, avgExecutionTime: 0, cacheable: false }
+    }
+  }
+
+  it('file 候选无文件输入 → 确定性过滤后无候选，不调 LLM 直接 null', async () => {
+    const candidates = [
+      { item: makeItem('l2a', '文件解读', '解读文件', 'l2', makeFileManifest('l2a', 'file')), score: 0.5, method: 'keyword' },
+      { item: makeItem('l2b', '财报解读', '解读财报', 'l2', makeFileManifest('l2b', 'file')), score: 0.4, method: 'keyword' }
+    ]
+    const mockChat = vi.fn()
+    const result = await llmFallback('帮我看看这段文字说了什么大概意思呢', candidates, mockChat)
+    expect(result).toBeNull()
+    expect(mockChat).not.toHaveBeenCalled()
+  })
+
+  it('混合候选：file 候选被过滤、剩单个 text 候选 → 直接返回幸存者，不调 LLM', async () => {
+    const textItem = makeItem('l2t', '周报生成', '生成周报', 'l2', makeFileManifest('l2t', 'text'))
+    const candidates = [
+      { item: makeItem('l2a', '文件解读', '解读文件', 'l2', makeFileManifest('l2a', 'file')), score: 0.5, method: 'keyword' },
+      { item: textItem, score: 0.4, method: 'keyword' }
+    ]
+    const mockChat = vi.fn()
+    const result = await llmFallback('帮我看看这段文字说了什么大概意思呢', candidates, mockChat)
+    expect(result).toBe(textItem)
+    expect(mockChat).not.toHaveBeenCalled()
+  })
+
+  it('有文件路径时 file 候选不被过滤', async () => {
+    const fileItem = makeItem('l2a', '文件解读', '解读文件', 'l2', makeFileManifest('l2a', 'file'))
+    const textItem = makeItem('l2t', '周报生成', '生成周报', 'l2', makeFileManifest('l2t', 'text'))
+    const candidates = [
+      { item: fileItem, score: 0.5, method: 'keyword' },
+      { item: textItem, score: 0.4, method: 'keyword' }
+    ]
+    const mockChat = vi.fn(() => Promise.resolve({ content: '1' }))
+    const result = await llmFallback('帮我解读 C:\\temp\\报告.docx 的内容', candidates, mockChat)
+    expect(result).toBe(fileItem)
+    expect(mockChat).toHaveBeenCalledTimes(1)
+  })
+
+  it('LLM 返回 0（无匹配）→ null', async () => {
+    const candidates = [
+      { item: makeItem('tool1', '工具1', '描述1', 'mcp'), score: 0.5, method: 'vector' },
+      { item: makeItem('tool2', '工具2', '描述2', 'mcp'), score: 0.4, method: 'vector' }
+    ]
+    const mockChat = vi.fn(() => Promise.resolve({ content: '0' }))
+    const result = await llmFallback('测试', candidates, mockChat)
+    expect(result).toBeNull()
+  })
+
+  it('提示词披露输入形态与候选 inputType，且含 0 选项', async () => {
+    const candidates = [
+      { item: makeItem('l2a', '文件解读', '解读文件', 'l2', makeFileManifest('l2a', 'file')), score: 0.5, method: 'keyword' },
+      { item: makeItem('tool2', '工具2', '描述2', 'mcp'), score: 0.4, method: 'keyword' }
+    ]
+    const mockChat = vi.fn(() => Promise.resolve({ content: '1' }))
+    await llmFallback('帮我解读 C:\\temp\\报告.docx 的内容看看', candidates, mockChat)
+    expect(mockChat).toHaveBeenCalledTimes(1)
+    const messages = mockChat.mock.calls[0][0] as { role: string; content: string }[]
+    const prompt = String(messages[1].content)
+    expect(prompt).toContain('用户输入形态')
+    expect(prompt).toContain('需要文件输入')
+    expect(prompt).toContain('0-2')
   })
 })
 

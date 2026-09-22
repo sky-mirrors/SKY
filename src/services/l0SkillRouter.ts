@@ -1,6 +1,7 @@
 import type { L2ToolManifest } from '@/models'
 import { getLLM } from '@/kernel/plugins/llm'
 import { debugLog } from '@/services/debugLog'
+import { extractInstructionSegment } from '@/services/inputForm'
 
 interface L0SkillRule {
   name: string
@@ -267,7 +268,10 @@ const skillRules: L0SkillRule[] = [
       /^(创建|新建)(一个|一份)?\s*(docx|word|txt|文档|文件)/i
     ],
     forbiddenPatterns: [
-      /(审查|合规|条款|风险|法律|合同|分析|报告|周报|总结|竞品|财报|KPI|预算|摘要|说明|简介)/
+      /(审查|合规|条款|风险|法律|合同|分析|报告|周报|总结|竞品|财报|KPI|预算|摘要|说明|简介)/,
+      // P1-D5：列查/查看/转换类输入禁入——它们要的是"读/列举/转格式"而非"创建文件"，
+      // 首考 Q14 误路由即因缺此类禁词
+      /(列出|清单|有哪些|看一下|查看|找出|搜索|查找|列举|转成|转为|转换为|转换)/
     ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
       const ext = resolveExt(input)
@@ -418,7 +422,7 @@ export function tryL05QuickMatch(
 ): L05QuickMatchResult | null {
   if (!manifests || manifests.length === 0) return null
 
-  const inputLower = input.toLowerCase()
+  const inputLower = extractInstructionSegment(input).toLowerCase()
   const scores: { manifest: L2ToolManifest; hitCount: number; hitRatio: number; matchedKws: string[] }[] = []
 
   for (const m of manifests) {

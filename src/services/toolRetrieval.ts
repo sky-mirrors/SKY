@@ -5,6 +5,7 @@ import { debugLog } from '@/services/debugLog'
 import { contentHash } from './hash'
 import { globalBus } from '@/kernel/bus'
 import { vault } from '@/vault'
+import { classifyTemplateInput, detectInputForm, extractInstructionSegment, type InputFormInfo } from './inputForm'
 
 const STOP_WORDS_SET = new Set(['的', '了', '在', '是', '我', '你', '他', '她', '它', '们', '这', '那', '有', '和', '与', '或', '帮', '给', '让', '把', '被', '从', '到', '用', '对', '为', '以', '及', '等', '着', '过', '一下', '一下下', '一个', '一些', '请', '要', '会', '能', '可以', '帮我', '帮我看看', '搞', '搞一下', '做', '做一下', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into', 'about', 'it', 'this', 'that', 'me', 'my', 'your'])
 
@@ -102,8 +103,9 @@ function ruleEngineFallback(
   if (candidates.length === 0) return null
   if (candidates.length === 1) return candidates[0].item
 
-  const inputSegs = segmentChinese(userInput)
-  const inputLower = userInput.toLowerCase()
+  const scopedInput = extractInstructionSegment(userInput)
+  const inputSegs = segmentChinese(scopedInput)
+  const inputLower = scopedInput.toLowerCase()
 
   let best: MatchableItem | null = null
   let bestHits = -1
@@ -327,9 +329,11 @@ export function generateNGrams(text: string, minLen: number, maxLen: number): st
 }
 
 function keywordMatchScoreGeneric(userInput: string, keywords: string[], userSummary: string): number {
-  const inputLower = userInput.toLowerCase()
-  const inputSegs = segmentChinese(userInput)
-  const inputNgrams = generateNGrams(userInput, 2, 4)
+  // B：关键词只匹配指令段，附着材料（长文档/邮件正文）里的通用词不得淹没指令
+  const scopedInput = extractInstructionSegment(userInput)
+  const inputLower = scopedInput.toLowerCase()
+  const inputSegs = segmentChinese(scopedInput)
+  const inputNgrams = generateNGrams(scopedInput, 2, 4)
   let hits = 0
 
   for (const kw of keywords) {
@@ -385,6 +389,13 @@ function keywordMatchScoreGeneric(userInput: string, keywords: string[], userSum
 }
 
 export function keywordMatchScore(userInput: string, manifest: L2ToolManifest): number {
+  // P1-D5：禁词否决——输入含清单禁词（列查/转换类）则不得路由到该清单（B：只看指令段）
+  const forbidden = manifest.routing.forbiddenKeywords
+  if (forbidden && forbidden.length > 0) {
+    const inputLower = extractInstructionSegment(userInput).toLowerCase()
+    const hit = forbidden.some(kw => inputLower.includes(kw.toLowerCase()))
+    if (hit) return 0
+  }
   return keywordMatchScoreGeneric(userInput, manifest.routing.keywords, manifest.routing.userSummary || '')
 }
 
@@ -777,13 +788,42 @@ export function getTop3Candidates(
   }).filter((r): r is { manifest: L2ToolManifest; score: number; method: string } => r !== null)
 }
 
+/** P0-A：输入形态的 LLM 披露文案 */
+function describeInputForm(info: InputFormInfo): string {
+  const parts: string[] = []
+  parts.push(`文件路径: ${info.hasFilePath ? '有' : '无'}`)
+  parts.push(`附件内容: ${info.hasAttachment ? '有' : '无'}`)
+  parts.push(`内联材料: ${info.hasInlineMaterial ? `有（约${info.inlineMaterial.length}字）` : '无'}`)
+  return parts.join('，')
+}
+
+function describeCandidateInputType(item: MatchableItem): string {
+  const t = item.manifest?.routing.inputType
+  if (t === 'file') return '需要文件输入'
+  if (t === 'file_or_text') return '文件或文本输入'
+  if (t === 'text') return '文本输入'
+  return '输入形态未知'
+}
+
 export async function llmFallback(
   userInput: string,
   candidates: { item: MatchableItem; score: number; method: string }[],
   chatCompletionFn: (messages: { role: string; content: string }[]) => Promise<{ content: string }>
 ): Promise<MatchableItem | null> {
   if (candidates.length === 0) return null
-  if (candidates.length === 1) return candidates[0].item
+
+  // P0-A：调用前确定性过滤——file 模板且输入无文件形态的候选直接剔除（省 LLM 调用）
+  const formInfo = detectInputForm(userInput)
+  const filtered = candidates.filter(c =>
+    !(c.item.source === 'l2' && c.item.manifest && classifyTemplateInput(c.item.manifest, formInfo) === 'reject')
+  )
+  if (filtered.length === 0) {
+    debugLog('[llmFallback] 输入门控过滤后无候选，跳过LLM仲裁')
+    return null
+  }
+  if (filtered.length === 1) return filtered[0].item
+
+  candidates = filtered
 
   if (!isOnline()) {
     debugLog('[llmFallback] 离线模式，走规则引擎降级')
@@ -791,25 +831,33 @@ export async function llmFallback(
   }
 
   const candidateLines = candidates.slice(0, 5).map((c, i) =>
-    `${i + 1}. ${c.item.name}（${c.item.description.substring(0, 80)}）`
+    `${i + 1}. ${c.item.name}（${describeCandidateInputType(c.item)}；${c.item.description.substring(0, 80)}）`
   ).join('\n')
 
   const prompt = `用户输入: "${userInput}"
 
+用户输入形态：${describeInputForm(formInfo)}
+
 候选工具:
 ${candidateLines}
 
-请只返回最匹配的那个工具的编号（1-${Math.min(candidates.length, 5)}），不要返回其他内容。`
+若所有候选工具与用户输入形态都不匹配（例如工具需要文件但用户没有提供任何文件），返回 0 表示无匹配。
+请只返回最匹配的那个工具的编号（0-${Math.min(candidates.length, 5)}），不要返回其他内容。`
 
   try {
     const resp = await chatCompletionFn([
-      { role: 'system', content: '你是一个工具选择助手，根据用户输入从候选工具中选出最匹配的一个。只返回编号。' },
+      { role: 'system', content: '你是一个工具选择助手，根据用户输入和输入形态从候选工具中选出最匹配的一个。只返回编号，无匹配返回 0。' },
       { role: 'user', content: prompt }
     ])
     const text = resp.content.trim()
     const numMatch = text.match(/(\d+)/)
     if (numMatch) {
-      const idx = parseInt(numMatch[1]) - 1
+      const num = parseInt(numMatch[1])
+      if (num === 0) {
+        debugLog('[llmFallback] LLM判定无匹配')
+        return null
+      }
+      const idx = num - 1
       if (idx >= 0 && idx < Math.min(candidates.length, 5)) {
         debugLog(`[llmFallback] LLM选择: #${idx + 1} ${candidates[idx].item.name}`)
         return candidates[idx].item

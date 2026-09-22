@@ -71,6 +71,24 @@ describe('l0SkillRouter', () => {
       expect(plan).toBeNull()
     })
 
+    it('P1-D5：文件创建 forbiddenPattern 阻止列查类输入（首考Q14病理）', async () => {
+      const plan = await tryL0Skill('整理 HoloExam 文件夹，生成一份文件清单保存到桌面')
+      const wentToCreate = plan?.steps.some(s => s.tool === 'file_write' || s.tool === 'create_docx') ?? false
+      expect(wentToCreate).toBe(false)
+    })
+
+    it('P1-D5：文件创建 forbiddenPattern 阻止转换类输入', async () => {
+      const plan = await tryL0Skill('把报告.docx转成pdf保存到桌面')
+      const wentToCreate = plan?.steps.some(s => s.tool === 'file_write' || s.tool === 'create_docx') ?? false
+      expect(wentToCreate).toBe(false)
+    })
+
+    it('P1-D5：正常创建文件输入仍直通文件创建', async () => {
+      const plan = await tryL0Skill('在桌面新建一个测试.txt')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps.some(s => s.tool === 'file_write' || s.tool === 'create_docx')).toBe(true)
+    })
+
     it('HTTP请求 - curl', async () => {
       const plan = await tryL0Skill('curl https://api.example.com/data')
       expect(plan).not.toBeNull()
