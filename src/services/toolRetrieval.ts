@@ -388,15 +388,29 @@ function keywordMatchScoreGeneric(userInput: string, keywords: string[], userSum
   return score
 }
 
-export function keywordMatchScore(userInput: string, manifest: L2ToolManifest): number {
-  // P1-D5：禁词否决——输入含清单禁词（列查/转换类）则不得路由到该清单（B：只看指令段）
+/** P1-D5：L2 清单禁词门——指令段命中任一 forbiddenKeywords → 该清单不得路由（B：只看指令段） */
+export function manifestForbidsInput(userInput: string, manifest: L2ToolManifest): boolean {
   const forbidden = manifest.routing.forbiddenKeywords
-  if (forbidden && forbidden.length > 0) {
-    const inputLower = extractInstructionSegment(userInput).toLowerCase()
-    const hit = forbidden.some(kw => inputLower.includes(kw.toLowerCase()))
-    if (hit) return 0
-  }
+  if (!forbidden || forbidden.length === 0) return false
+  const inputLower = extractInstructionSegment(userInput).toLowerCase()
+  return forbidden.some(kw => inputLower.includes(kw.toLowerCase()))
+}
+
+export function keywordMatchScore(userInput: string, manifest: L2ToolManifest): number {
+  // P1-D5：禁词否决——输入含清单禁词（列查/转换类）则不得路由到该清单
+  if (manifestForbidsInput(userInput, manifest)) return 0
   return keywordMatchScoreGeneric(userInput, manifest.routing.keywords, manifest.routing.userSummary || '')
+}
+
+/**
+ * Q14 修复：L2 清单关键词打分须经过禁词门——此前 universalMatch / getTop3CandidatesUniversal
+ * 直接调 keywordMatchScoreGeneric，绕过 manifest.routing.forbiddenKeywords，导致「帮我列出 .docx 清单」
+ * 这类输入仍被当作候选交给 LLM 仲裁、选中「文件创建器」并创建垃圾文件（假完成）。
+ * MCP 工具无 manifest，走通用打分不变。
+ */
+function scoreItemKeywords(userInput: string, item: MatchableItem): number {
+  if (item.source === 'l2' && item.manifest) return keywordMatchScore(userInput, item.manifest)
+  return keywordMatchScoreGeneric(userInput, item.keywords, item.userSummary)
 }
 
 const NEGATION_WORDS = ['不要', '别', '禁止', '排除', '除了', '不要创建', '不要生成', '不要写', '别创建', '别生成', 'not', "don't", 'no', 'exclude', 'without']
@@ -588,12 +602,10 @@ export async function universalMatch(
     vectorScores.sort((a, b) => b.score - a.score)
   }
 
-  const kwScores = items.map(item => ({
-    item,
-    score: isNegated
-      ? keywordMatchScoreGeneric(userInput, item.keywords, item.userSummary) * 0.3
-      : keywordMatchScoreGeneric(userInput, item.keywords, item.userSummary)
-  }))
+  const kwScores = items.map(item => {
+    const raw = scoreItemKeywords(userInput, item)
+    return { item, score: isNegated ? raw * 0.3 : raw }
+  })
   kwScores.sort((a, b) => b.score - a.score)
 
   debugLog(`[Universal] 输入: "${userInput.substring(0, 60)}"`)
@@ -814,9 +826,14 @@ export async function llmFallback(
 
   // P0-A：调用前确定性过滤——file 模板且输入无文件形态的候选直接剔除（省 LLM 调用）
   const formInfo = detectInputForm(userInput)
-  const filtered = candidates.filter(c =>
-    !(c.item.source === 'l2' && c.item.manifest && classifyTemplateInput(c.item.manifest, formInfo) === 'reject')
-  )
+  const filtered = candidates.filter(c => {
+    if (c.item.source !== 'l2' || !c.item.manifest) return true
+    // P0-A：file 模板且输入无文件形态 → 剔除
+    if (classifyTemplateInput(c.item.manifest, formInfo) === 'reject') return false
+    // Q14：清单自身禁词命中（如「列清单」对创建器）→ 剔除，不交给 LLM 仲裁
+    if (manifestForbidsInput(userInput, c.item.manifest)) return false
+    return true
+  })
   if (filtered.length === 0) {
     debugLog('[llmFallback] 输入门控过滤后无候选，跳过LLM仲裁')
     return null
@@ -879,12 +896,10 @@ export function getTop3CandidatesUniversal(
   const items = toolIndex.map(t =>
     t.l2ManifestId ? manifestToItem(resolveL2Manifest(t)) : toolIndexToItem(t)
   )
-  const kwScores = items.map(item => ({
-    item,
-    score: isNegated
-      ? keywordMatchScoreGeneric(userInput, item.keywords, item.userSummary) * 0.3
-      : keywordMatchScoreGeneric(userInput, item.keywords, item.userSummary)
-  })).filter(s => s.score > 0).sort((a, b) => b.score - a.score)
+  const kwScores = items.map(item => {
+    const raw = scoreItemKeywords(userInput, item)
+    return { item, score: isNegated ? raw * 0.3 : raw }
+  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score)
 
   const rrfResults = computeRRFGeneric([], kwScores)
   return rrfResults.slice(0, 3).map(r => ({ item: r.item, score: r.rrfScore, method: r.method }))
