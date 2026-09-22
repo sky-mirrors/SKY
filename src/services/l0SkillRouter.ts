@@ -529,9 +529,22 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
  * 仅在同时含「文件意图 + 检索意图」时返回，避免劫持普通请求（润色/算术等）。
  */
 function extractMentionedDir(input: string): string | null {
+  // 变更类指令（重命名/移动/删除…）不该被「列目录并回答」分支劫持——它要的是改文件，不是列清单。
+  // Q15 实测：图片重命名任务被劫持为列目录计划，且目录猜错。
+  if (/(重命名|改名|命名|移动|复制|删除|整理|归档|转成|转为|转换为|转换成)/.test(input)) return null
+
   const FILE_INTENT = /(桌面|文件夹|目录|docx|word|pdf|txt|xlsx|文件)/i
   const FIND_INTENT = /(列出|列举|清单|有哪些|找一下|查找|找出|查一下|看一下|看看|读取|打开|里的|里面的)/
   if (!FILE_INTENT.test(input) || !FIND_INTENT.test(input)) return null
+
+  // 优先采用输入里的**显式路径**（含中间目录段）。Q15 实测：曾把
+  // `C:\...\Desktop\HoloExam\photos` 猜成 `%USERPROFILE%\Desktop\photos`（丢了 HoloExam）。
+  const explicit = input.match(/[A-Za-z]:\\[^\s，。；、！？"'”’（）()【】]*/)
+  if (explicit) {
+    let p = explicit[0].replace(/\\+$/, '')
+    if (!/[文件夹目录]$/.test(p)) p = p.replace(/[\\/][^\\/]*\.\w{1,5}$/, '')  // 形如 \a.docx → 取其所在目录
+    if (p && /[\\/]/.test(p)) return p
+  }
 
   const DESKTOP = '%USERPROFILE%\\Desktop'
   const folderMatch = input.match(/([A-Za-z0-9_\u4e00-\u9fff]{2,30})\s*文件夹/)

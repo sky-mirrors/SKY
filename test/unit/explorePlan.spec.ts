@@ -51,6 +51,18 @@ describe('N2：探索计划的确定性文件步骤', () => {
     const p = await buildExplorePlan('帮我算一下 1234 × 5678 等于多少，把计算过程也写出来。')
     expect(p.steps[0].tool).toBe('llm_generate')
   })
+
+  it('Q15（重命名任务）不被「列目录并回答」分支劫持', async () => {
+    const q15 = EXAM_CASES.find(c => c.id === 'Q15')!
+    const p = await buildExplorePlan(q15.prompt)
+    expect(p.steps.some(s => s.tool === 'list_directory')).toBe(false)
+  })
+
+  it('含显式路径时采用该路径（Q15 曾把它猜成 %USERPROFILE%\\Desktop\\photos）', async () => {
+    const p = await buildExplorePlan('把 C:\\Users\\Admin\\Desktop\\HoloExam\\photos 文件夹里的图片列个清单给我')
+    expect(p.steps[0].tool).toBe('list_directory')
+    expect(String(p.steps[0].params.path)).toBe('C:\\Users\\Admin\\Desktop\\HoloExam\\photos')
+  })
 })
 
 describe('B1：从清单里挑目标文件（{{step_N_top_files}} 的解析内核）', () => {
