@@ -377,7 +377,9 @@ const l2Manifests: L2ToolManifest[] = [
   {
     identity: { id: 'l2-file-reader-analysis-v1', name: '文件解读助手', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-file-reader' },
     visual: { baseColor: '#44aaff', ringStyle: 'dashed', badges: ['file'], hoverLabel: '上传文件→解读内容→回答问题', anchorGlow: '#66ccff', upgradeGlow: '#88ddff' },
-    routing: { keywords: ['文件', '解读', '解析', '阅读', '读懂', '理解', '看下文件', '分析文件'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'file', retrievalSummary: '上传任意文件，解读其内容并回答关于文件的问题，不生成额外文件', userSummary: '上传文件→解读内容→回答问题', confidenceThreshold: 0.65 },
+    // Q15 修复：本工具只"解读文件并回答"，不生成/改动文件——「改文件」类指令一律拒收
+    // （Q15「图片按日期重命名」因泛词「文件」命中而误投到此，须由禁词门拦住）
+    routing: { keywords: ['文件', '解读', '解析', '阅读', '读懂', '理解', '看下文件', '分析文件'], forbiddenKeywords: ['重命名', '改名', '命名', '转换', '转成', '转为', '转换为', '转换成', '创建', '新建', '删除', '移动', '复制', '写入', '生成文件'], targetRoles: ['general', 'hr', 'finance', 'legal', 'sales'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator'], inputType: 'file', retrievalSummary: '上传任意文件，解读其内容并回答关于文件的问题，不生成额外文件', userSummary: '上传文件→解读内容→回答问题', confidenceThreshold: 0.65 },
     execution: {
       mode: 'macro',
       dagPlan: {

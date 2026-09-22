@@ -58,3 +58,21 @@ describe('Q14 误路由：L2 禁词门须覆盖 LLM 仲裁路径', () => {
     expect(mockChat).not.toHaveBeenCalled()
   })
 })
+
+const fr = l2Manifests.find(m => m.identity.id === 'l2-file-reader-analysis-v1')!
+const q15 = EXAM_CASES.find(c => c.id === 'Q15')!
+
+describe('Q15 误路由：文件解读助手须拒收「改文件」类指令', () => {
+  it('前置：文件解读助手声明了 forbiddenKeywords', () => {
+    expect(fr.routing.forbiddenKeywords && fr.routing.forbiddenKeywords.length).toBeGreaterThan(0)
+  })
+
+  it('Q15（图片按日期重命名）被文件解读助手禁词门拦截', () => {
+    // 「文件夹」命中其泛词关键词「文件」，但指令是「重命名」而非「解读」——必须归零
+    expect(keywordMatchScore(q15.prompt, fr)).toBe(0)
+  })
+
+  it('正常「解读文件」指令不受影响（防误伤）', () => {
+    expect(keywordMatchScore('帮我解读一下 C:\\temp\\报告.docx 的内容大意', fr)).toBeGreaterThan(0)
+  })
+})
