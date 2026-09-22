@@ -183,6 +183,23 @@ const skillRules: L0SkillRule[] = [
         }
       }
 
+      // 决策 A3（2026-09-23）：本机无 PDF 渲染器（Word/LibreOffice/pandoc 均不可用，已实测）。
+      // 原先 pdf 目标走 `read_file → llm_generate(「转换为pdf格式」)` —— 第 2 步是**假动作**
+      // （LLM 产不出文件），违反项目「不得假装成功」哲学。改为确定性如实说明 + 给替代做法。
+      if (effectiveTarget === 'pdf') {
+        return {
+          intent: `PDF 转换不支持：${src}`,
+          steps: [{
+            step: 1,
+            description: '如实说明本机不支持并给替代方案',
+            tool: 'llm_generate',
+            params: { prompt: `用户要求把「${src}」转成 PDF。本机未安装 PDF 渲染器（Word / LibreOffice / pandoc 均不可用），无法自动生成 PDF 文件。请用中文如实说明这一点，并给出可行的替代做法（例如用 Microsoft Word 打开后选"另存为 → PDF"）。不要假装已经完成转换，也不要编造已生成的文件路径。` },
+            expectedOutput: '不支持说明与替代方案'
+          }],
+          isExploration: false
+        }
+      }
+
       return {
         intent: `将 ${src} 转换为 .${effectiveTarget}`,
         steps: [

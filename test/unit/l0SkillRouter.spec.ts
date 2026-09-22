@@ -185,8 +185,11 @@ describe('l0SkillRouter', () => {
 
     it('文件操作探索模式 - 含文件路径和目标格式', async () => {
       const plan = await buildExplorePlan('把C:\\docs\\report.md转换为pdf')
-      expect(plan.isExploration).toBe(true)
-      expect(plan.intent).toContain('pdf')
+      // 决策 A3（2026-09-23）：本机无 PDF 渲染器（实测 Word/LibreOffice/pandoc 均不可用），
+      // pdf 目标改为确定性「不支持」说明——不再是「读文件 → LLM 转成 pdf」的假动作。
+      expect(plan.steps).toHaveLength(1)
+      expect(plan.steps[0].tool).toBe('llm_generate')
+      expect(plan.intent.toLowerCase()).toContain('pdf')
     })
 
     it('文件操作探索模式 - 含目标格式关键词', async () => {

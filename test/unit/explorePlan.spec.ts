@@ -63,6 +63,15 @@ describe('N2：探索计划的确定性文件步骤', () => {
     expect(p.steps[0].tool).toBe('list_directory')
     expect(String(p.steps[0].params.path)).toBe('C:\\Users\\Admin\\Desktop\\HoloExam\\photos')
   })
+
+  it('PDF 目标 → 确定性「不支持」说明，不再有假转换步骤（决策 A3）', async () => {
+    const p = await buildExplorePlan('把 C:\\x\\a.docx 转成 pdf')
+    expect(p.steps).toHaveLength(1)
+    expect(p.steps[0].tool).toBe('llm_generate')
+    expect(String(p.steps[0].params.prompt)).toContain('未安装 PDF 渲染器')
+    // 不得再出现「把内容转换为 pdf 格式」这类假动作
+    expect(String(p.steps[0].params.prompt)).not.toContain('将以下内容转换为')
+  })
 })
 
 describe('B1：从清单里挑目标文件（{{step_N_top_files}} 的解析内核）', () => {
