@@ -618,3 +618,130 @@ describe('P3.3：默认内核插件（六层行为等价）', () => {
     if (outcome.kind === 'candidates') expect(outcome.source).toBe('L2')
   })
 })
+
+describe('P0-A：输入门控（RaaP 误路由修复）', () => {
+  const layers = createDefaultLayers()
+
+  function makeTypedManifest(over: {
+    id?: string
+    inputType: 'file' | 'text' | 'file_or_text'
+    steps?: L2ToolManifest['execution']['dagPlan']
+  }): L2ToolManifest {
+    const base = makeManifest({ id: over.id ?? 'm-1', mode: 'macro', dagPlan: over.steps })
+    return { ...base, routing: { ...base.routing, inputType: over.inputType } }
+  }
+
+  const MEETING_DAG: L2ToolManifest['execution']['dagPlan'] = {
+    steps: [
+      { step: 1, description: '读取会议记录文件', tool: 'read_file', depends_on: [], params: { path: '{{user_file}}' }, expectedOutput: '会议原始记录' },
+      { step: 2, description: 'AI生成会议纪要', tool: 'llm_generate', depends_on: [1], params: { prompt: '根据以下会议记录生成纪要：\n{{step_1_result}}' }, expectedOutput: '会议纪要' }
+    ],
+    fallbackStrategy: 'retry',
+    maxRetries: 1
+  }
+
+  it('L2 绿色：file 模板无文件输入 → planTask 兜底（macroManifestId=null）', async () => {
+    const m = makeTypedManifest({ id: 'reader', inputType: 'file', steps: MEETING_DAG })
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: makeMatchItem({ source: 'l2', manifest: m }),
+      confidence: 0.97,
+      matchMethod: 'keyword',
+      isAmbiguous: false,
+      gate: 'green'
+    } as UniversalMatchResult)
+    vi.mocked(planTask).mockResolvedValue({ intent: '兜底', needs: [], steps: [{ step: 1, description: 'd', tool: 'auto', depends_on: [], params: {}, expectedOutput: 'o' }] })
+    const result = await layers.l2('帮我看看这段文字说了什么大概意思', null, makeCtx())
+    expect(result.kind).toBe('plan')
+    if (result.kind === 'plan') {
+      expect(result.macroManifestId).toBeNull()
+      expect(result.plan.intent).toBe('兜底')
+    }
+  })
+
+  it('L2 绿色：file_or_text + 内联材料 → 剥离 read_file、材料注入 prompt', async () => {
+    const m = makeTypedManifest({ id: 'minutes', inputType: 'file_or_text', steps: MEETING_DAG })
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: makeMatchItem({ source: 'l2', manifest: m }),
+      confidence: 0.97,
+      matchMethod: 'keyword',
+      isAmbiguous: false,
+      gate: 'green'
+    } as UniversalMatchResult)
+    const result = await layers.l2('整理成会议纪要，内容如下：张三汇报了项目进度，李四提出了预算问题，王五负责跟进', null, makeCtx())
+    expect(result.kind).toBe('plan')
+    if (result.kind === 'plan') {
+      expect(result.macroManifestId).toBe('minutes')
+      expect(result.plan.steps).toHaveLength(1)
+      expect(result.plan.steps[0].tool).toBe('llm_generate')
+      expect(String(result.plan.steps[0].params.prompt)).toContain('张三汇报了项目进度')
+      expect(String(result.plan.steps[0].params.prompt)).not.toContain('{{step_1_result}}')
+    }
+  })
+
+  it('L2 绿色：file_or_text + 真实路径 → {{user_file}} 绑定', async () => {
+    const m = makeTypedManifest({ id: 'minutes', inputType: 'file_or_text', steps: MEETING_DAG })
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: makeMatchItem({ source: 'l2', manifest: m }),
+      confidence: 0.97,
+      matchMethod: 'keyword',
+      isAmbiguous: false,
+      gate: 'green'
+    } as UniversalMatchResult)
+    const result = await layers.l2('把 C:\\Users\\Admin\\Desktop\\记录.docx 整理成会议纪要', null, makeCtx())
+    expect(result.kind).toBe('plan')
+    if (result.kind === 'plan') {
+      expect(result.plan.steps[0].tool).toBe('read_file')
+      expect(String(result.plan.steps[0].params.path)).toBe('C:\\Users\\Admin\\Desktop\\记录.docx')
+    }
+  })
+
+  it('L2 黄门 show_candidates：file 候选被过滤后仅剩 text 候选 → 单候选翻译路径用幸存者', async () => {
+    const mFile = makeTypedManifest({ id: 'reader', inputType: 'file', steps: MEETING_DAG })
+    const mText = makeTypedManifest({ id: 'writer', inputType: 'text', steps: MEETING_DAG })
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: makeMatchItem({ source: 'l2', manifest: mFile }),
+      confidence: 0.7,
+      matchMethod: 'keyword',
+      isAmbiguous: true,
+      candidates: [
+        { item: makeMatchItem({ source: 'l2', manifest: mFile }), score: 0.7, method: 'keyword' },
+        { item: makeMatchItem({ source: 'l2', manifest: mText }), score: 0.6, method: 'keyword' }
+      ],
+      gate: 'yellow'
+    } as UniversalMatchResult)
+    vi.mocked(translateIntent).mockResolvedValue({ intent: '执行writer', params: { x: '1' } })
+    const result = await layers.l2('帮我看看这段文字说了什么大概意思呢', null, makeCtx())
+    expect(result.kind).toBe('intent-confirm')
+    expect(translateIntent).toHaveBeenCalledWith(expect.anything(), mText, expect.anything())
+  })
+
+  it('L2 黄门：全部候选被门控拒绝 → miss（降级 L3）', async () => {
+    const mFile = makeTypedManifest({ id: 'reader', inputType: 'file', steps: MEETING_DAG })
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: makeMatchItem({ source: 'l2', manifest: mFile }),
+      confidence: 0.7,
+      matchMethod: 'keyword',
+      isAmbiguous: true,
+      candidates: [{ item: makeMatchItem({ source: 'l2', manifest: mFile }), score: 0.7, method: 'keyword' }],
+      gate: 'yellow'
+    } as UniversalMatchResult)
+    expect((await layers.l2('帮我看看这段文字说了什么大概意思呢', null, makeCtx())).kind).toBe('miss')
+  })
+
+  it('L0.5：file 模板无文件输入 → miss', () => {
+    const m = makeTypedManifest({ id: 'reader', inputType: 'file', steps: MEETING_DAG })
+    vi.mocked(tryL05QuickMatch).mockReturnValue({ manifest: m, confidence: 0.95, matchedKeywords: ['技能'] })
+    expect(layers.l05('帮我看看这段文字说了什么大概意思', null, makeCtx()).kind).toBe('miss')
+  })
+
+  it('L0.5：file_or_text + 内联材料 → 适配后的计划', () => {
+    const m = makeTypedManifest({ id: 'minutes', inputType: 'file_or_text', steps: MEETING_DAG })
+    vi.mocked(tryL05QuickMatch).mockReturnValue({ manifest: m, confidence: 0.95, matchedKeywords: ['技能'] })
+    const result = layers.l05('整理成会议纪要，内容如下：张三汇报了项目进度，李四提出了预算问题，王五负责跟进', null, makeCtx())
+    expect(result.kind).toBe('plan')
+    if (result.kind === 'plan') {
+      expect(result.plan.steps).toHaveLength(1)
+      expect(result.plan.steps[0].tool).toBe('llm_generate')
+    }
+  })
+})

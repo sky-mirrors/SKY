@@ -24,12 +24,10 @@ import { debugLog } from '@/services/debugLog'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 
-const STEP_TIMEOUT_MS: Record<string, number> = {
-  nano: 8000,
-  mini: 15000,
-  standard: 30000,
-  pro: 60000
-}
+// P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
+// 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
+// 无显式 timeoutMs override 时不武装本地计时器，超时完全交给 apiStore 统一阶梯
+// （tierTimeoutFor，fetchSignal 已桥接 externalSignal）；有 override 时本地计时器带 TimeoutError 理由。
 
 const TIER_DOWNGRADE: Record<string, string> = {
   pro: 'standard',
@@ -144,7 +142,14 @@ export async function callToolDirectWithTier(
       content: String(args.content || ''),
       encoding: args.encoding ? String(args.encoding) as BufferEncoding : undefined
     })
-    if (result.success) return `文件已写入: ${result.path}`
+    if (result.success) {
+      // P1-D2：空内容写入也返回 success（ipc 层不拦截），此处如实标注，
+      // 防止 LLM 摘要转述"已写入"掩盖空产物假完成
+      const written = String(args.content || '')
+      return written.trim()
+        ? `文件已写入: ${result.path}`
+        : `文件已写入: ${result.path}（⚠️ 空文件：未写入任何内容）`
+    }
     throw new Error(result.error || 'file_write failed')
   }
 
@@ -166,7 +171,14 @@ export async function callToolDirectWithTier(
       content: args.content ? String(args.content) : undefined,
       title: args.title ? String(args.title) : undefined
     })
-    if (result.success) return `docx文件已创建: ${result.path}`
+    if (result.success) {
+      // P1-D2：无标题无内容的 docx 同样如实标注（ipc 层空内容也返回 success）
+      const docxBody = args.content ? String(args.content) : ''
+      const docxTitle = args.title ? String(args.title) : ''
+      return (docxBody.trim() || docxTitle.trim())
+        ? `docx文件已创建: ${result.path}`
+        : `docx文件已创建: ${result.path}（⚠️ 空文档：无标题无内容）`
+    }
     throw new Error(result.error || 'create_docx failed')
   }
 
@@ -205,7 +217,7 @@ export async function callToolDirectWithTier(
         // 2) HOME_DIR 伪造为 'C:\Users\Default'（不存在的兜底目录）恒 FILE_MISSING；
         // 3) shellExec 子进程 env 已合并主进程 process.env（见 ipc-handlers A-03），
         //    USERPROFILE/HOME 天然是真实用户目录，无需任何 HOME_DIR
-        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');console.log(fs.existsSync(fp)?'FILE_EXISTS:'+fp:'FILE_MISSING:'+fp)"`
+        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');let sz=-1;try{sz=fs.statSync(fp).size}catch(e){}console.log(sz<0?'FILE_MISSING:'+fp:(sz>0?'FILE_EXISTS:':'FILE_EMPTY:')+fp)"`
         try {
           const checkResult = await window.electronAPI.shellExec({
             command: checkCmd,
@@ -216,6 +228,10 @@ export async function callToolDirectWithTier(
           })
           if (checkResult.stdout.includes('FILE_EXISTS')) {
             return `文件已保存: ${expectedFileName}`
+          }
+          // P1-D2：存在性之外加非空核验——0 字节产物即假完成，如实标注
+          if (checkResult.stdout.includes('FILE_EMPTY')) {
+            return `⚠️ 命令执行成功但产物为空文件（0 字节）: ${expectedFileName}。原始输出: ${result.stdout || '(无输出)'}`
           }
           return `⚠️ 命令执行成功但文件未找到: ${expectedFileName}。原始输出: ${result.stdout || '(无输出)'}`
         } catch {
@@ -278,23 +294,26 @@ export async function callToolDirectWithTier(
     }
     const tierConfig = getTierConfig(tier)
     const maxTokens = Number(args.maxTokens) || tierConfig.maxTokens
-    const stepTimeout = timeoutMs || STEP_TIMEOUT_MS[tier] || 30000
+    // P0-B2：仅显式 timeoutMs override 武装本地计时器；默认超时交由 apiStore 统一阶梯
+    const stepTimeout = timeoutMs || null
 
     let currentTier = tier
     let lastError: Error | null = null
 
     for (let attempt = 0; attempt < 4; attempt++) {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), stepTimeout)
+      const timeoutId = stepTimeout
+        ? setTimeout(() => controller.abort(new DOMException(`LLM step timeout after ${stepTimeout}ms`, 'TimeoutError')), stepTimeout)
+        : null
 
       if (externalSignal) {
         if (externalSignal.aborted) {
-          clearTimeout(timeoutId)
+          if (timeoutId !== null) clearTimeout(timeoutId)
           throw new DOMException('Aborted by external signal', 'AbortError')
         }
         externalSignal.addEventListener('abort', () => {
           controller.abort()
-          clearTimeout(timeoutId)
+          if (timeoutId !== null) clearTimeout(timeoutId)
         }, { once: true })
       }
 
@@ -308,10 +327,10 @@ export async function callToolDirectWithTier(
           // G-2：tierConfig.temperature 首次真实送达模型（原从未进请求体）
           routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
         })
-        clearTimeout(timeoutId)
+        if (timeoutId !== null) clearTimeout(timeoutId)
         return resp.content || '(LLM无输出)'
       } catch (err) {
-        clearTimeout(timeoutId)
+        if (timeoutId !== null) clearTimeout(timeoutId)
         lastError = err instanceof Error ? err : new Error(String(err))
         if (externalSignal?.aborted) {
           throw new DOMException('Aborted by external signal', 'AbortError')
@@ -577,6 +596,11 @@ export async function executeStep(
         onSideEffect?.(step.step, step.tool, 'create', fileMatch[1])
       }
     }
+    // P1-D2：原生写文件工具纳入副作用记录（供产物核验闸门比对用户要求）
+    if (step.tool === 'file_write' || step.tool === 'create_docx') {
+      const writePath = String(resolvedArgs.filePath || resolvedArgs.path || '')
+      if (writePath) onSideEffect?.(step.step, step.tool, 'create', writePath)
+    }
     if (step.tool === 'read_file') {
       const path = String(resolvedArgs.path || resolvedArgs.file_path || '')
       if (path) onSideEffect?.(step.step, step.tool, 'read', path)
@@ -791,7 +815,7 @@ export async function executeMacro(
   onPlanPreview?: (preview: string) => void,
   replayPriorResults?: Record<number, string>,
   traceId?: string
-): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage }> {
+): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage; sideEffects: import('@/models').SideEffectRecord[] }> {
   const { execution } = manifest
   let savedTokens = 0
   const macroController = new AbortController()
@@ -826,7 +850,7 @@ export async function executeMacro(
     })
     // D-08：direct 模式提前返回前注销控制器
     unregisterAbort()
-    return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }] }
+    return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }], sideEffects: [] }
   }
 
   if (!execution.dagPlan) {
@@ -989,7 +1013,17 @@ export async function executeMacro(
     }
     const lastStep = steps[steps.length - 1]
     wfComplete(hasFailedStep ? 'failed' : 'completed')
-    return { results: finalResults, lastResult: hasFailedStep ? '执行失败(编译缓存路径)' : (finalResults[lastStep.step] || '执行完成(编译缓存)'), savedTokens, lineage }
+    let autoLastResult = hasFailedStep ? '执行失败(编译缓存路径)' : (finalResults[lastStep.step] || '执行完成(编译缓存)')
+    // P1-D3：产物核验闸门——成功路径收口时核对"用户要求的命名产物"是否真实产生，
+    // 失败即前置核验事实 + 清指纹（防假成功重放）；任何异常 fail-open
+    if (!hasFailedStep) {
+      try {
+        const { applyDeliverableGate } = await import('./deliverableCheck')
+        const createdArtifacts = sideEffects.filter(s => s.operation === 'create').map(s => s.filePath)
+        autoLastResult = await applyDeliverableGate(userInput.inputText || '', createdArtifacts, autoLastResult, manifest.identity.id, inputFingerprint)
+      } catch { /* fail-open */ }
+    }
+    return { results: finalResults, lastResult: autoLastResult, savedTokens, lineage, sideEffects }
   }
 
   // P1-14 修复：原传 {}，replay 场景下脏步判定恒空集；改传 replayPriorResults 真实变量表
@@ -1152,7 +1186,7 @@ export async function executeMacro(
             // D-08：并行 ask_user 失败提前返回前注销控制器
             wfComplete('failed')
             unregisterAbort()
-            return { results, lastResult: '执行中断', savedTokens, lineage }
+            return { results, lastResult: '执行中断', savedTokens, lineage, sideEffects }
           }
         }
       }
@@ -1195,10 +1229,20 @@ export async function executeMacro(
   const lastStep = steps.filter(s => !skipSteps.has(s.step))
   const finalStep = lastStep[lastStep.length - 1]
   const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
+  // P1-D3：产物核验闸门——主路径收口时核对"用户要求的命名产物"是否真实产生
+  // （存在性/非空），失败即前置核验事实到结果 + 清指纹防假成功重放；fail-open
+  let gatedResult = lastResult
+  if (stepFailed.size === 0) {
+    try {
+      const { applyDeliverableGate } = await import('./deliverableCheck')
+      const createdArtifacts = sideEffects.filter(s => s.operation === 'create').map(s => s.filePath)
+      gatedResult = await applyDeliverableGate(userInput.inputText || '', createdArtifacts, lastResult, manifest.identity.id, inputFingerprint)
+    } catch { /* fail-open */ }
+  }
   wfComplete(stepFailed.size > 0 ? 'failed' : 'completed')
   // B-09：定向注销本宏的控制器，不再清空全局注册表（避免误杀并发任务）
   unregisterAbort()
-  return { results, lastResult, savedTokens, lineage }
+  return { results, lastResult: gatedResult, savedTokens, lineage, sideEffects }
 }
 
 export function resolveDirectPrompt(

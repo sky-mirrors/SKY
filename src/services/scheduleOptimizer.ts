@@ -129,6 +129,19 @@ export function findCachedExecution(manifestId: string, inputFingerprint: string
   return fingerprintStore.find(f => f.manifestId === manifestId && f.inputHash === inputFingerprint) || null
 }
 
+/**
+ * P1-D4：清除指定执行指纹。
+ * 产物核验闸门发现假完成（要求的文件未产生/为空）时调用，防止假成功结果
+ * 入库后被同输入重放（复考 Q14 totalTokens=0 零调用重放病理）。同步立即落盘。
+ */
+export function evictFingerprint(manifestId: string, inputFingerprint: string): void {
+  const idx = fingerprintStore.findIndex(f => f.manifestId === manifestId && f.inputHash === inputFingerprint)
+  if (idx < 0) return
+  fingerprintStore.splice(idx, 1)
+  persistDirty = true
+  persistToStore()
+}
+
 export function saveExecutionFingerprint(
   manifestId: string,
   inputFingerprint: string,

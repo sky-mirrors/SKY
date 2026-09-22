@@ -198,6 +198,9 @@ export interface UserConfig {
   favoriteSkills?: string[]
   recentSkills?: RecentSkillEntry[]
   viewMode?: 'starmap' | 'preview'
+  // P0-B4：LLM 超时整体缩放系数（1=默认 CPU 校准阶梯；CPU 慢机可调大，
+  // 乘 tierTimeoutFor 各档；仅渲染进程 apiStore 生效，主进程 IPC 固定 scale=1）
+  llmTimeoutScale?: number
 }
 
 export interface RecentSkillEntry {
@@ -410,6 +413,9 @@ export interface DialogMessage {
   fileAttachment?: FileAttachment
   timestamp: number
   isTyping?: boolean
+  // P0-C1：请求级会话归属——sendMessage 期间用户切换会话时，异步管线追加的消息
+  // 按发起请求的原会话路由（写入 sessionStore），sessionId 记录归属便于审计
+  sessionId?: string
 }
 
 export interface StreamChunk {
@@ -671,6 +677,8 @@ export interface L2ToolVisual {
 
 export interface L2ToolRouting {
   keywords: string[]
+  /** P1-D5：输入命中任一禁词则该清单关键字得分直接归零（防列查/转换类输入误投） */
+  forbiddenKeywords?: string[]
   targetRoles: ('hr' | 'finance' | 'legal' | 'sales' | 'general')[]
   requiredL1: string[]
   inputType: 'file' | 'text' | 'file_or_text'

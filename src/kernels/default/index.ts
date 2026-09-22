@@ -13,6 +13,7 @@ import {
   type RaapMatchResult
 } from '@/services/toolRetrieval'
 import { selectRewriteStrategy, selectDisambigStrategy, extractStrategyContext } from '@/services/strategySelector'
+import { gateTemplateForInput, classifyTemplateInput, detectInputForm } from '@/services/inputForm'
 import { extractEntities } from '@/services/nerExtractor'
 import { getPackIdForManifest, getPackWeight } from '@/host/packRuntime'
 import { computeBidScore, resolveCompetition, qualityEmaStore, type PackBidder } from '@/kernel/competition'
@@ -93,16 +94,23 @@ async function planTaskWithFallback(input: string, ctx: DefaultKernelContext): P
   }
 }
 
-/** 旧 :1040-1077：从 RaaP 命中 manifest 构建计划；不可执行形态 → planTask 兜底（macroManifestId 置空） */
+/** 旧 :1040-1077：从 RaaP 命中 manifest 构建计划；不可执行形态 → planTask 兜底（macroManifestId 置空）。
+ *  P0-A：构建前先过输入门控（gateTemplateForInput）——file 模板无文件输入 → planTask 兜底；
+ *  file_or_text 无文件但有内联材料 → 剥离读取步骤、材料直注 prompt；有真实路径 → 绑定 {{user_file}}。 */
 async function finalizeRaapPlan(raap: RaapMatchResult, input: string, ctx: DefaultKernelContext): Promise<LayerResult> {
   const m = raap.manifest
+  const gate = gateTemplateForInput(m, input)
+  if (gate.action === 'reject') {
+    return { kind: 'plan', plan: await planTaskWithFallback(input, ctx), macroManifestId: null }
+  }
   if ((m.execution.mode === 'macro' || m.execution.mode === 'chain') && m.execution.dagPlan) {
+    const sourceSteps = gate.steps || m.execution.dagPlan.steps
     return {
       kind: 'plan',
       plan: {
         intent: m.identity.name,
         needs: m.routing.keywords.slice(0, 3),
-        steps: m.execution.dagPlan.steps.map(s => ({
+        steps: sourceSteps.map(s => ({
           step: s.step,
           description: s.description,
           tool: s.tool,
@@ -181,7 +189,8 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
     isAmbiguous: false,
     gate: 'green'
   }, input, ctx)
-  if (result.kind !== 'plan') return null
+  // P0-A：胜者被输入门控拒绝（file 模板无文件输入）→ 按未触发竞争处理，落回原消歧/下层
+  if (result.kind !== 'plan' || !result.macroManifestId) return null
 
   const competition: CompetitionRecord = {
     winnerPackId: resolved.winner.packId,
@@ -191,7 +200,12 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
 }
 
 /** 旧 :848-956：L2 歧义黄门消歧四策略 */async function disambiguate(input: string, raap: RaapMatchResult, ctx: DefaultKernelContext): Promise<LayerResult> {
-  const cands = raap.candidates || []
+  // P0-A：先按输入门控过滤候选——file 模板无文件输入的候选不参与消歧
+  const formInfo = detectInputForm(input)
+  const cands = (raap.candidates || []).filter(c =>
+    classifyTemplateInput(c.manifest, formInfo) !== 'reject'
+  )
+  if (cands.length === 0) return { kind: 'miss' }
   const disambigCtx = extractStrategyContext({
     content: input,
     entities: [],
@@ -211,23 +225,24 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
         }
       }
       // 单候选 → 翻译意图（确认/槽位填充）；翻译失败 → 降级 L3
-      const translated = await translateIntent(input, raap.manifest, ctx.recentUserMsg)
+      const singleManifest = cands[0].manifest
+      const translated = await translateIntent(input, singleManifest, ctx.recentUserMsg)
       if (translated) {
-        const slotSlots = raap.manifest.execution.paramMapping?.slots || []
+        const slotSlots = singleManifest.execution.paramMapping?.slots || []
         const missingRequired = slotSlots.filter(s => s.required && !translated.params[s.name])
         if (missingRequired.length === 0) {
           return {
             kind: 'intent-confirm',
             intent: translated.intent,
-            manifestId: raap.manifest.identity.id,
+            manifestId: singleManifest.identity.id,
             params: translated.params,
             originalInput: input
           }
         }
         return {
           kind: 'slot-fill',
-          manifestId: raap.manifest.identity.id,
-          manifestName: raap.manifest.identity.name,
+          manifestId: singleManifest.identity.id,
+          manifestName: singleManifest.identity.name,
           slots: slotSlots.map(s => ({
             name: s.name,
             description: s.description,
@@ -292,6 +307,9 @@ function l05(input: string, merged: AdvisoryContribution | null, ctx: DefaultKer
   const l05Result = tryL05QuickMatch(input, ctx.allL2Manifests)
   if (!l05Result) return { kind: 'miss' }
   const m = l05Result.manifest
+  // P0-A：输入门控——file 模板无文件输入不进快配
+  const gate = gateTemplateForInput(m, input)
+  if (gate.action === 'reject') return { kind: 'miss' }
   let plan: TaskPlan
   if (m.execution.mode === 'direct' && m.execution.directCall) {
     plan = {
@@ -307,10 +325,11 @@ function l05(input: string, merged: AdvisoryContribution | null, ctx: DefaultKer
       }]
     }
   } else if (m.execution.dagPlan) {
+    const sourceSteps = gate.steps || m.execution.dagPlan.steps
     plan = {
       intent: m.identity.name,
       needs: m.routing.keywords.slice(0, 3),
-      steps: m.execution.dagPlan.steps.map(s => ({
+      steps: sourceSteps.map(s => ({
         step: s.step, description: s.description, tool: s.tool,
         depends_on: s.depends_on, params: s.params as Record<string, string>, expectedOutput: s.expectedOutput
       }))

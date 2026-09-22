@@ -108,12 +108,16 @@ beforeEach(() => {
   const shellExecFn = vi.fn().mockResolvedValue({ success: true, stdout: 'shell-output', stderr: '', code: 0 })
   const fileReadFn = vi.fn().mockResolvedValue({ success: true, content: 'file-content', size: 100, isBinary: false, encoding: 'utf-8' })
   const httpFetchFn = vi.fn().mockResolvedValue({ success: true, status: 200, body: 'http-body' })
+  const fileWriteFn = vi.fn().mockResolvedValue({ success: true, path: 'C:\\Users\\Test\\Desktop\\out.txt' })
+  const createDocxFn = vi.fn().mockResolvedValue({ success: true, path: 'C:\\Users\\Test\\Desktop\\out.docx' })
 
   ;(globalThis as any).window = {
     electronAPI: {
       shellExec: shellExecFn,
       fileRead: fileReadFn,
       httpFetch: httpFetchFn,
+      fileWrite: fileWriteFn,
+      createDocx: createDocxFn,
       vaultRead: vi.fn().mockResolvedValue(null),
       vaultWrite: vi.fn().mockResolvedValue(undefined),
       vaultDelete: vi.fn().mockResolvedValue(undefined),
@@ -364,6 +368,57 @@ describe('callToolDirectWithTier - MCP tool', () => {
   it('MCP连接未找到抛出异常', async () => {
     await expect(callToolDirectWithTier('missing-server___tool', {}))
       .rejects.toThrow('MCP连接未找到')
+  })
+})
+
+describe('callToolDirectWithTier - P1-D2 空产物如实标注', () => {
+  it('file_write 有内容正常返回', async () => {
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: '实际内容' })
+    expect(result).toBe('文件已写入: C:\\Users\\Test\\Desktop\\out.txt')
+    expect(result).not.toContain('⚠️')
+  })
+
+  it('file_write 空内容返回⚠️空文件标注', async () => {
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: '' })
+    expect(result).toContain('文件已写入')
+    expect(result).toContain('⚠️ 空文件')
+  })
+
+  it('file_write 纯空白内容同样标注', async () => {
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: '   \n  ' })
+    expect(result).toContain('⚠️ 空文件')
+  })
+
+  it('create_docx 有标题正常返回', async () => {
+    const result = await callToolDirectWithTier('create_docx', { filePath: 'C:\\Users\\Test\\Desktop\\out.docx', title: '标题' })
+    expect(result).toBe('docx文件已创建: C:\\Users\\Test\\Desktop\\out.docx')
+    expect(result).not.toContain('⚠️')
+  })
+
+  it('create_docx 无标题无内容返回⚠️空文档标注', async () => {
+    const result = await callToolDirectWithTier('create_docx', { filePath: 'C:\\Users\\Test\\Desktop\\out.docx' })
+    expect(result).toContain('docx文件已创建')
+    expect(result).toContain('⚠️ 空文档')
+  })
+
+  it('shell_exec Desktop 产物 0 字节 → FILE_EMPTY ⚠️标注', async () => {
+    const cmd = 'node -e "require(\'fs\').writeFileSync(process.env.USERPROFILE+\'\\\\Desktop\\\\新建文档.docx\',Buffer.from(\'\'))"'
+    ;(globalThis as any).window.electronAPI.shellExec
+      .mockResolvedValueOnce({ success: true, stdout: '文件已保存', stderr: '', code: 0 })
+      .mockResolvedValueOnce({ success: true, stdout: 'FILE_EMPTY:C:\\Users\\Test\\Desktop\\新建文档.docx', stderr: '', code: 0 })
+    const result = await callToolDirectWithTier('shell_exec', { command: cmd })
+    expect(result).toContain('⚠️')
+    expect(result).toContain('空文件')
+    expect(result).toContain('新建文档.docx')
+  })
+
+  it('shell_exec Desktop 产物存在且非空 → 正常返回', async () => {
+    const cmd = 'node -e "require(\'fs\').writeFileSync(process.env.USERPROFILE+\'\\\\Desktop\\\\新建文档.docx\',Buffer.from(\'x\'))"'
+    ;(globalThis as any).window.electronAPI.shellExec
+      .mockResolvedValueOnce({ success: true, stdout: '文件已保存', stderr: '', code: 0 })
+      .mockResolvedValueOnce({ success: true, stdout: 'FILE_EXISTS:C:\\Users\\Test\\Desktop\\新建文档.docx', stderr: '', code: 0 })
+    const result = await callToolDirectWithTier('shell_exec', { command: cmd })
+    expect(result).toBe('文件已保存: 新建文档.docx')
   })
 })
 

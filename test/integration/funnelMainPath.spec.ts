@@ -306,6 +306,33 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
   })
 
+  it('F-4：自动执行路径诚实标注「未经用户点击确认」，不伪装成用户确认', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: '探索量子计算' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('探索一下量子计算')
+
+    const notices = noticeTexts(store)
+    expect(notices).toMatch(/⚡ 自动执行.*未经用户点击确认/)
+    expect(notices).not.toContain('✅ 用户确认')
+  })
+
+  it('F-4：用户点击确认路径保留「✅ 用户确认」文案', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: 'funnel任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L0' } as FunnelOutcome)
+
+    await store.sendMessage('测试消息')
+    expect(store.awaitingConfirmation).toBe(true)
+
+    await store.confirmPlan()
+    expect(noticeTexts(store)).toContain('✅ 用户确认')
+    expect(noticeTexts(store)).not.toMatch(/⚡ 自动执行.*未经用户点击确认/)
+  })
+
   it('plan(L2, 确认) → 计划自检思维链 + 任务分析(DAG) 文案', async () => {
     funnelMainFlag = null
     setupBus()

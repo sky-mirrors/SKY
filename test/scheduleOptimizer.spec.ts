@@ -21,7 +21,10 @@ import {
   computeParallelGroups,
   getValidationCacheKey,
   lookupValidationCache,
-  saveValidationCache
+  saveValidationCache,
+  saveExecutionFingerprint,
+  findCachedExecution,
+  evictFingerprint
 } from '@/services/scheduleOptimizer'
 import type { L2DagStep, L2ToolManifest } from '@/models'
 
@@ -445,6 +448,29 @@ describe('scheduleOptimizer', () => {
       const r2 = lookupValidationCache(key2)
       expect(r1!.risk_level).toBe('low')
       expect(r2!.risk_level).toBe('high')
+    })
+  })
+
+  describe('evictFingerprint (P1-D4)', () => {
+    it('保存后清除 → findCachedExecution 为 null', () => {
+      saveExecutionFingerprint('m-evict', 'fp-1', { 1: 'h1' }, { 1: 'r1' })
+      expect(findCachedExecution('m-evict', 'fp-1')).not.toBeNull()
+      evictFingerprint('m-evict', 'fp-1')
+      expect(findCachedExecution('m-evict', 'fp-1')).toBeNull()
+    })
+
+    it('只清除目标指纹，其它保留', () => {
+      saveExecutionFingerprint('m-evict', 'fp-A', {}, {})
+      saveExecutionFingerprint('m-evict', 'fp-B', {}, {})
+      evictFingerprint('m-evict', 'fp-A')
+      expect(findCachedExecution('m-evict', 'fp-A')).toBeNull()
+      expect(findCachedExecution('m-evict', 'fp-B')).not.toBeNull()
+      // 清理，避免污染模块级 store
+      evictFingerprint('m-evict', 'fp-B')
+    })
+
+    it('清除不存在的指纹不报错', () => {
+      expect(() => evictFingerprint('nonexistent', 'nonexistent')).not.toThrow()
     })
   })
 })
