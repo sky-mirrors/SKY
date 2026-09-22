@@ -421,6 +421,38 @@ export function extractStepResult(result: string, consumerStep: L2DagStep, sourc
   return result.substring(0, 500)
 }
 
+/**
+ * B1：从「清单类步骤」（list_directory）的结果里挑出与用户输入最匹配的文件名。
+ * 无关键词命中时退回清单中的第一个文件，保证后续 read_file 的 path 非空。
+ */
+export function pickTopFileFromListing(stepResult: string, userText: string): string {
+  const names = stepResult
+    .split(/\r?\n/)
+    .map(s => s.trim().replace(/^[-*•]\s*/, ''))
+    .filter(s => s.length > 0 && !s.startsWith('(') && !s.startsWith('【'))
+  if (names.length === 0) return ''
+
+  const longestCommon = (a: string, b: string): number => {
+    let best = 0
+    for (let i = 0; i < a.length; i++) {
+      for (let len = best + 1; i + len <= a.length; len++) {
+        if (b.includes(a.substring(i, i + len))) best = len
+        else break
+      }
+    }
+    return best
+  }
+
+  let best = ''
+  let bestScore = 0
+  for (const n of names) {
+    const base = n.replace(/\.\w{1,5}$/, '')
+    const score = longestCommon(base, userText)
+    if (score > bestScore) { bestScore = score; best = n }
+  }
+  return bestScore >= 2 ? best : names[0]
+}
+
 export function resolveParams(
   step: L2DagStep,
   manifest: L2ToolManifest,
@@ -455,6 +487,17 @@ export function resolveParams(
     }
     for (const [sNum, sResult] of Object.entries(stepResults)) {
       variables[`step_${sNum}_result`] = extractStepResult(sResult, step, Number(sNum), allSteps)
+      // B1：{{step_N_top_files}} —— 从 N 步的清单结果里挑出目标文件（此前只有声明无实现，
+      // 导致 l2-weekly-report-draft-v1 的 read_file{{step_1_top_files}} 与文件检索探索计划拿不到路径）
+      const topName = pickTopFileFromListing(sResult, userInput.inputText || '')
+      if (topName) {
+        const srcStep = allSteps.find(s => s.step === Number(sNum))
+        const rawDir = srcStep && typeof srcStep.params.path === 'string' ? srcStep.params.path : ''
+        const dir = rawDir
+          .replace(/\{\{user_file\}\}/g, userInput.filePath || '')
+          .replace(/\{\{input\}\}/g, userInput.inputText || '')
+        variables[`step_${sNum}_top_files`] = dir && !dir.includes('{{') ? `${dir}\\${topName}` : topName
+      }
     }
     resolved[key] = fillCompiledPrompt(compiled, variables)
   }

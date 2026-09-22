@@ -11,6 +11,7 @@ vi.mock('@/kernel/plugins/llm', () => ({
 }))
 
 import { buildExplorePlan } from '@/services/l0SkillRouter'
+import { pickTopFileFromListing } from '@/services/macroExecutor'
 import { EXAM_CASES } from '@/exam/examCases'
 
 const q14 = EXAM_CASES.find(c => c.id === 'Q14')!
@@ -21,11 +22,17 @@ describe('N2：探索计划的确定性文件步骤', () => {
     const p = await buildExplorePlan(q14.prompt)
     expect(p.steps[0].tool).toBe('list_directory')
     expect(String(p.steps[0].params.path).toLowerCase()).toContain('desktop')
-    // 末步把清单喂给 LLM，且必须依赖第 1 步（否则 {{step_1_result}} 无依赖保证）
+    // B1：必须含「读取最相关文件」步（{{step_1_top_files}}），末步依据真实数据回答
+    const readStep = p.steps.find(s => s.tool === 'read_file')!
+    expect(readStep).toBeDefined()
+    expect(String(readStep.params.path)).toContain('{{step_1_top_files}}')
+    expect(readStep.depends_on).toContain(1)
+
     const answerStep = p.steps.find(s => s.tool === 'llm_generate')!
     expect(answerStep).toBeDefined()
-    expect(answerStep.depends_on).toContain(1)
+    expect(answerStep.depends_on).toContain(2)
     expect(JSON.stringify(answerStep.params)).toContain('{{step_1_result}}')
+    expect(JSON.stringify(answerStep.params)).toContain('{{step_2_result}}')
   })
 
   it('Q16（在 HoloExam 文件夹找张三报销单）→ 首步 list_directory 且路径含 HoloExam', async () => {
@@ -43,5 +50,19 @@ describe('N2：探索计划的确定性文件步骤', () => {
   it('纯算术请求不被劫持', async () => {
     const p = await buildExplorePlan('帮我算一下 1234 × 5678 等于多少，把计算过程也写出来。')
     expect(p.steps[0].tool).toBe('llm_generate')
+  })
+})
+
+describe('B1：从清单里挑目标文件（{{step_N_top_files}} 的解析内核）', () => {
+  const listing = 'a.txt\n张三报销单.txt\n项目周报.docx'
+  it('按用户输入关键词挑出最匹配的文件（Q16 场景）', () => {
+    const picked = pickTopFileFromListing(listing, '帮我在桌面找一下张三的报销单（在 HoloExam 文件夹里），告诉我他的报销总金额是多少钱。')
+    expect(picked).toBe('张三报销单.txt')
+  })
+  it('无关键词命中时退回清单首个（保证 read_file 的 path 非空）', () => {
+    expect(pickTopFileFromListing(listing, '把这段文字润色一下')).toBe('a.txt')
+  })
+  it('空清单返回空串', () => {
+    expect(pickTopFileFromListing('', '随便什么')).toBe('')
   })
 })

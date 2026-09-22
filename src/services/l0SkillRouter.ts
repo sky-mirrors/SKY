@@ -566,7 +566,8 @@ export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
       intent: `列出目录并回答：${input.substring(0, 50)}`,
       steps: [
         { step: 1, description: `列出目录内容：${mentionedDir}`, tool: 'list_directory', params: { path: mentionedDir }, expectedOutput: '目录中的文件清单' },
-        { step: 2, description: '依据真实清单回答用户', tool: 'llm_generate', params: { prompt: `用户请求：${input}\n\n目录 ${mentionedDir} 的实际内容清单：\n{{step_1_result}}\n\n请严格基于以上真实清单回答用户请求。` }, expectedOutput: '回答结果', depends_on: [1] }
+        { step: 2, description: '读取最相关的文件内容', tool: 'read_file', params: { path: '{{step_1_top_files}}' }, expectedOutput: '文件内容', depends_on: [1] },
+        { step: 3, description: '依据真实数据回答用户', tool: 'llm_generate', params: { prompt: `用户请求：${input}\n\n目录 ${mentionedDir} 的实际内容清单：\n{{step_1_result}}\n\n其中最相关文件的内容：\n{{step_2_result}}\n\n请严格基于以上真实数据回答用户请求。` }, expectedOutput: '回答结果', depends_on: [2] }
       ],
       isExploration: true
     }
