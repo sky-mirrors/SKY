@@ -8,13 +8,39 @@ let embedder: Embedder | null = null
 let embedderPromise: Promise<Embedder | null> | null = null
 let embedderReady = false
 
-export async function getEmbedder(): Promise<Embedder | null> {
+/**
+ * 模型加载上限——transformers.js 首载需从网络拉模型且无内置超时，网络阻塞时该 promise
+ * 永不 settle；它被缓存（embedderPromise）后，所有走嵌入的 RAG 路由会永久挂起、isProcessing
+ * 卡 true（验收考试 Q1/Q2 卡死、普通对话发 Q14 亦卡死的同型根因）。超时即降级伪向量，绝不阻塞路由。
+ */
+const LOAD_TIMEOUT_MS = 15000
+/** 加载失败/超时后的冷却窗——避免每次路由都重试一次多秒级挂起 */
+const LOAD_FAILURE_COOLDOWN_MS = 5 * 60 * 1000
+let loadCooldownUntil = 0
+
+/** 给 promise 加超时；到点 reject（不取消底层加载，仅让等待有界） */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`embedder load timeout after ${ms}ms`)), ms)
+    p.then(
+      v => { clearTimeout(timer); resolve(v) },
+      e => { clearTimeout(timer); reject(e) }
+    )
+  })
+}
+
+export async function getEmbedder(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<Embedder | null> {
   if (embedder) return embedder
+  // 冷却窗内直接降级，不重试——防重复挂起
+  if (Date.now() < loadCooldownUntil) return null
   if (embedderPromise) return embedderPromise
   embedderPromise = (async () => {
     try {
       const { pipeline } = await import('@xenova/transformers')
-      const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'fp32' } as Record<string, unknown>)
+      const extractor = await withTimeout(
+        pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'fp32' } as Record<string, unknown>),
+        timeoutMs
+      )
       embedder = {
         async embed(text: string): Promise<number[]> {
           const output = await extractor(text, { pooling: 'mean', normalize: true })
@@ -24,8 +50,9 @@ export async function getEmbedder(): Promise<Embedder | null> {
       embedderReady = true
       return embedder
     } catch (err) {
-      debugLog('[Embedder] transformers.js load failed:', err)
+      debugLog('[Embedder] transformers.js load failed/timeout:', err)
       embedderPromise = null
+      loadCooldownUntil = Date.now() + LOAD_FAILURE_COOLDOWN_MS
       return null
     }
   })()
