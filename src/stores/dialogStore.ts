@@ -1824,18 +1824,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `跳过步骤${s.step}: 依赖未满足` })
           continue
         }
-        const resolvedParams: Record<string, unknown> = {}
-        for (const [k, v] of Object.entries(s.params)) {
-          if (typeof v === 'string') {
-            let val = v
-            for (const [depNum, depResult] of Object.entries(stepResults)) {
-              val = val.replace(`{{step_${depNum}_result}}`, depResult)
-            }
-            resolvedParams[k] = val
-          } else {
-            resolvedParams[k] = v
-          }
-        }
+        // Q16 定案修复：原生工具路径原先只替换 {{step_N_result}}、不认 {{step_N_top_files}}，
+        // 导致探索计划的 read_file 收到字面量占位符（实测「文件不存在（路径：{{step_1_top_files}}）」）。
+        // 改用共享的 substitutePlaceholdersInArgs —— 同时覆盖 _result 与 _top_files（含目录拼接）。
+        const resolvedParams = substitutePlaceholdersInArgs(s.params, stepResults, plan.steps, content)
 
         addSystemNotice(`▶ 步骤${s.step}: ${s.description}`)
         try {
