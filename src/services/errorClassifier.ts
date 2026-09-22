@@ -13,7 +13,7 @@ const ERROR_KEYWORDS: Record<ErrorCategory, string[]> = {
   syntax: ['SyntaxError', 'TypeError', 'ReferenceError', 'unexpected', 'is not defined', 'Cannot read propert', 'is not a function', 'exit code'],
   network: ['ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'fetch failed', 'fetchfailed', 'network', 'socket hang up', 'DNS', 'EAI_AGAIN'],
   permission: ['EACCES', 'EPERM', 'permission denied', 'access denied', 'not authorized', 'forbidden'],
-  timeout: ['timeout', 'timed out', 'deadline exceeded', 'SIGKILL', '超时'],
+  timeout: ['timeout', 'timed out', 'timeouterror', 'deadline exceeded', 'SIGKILL', '超时'],
   resource_missing: ['ENOENT', 'MODULE_NOT_FOUND', 'not found', 'no such file', 'does not exist', 'cannot find module', '找不到'],
   file_format: ['xlsx', 'csv', 'parse error', 'invalid format', 'malformed', 'encoding', 'decode', 'not a valid'],
   logic: ['FactGuard', 'intent_match', 'parameter_sane', '不一致', '冲突', 'mismatch'],
