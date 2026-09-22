@@ -1831,6 +1831,35 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             for (const [depNum, depResult] of Object.entries(stepResults)) {
               val = val.replace(`{{step_${depNum}_result}}`, depResult)
             }
+            // Q16 定案修复：原生工具路径原先只认 {{step_N_result}}，不认 {{step_N_top_files}}，
+            // 导致探索计划的 read_file 收到字面量占位符（实测「文件不存在（路径：{{step_1_top_files}}）」）。
+            // 就地补上：从依赖步的清单结果里挑出与用户输入最匹配的文件名，并拼上该步的目录。
+            val = val.replace(/\{\{step_(\d+)_top_files\}\}/g, (whole, n: string) => {
+              const depRes = stepResults[Number(n)]
+              if (!depRes) return whole
+              const names = depRes.split(/\r?\n/)
+                .map(x => x.trim().replace(/^[-*•]\s*/, ''))
+                .filter(x => x.length > 0 && !x.startsWith('(') && !x.startsWith('【') && !/[\\/]$/.test(x))
+              if (names.length === 0) return whole
+              let best = ''
+              let bestScore = 0
+              for (const nm of names) {
+                const base = nm.replace(/\.\w{1,5}$/, '')
+                let score = 0
+                for (let i = 0; i < base.length; i++) {
+                  for (let len = score + 1; i + len <= base.length; len++) {
+                    if (content.includes(base.substring(i, i + len))) score = len
+                    else break
+                  }
+                }
+                if (score > bestScore) { bestScore = score; best = nm }
+              }
+              const picked = bestScore >= 2 ? best : names[0]
+              const depStep = plan.steps.find(x => x.step === Number(n))
+              const rawDir = depStep && typeof depStep.params.path === 'string' ? depStep.params.path : ''
+              const dir = String(rawDir).replace(/\{\{[^}]+\}\}/g, '')
+              return dir ? `${dir}\\${picked}` : picked
+            })
             resolvedParams[k] = val
           } else {
             resolvedParams[k] = v
