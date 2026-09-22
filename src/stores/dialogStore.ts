@@ -82,6 +82,8 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
   return []
 }
 
+import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool } from '@/services/nativeTools'
+
 const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
 
 【核心规则 - 必须严格遵守】
@@ -469,6 +471,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         required: ['command']
       }
     })
+    // N1：原生文件工具常驻——不依赖 MCP 文件服务器是否连接
+    tools.push(...NATIVE_TOOL_DEFS)
     tools.sort((a, b) => a.name.localeCompare(b.name))
     return tools
   }
@@ -485,10 +489,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       })
     })
     const result = filtered.length > 0 ? filtered : allTools
-    const hasShellExec = result.some(t => t.name === 'shell_exec')
-    if (!hasShellExec) {
-      const shellTool = allTools.find(t => t.name === 'shell_exec')
-      if (shellTool) result.push(shellTool)
+    // N1：常驻工具（shell_exec/read_file/list_directory/file_write）永不因计划过滤而缺席
+    for (const native of allTools) {
+      if (isAlwaysAvailableTool(native.name) && !result.some(t => t.name === native.name)) {
+        result.push(native)
+      }
     }
     result.sort((a, b) => a.name.localeCompare(b.name))
     debugLog(`[filterToolsByPlan] planned=${JSON.stringify(plannedTools)}, filtered=${result.map(t => t.name).join(',')}`)
@@ -584,6 +589,34 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       }
       globalBus.emit('debug:log-probe', { level: 'error', domain: 'shell', message: `命令执行失败(exit code ${result.code})`, detail: result.stderr || result.stdout || '' })
       return `命令执行失败（退出码${result.code}）`
+    }
+
+    // N1：原生文件工具分发——不依赖 MCP 连接
+    if (fullName === 'read_file') {
+      const path = String(args.path || args.file_path || '')
+      if (!path) return 'read_file: 缺少 path 参数'
+      if (!window.electronAPI?.fileRead) throw new Error('read_file not available')
+      const r = await window.electronAPI.fileRead(path)
+      if (!r || !r.success) return `读取失败或文件不存在: ${path}${r?.error ? `（${r.error}）` : ''}`
+      if (r.isBinary) return `文件为二进制，无法作为文本读取: ${path}`
+      return r.content ?? '(空文件)'
+    }
+    if (fullName === 'list_directory') {
+      const dirPath = String(args.path || args.dir || '')
+      if (!dirPath) return 'list_directory: 缺少 path 参数'
+      if (!window.electronAPI?.shellExec) throw new Error('list_directory not available')
+      const isWin = navigator.userAgent.includes('Windows')
+      const cmd = isWin ? `dir /b "${dirPath}"` : `ls -1 "${dirPath}"`
+      const r = await window.electronAPI.shellExec({ command: cmd, timeout: 10000 })
+      return r.success ? (r.stdout || '(空目录)') : `列目录失败: ${r.stderr || r.stdout || ''}`
+    }
+    if (fullName === 'file_write') {
+      const filePath = String(args.path || args.file_path || '')
+      const content = String(args.content ?? '')
+      if (!filePath) return 'file_write: 缺少 path 参数'
+      if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
+      const r = await window.electronAPI.fileWrite({ filePath, content })
+      return r.success ? `已写入: ${r.path || filePath}` : `写入失败: ${r.error || ''}`
     }
 
     const sepIdx = fullName.indexOf('___')
@@ -2002,7 +2035,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
 
       const candidateNames = new Set(topCandidates.map(t => t.fullName))
-      const activeTools = planFiltered.filter(t => candidateNames.has(t.name) || t.name === 'shell_exec')
+      const activeTools = planFiltered.filter(t => candidateNames.has(t.name) || isAlwaysAvailableTool(t.name))
       if (activeTools.length < 3) {
         for (const t of planFiltered) {
           if (!activeTools.some(a => a.name === t.name)) activeTools.push(t)

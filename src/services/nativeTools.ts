@@ -1,0 +1,58 @@
+// N1：常驻原生工具定义——把应用已具备的原生文件能力暴露为 LLM 可调用的 function-calling 工具。
+//
+// 背景（验收考试复考 exam-report.json 实证，Q3/Q16/Q18 三题）：
+//   dialogStore.buildMcpTools() 交给模型的工具集 = 「已连接 MCP 服务器的工具」+ 硬编码的 shell_exec。
+//   原生文件 IPC（window.electronAPI.fileRead/fileWrite）从未成为可调用工具；而 MCP_CATALOG 里的
+//   文件系统服务器（@modelcontextprotocol/server-filesystem）需用户手动 npx 安装并连接。
+//   于是未连 MCP 文件服务器时，模型手里只有 shell_exec 一个工具，面对「查桌面文件」类请求
+//   只能给散文回答——逐题证据即 Q16「我无法直接在您的电脑上查找文件…但我可以指导你」。
+//
+// 本模块把 read_file / list_directory / file_write 声明为常驻工具，与 shell_exec 同等待遇：
+//   buildMcpTools 注入 → filterToolsByPlan 不剔除 → activeTools 过滤保留 → executeToolCall 分发。
+import type { ToolDef } from './nativeToolTypes'
+
+/** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write'] as const
+
+/** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
+export function isAlwaysAvailableTool(name: string): boolean {
+  return (NATIVE_TOOL_NAMES as readonly string[]).includes(name)
+}
+
+/** 常驻原生工具定义（不含 shell_exec——其定义保留在 dialogStore.buildMcpTools） */
+export const NATIVE_TOOL_DEFS: ToolDef[] = [
+  {
+    name: 'read_file',
+    description: '读取本机文件内容（文本）。用于查看桌面/文档目录下的具体文件内容。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '要读取的文件绝对路径，例如 C:\\Users\\X\\Desktop\\a.txt' }
+      },
+      required: ['path']
+    }
+  },
+  {
+    name: 'list_directory',
+    description: '列出本机某个目录下的文件与子目录。用于盘点桌面文件、找某文件是否存在。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '要列出的目录绝对路径，例如 C:\\Users\\X\\Desktop' }
+      },
+      required: ['path']
+    }
+  },
+  {
+    name: 'file_write',
+    description: '把文本内容写入本机文件（覆盖写）。用于生成 .txt/.md 等文本文件。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '目标文件绝对路径' },
+        content: { type: 'string', description: '要写入的文本内容' }
+      },
+      required: ['path', 'content']
+    }
+  }
+]
