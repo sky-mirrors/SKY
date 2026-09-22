@@ -459,4 +459,67 @@ describe('apiStore', () => {
       clearRoutingHistory()
     })
   })
+
+  describe('P0-C5 隐式偏好注入（F-1）', () => {
+    it('chat/llm_generate/未标注任务注入 [用户偏好] system 前缀；classify/exam/结构化输出跳过', async () => {
+      const { vault } = await import('@/vault')
+      vault.clearCache()
+      const { useMemoryStore } = await import('@/stores/memoryStore')
+      const { registerExamTrace, clearExamTraces } = await import('@/exam/examRegistry')
+      const memoryStore = useMemoryStore()
+      memoryStore.setPreference('style', '输出要简洁')
+
+      const store = useApiStore()
+      store.addProvider({ id: 'test-provider', name: 'Test', baseUrl: 'http://test', authType: 'none' })
+      store.setReachable(true)
+      store.setActiveModel('test-model')
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+
+      const msgs = () => Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `c5 probe ${i}` }))
+      const lastPayload = () => electronApi.llmChatCompletion.mock.calls[electronApi.llmChatCompletion.mock.calls.length - 1][0] as { messages: { role: string; content: string }[] }
+
+      // chat：注入
+      await store.chatCompletion(msgs(), false, undefined, undefined, undefined, { taskType: 'chat' })
+      expect(lastPayload().messages[0].role).toBe('system')
+      expect(lastPayload().messages[0].content).toContain('[用户偏好]')
+      expect(lastPayload().messages[0].content).toContain('输出要简洁')
+      expect(lastPayload().messages.length).toBe(7)
+
+      // llm_generate：注入
+      await store.chatCompletion(msgs(), false, undefined, undefined, undefined, { taskType: 'llm_generate' })
+      expect(lastPayload().messages[0].content).toContain('[用户偏好]')
+
+      // 未标注 taskType（主路径只带 traceId）：注入
+      await store.chatCompletion(msgs(), false, undefined, undefined, undefined, { traceId: 'trace-c5-main' })
+      expect(lastPayload().messages[0].content).toContain('[用户偏好]')
+
+      // classify：跳过
+      await store.chatCompletion(msgs(), false, undefined, undefined, undefined, { taskType: 'classify' })
+      expect(lastPayload().messages[0].role).toBe('user')
+
+      // exam（经 traceId 反查）：跳过
+      registerExamTrace('trace-c5-exam')
+      await store.chatCompletion(msgs(), false, undefined, undefined, undefined, { traceId: 'trace-c5-exam' })
+      expect(lastPayload().messages[0].role).toBe('user')
+      clearExamTraces()
+
+      // 结构化输出任务（提示词含"只输出JSON"）：跳过
+      const jsonMsgs = [{ role: 'system', content: '你是编译器，只输出JSON' }, ...msgs().slice(0, 5)]
+      await store.chatCompletion(jsonMsgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+      expect(lastPayload().messages[0].content).toBe('你是编译器，只输出JSON')
+      expect(lastPayload().messages.some(m => m.content.includes('[用户偏好]'))).toBe(false)
+
+      // 防重复注入：已含 [用户偏好] 前缀不再叠加
+      const dupMsgs = [{ role: 'system', content: '[用户偏好]\n- style: 输出要简洁' }, ...msgs().slice(0, 5)]
+      await store.chatCompletion(dupMsgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+      expect(lastPayload().messages.filter(m => m.content.includes('[用户偏好]'))).toHaveLength(1)
+
+      // 清理：防止 vault 内存缓存泄漏到同文件后续测试
+      memoryStore.setPreference('style', '')
+      vault.clearCache()
+    })
+  })
 })

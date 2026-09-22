@@ -253,4 +253,34 @@ describe('configStore', () => {
     expect(saved.uiMode).toBe('starmap')
     expect(saved.terminologyStyle).toBe('technical')
   })
+
+  it('setLlmTimeoutScale clamps between 0.5-5 and falls back on NaN', () => {
+    const store = useConfigStore()
+    expect(store.config.llmTimeoutScale).toBe(1)
+    store.setLlmTimeoutScale(0.1)
+    expect(store.config.llmTimeoutScale).toBe(0.5)
+    store.setLlmTimeoutScale(99)
+    expect(store.config.llmTimeoutScale).toBe(5)
+    store.setLlmTimeoutScale(2)
+    expect(store.config.llmTimeoutScale).toBe(2)
+    store.setLlmTimeoutScale(Number('not-a-number'))
+    expect(store.config.llmTimeoutScale).toBe(1)
+  })
+
+  it('loadFromStorage restores llmTimeoutScale with clamping', () => {
+    vault.writeCache('config', 'holo-user-config', JSON.stringify({
+      jobRole: 'finance',
+      llmTimeoutScale: 3
+    }))
+    const store = useConfigStore()
+    store.loadFromStorage()
+    expect(store.config.llmTimeoutScale).toBe(3)
+  })
+
+  it('saveToStorage persists llmTimeoutScale', () => {
+    const store = useConfigStore()
+    store.setLlmTimeoutScale(2)
+    const saved = JSON.parse(vault.readCache('config', 'holo-user-config')!)
+    expect(saved.llmTimeoutScale).toBe(2)
+  })
 })

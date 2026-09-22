@@ -12,6 +12,7 @@ import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, ge
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
+import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
 import {
   buildProviderChain,
@@ -26,6 +27,18 @@ import { vault } from '@/vault'
 import { globalBus } from '@/kernel/bus'
 import { getPackIdForDomain } from '@/host/packRuntime'
 import { isExamTraceId } from '@/exam/examRegistry'
+import { useConfigStore } from './configStore'
+
+// P0-B4：llmTimeoutScale（UserConfig，设置页可调）→ tierTimeoutFor 整体缩放；
+// Pinia 未激活（早期单测环境）时回退 1
+function getLlmTimeoutScale(): number {
+  try {
+    const scale = useConfigStore().config.llmTimeoutScale
+    return Number.isFinite(scale) && (scale as number) > 0 ? (scale as number) : 1
+  } catch {
+    return 1
+  }
+}
 
 interface AnthropicResponse {
   content?: { text?: string }[]
@@ -513,6 +526,25 @@ export const useApiStore = defineStore('api', () => {
     // 隔离，record-cost 照常记账（监考按 traceId 归因 token/费用，行为等价真实使用）
     const isExamTraffic = routingOptions?.taskType === 'exam' || isExamTraceId(routingOptions?.traceId)
     const isLearningIsolated = isBenchmarkTraffic || isExamTraffic
+    // P0-C5（F-1）：隐式偏好注入——globalMemory.preferences 非空时以 system 前缀注入，
+    // 让"输出要简洁"等持久化偏好在主路径真实生效（原仅存不用）。
+    // 门控：exam/benchmark 跳过防污染基线；仅 chat/llm_generate/未标注任务；
+    // 结构化输出任务（提示词含"只输出JSON"）跳过防破坏解析；防重复注入。
+    // 注入位于缓存判定之后——缓存键仅取 user 消息，前缀不影响缓存命中。
+    if (!isLearningIsolated
+      && (routingOptions?.taskType === undefined || routingOptions?.taskType === 'chat' || routingOptions?.taskType === 'llm_generate')
+      && !messages.some(m => (m.content || '').includes('只输出JSON'))) {
+      try {
+        const { useMemoryStore } = await import('@/stores/memoryStore')
+        const prefs = useMemoryStore().globalMemory.preferences
+        const prefLines = Object.entries(prefs).filter(([, v]) => !!v).map(([k, v]) => `- ${k}: ${v}`)
+        if (prefLines.length > 0 && !messages.some(m => (m.content || '').includes('[用户偏好]'))) {
+          const prefPrefix = `[用户偏好]\n${prefLines.join('\n')}\n请在回答时遵守以上偏好。`
+          messages = [{ role: 'system', content: prefPrefix }, ...messages]
+          debugLog('[chatCompletion:preferences] 已注入用户偏好前缀')
+        }
+      } catch { /* non-critical */ }
+    }
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
     // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
     const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens?: number }, tier?: string, category?: string, local?: boolean) => {
@@ -724,11 +756,12 @@ export const useApiStore = defineStore('api', () => {
       const toolCount = hasTools ? (body.tools as unknown[]).length : 0
       debugLog(`[chatCompletion:direct] model=${config.value.activeModel}, msgs=${messages.length}, tools=${toolCount}, format=${chatFormat}`)
       const maxTok = maxTokens || (body.max_tokens as number) || 16384
-      const llmTierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
-      const llmAbsoluteCap = 180000
-      const effectiveTimeout = Math.min(llmTierTimeout, llmAbsoluteCap)
-      const tierSignal = AbortSignal.timeout(effectiveTimeout)
-      const capSignal = AbortSignal.timeout(llmAbsoluteCap)
+      // P0-B1：统一超时阶梯（CPU 校准值，llmTimeouts.ts 唯一定义点）+ llmTimeoutScale 缩放；
+      // abort 带 TimeoutError 理由（B3 errorClassifier 确定性归类，不再触发 unknown→额外 LLM 分类调用）
+      const effectiveTimeout = tierTimeoutFor(maxTok, getLlmTimeoutScale())
+      const tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM non-stream (maxTok=${maxTok})`)
+      const tierSignal = tierTimer.signal
+      const capSignal = AbortSignal.timeout(LLM_TIMEOUT_ABSOLUTE_CAP_MS)
       let fetchSignal: AbortSignal
       if (externalSignal) {
         fetchSignal = AbortSignal.any([externalSignal, tierSignal, capSignal])
@@ -1077,10 +1110,11 @@ export const useApiStore = defineStore('api', () => {
     }
 
     const maxTok = maxTokens || (body.max_tokens as number) || 16384
-    const llmTierTimeout = maxTok <= 512 ? 15000 : maxTok <= 4096 ? 45000 : maxTok <= 8192 ? 75000 : 120000
-    const llmAbsoluteCap = 180000
-    const tierSignal = AbortSignal.timeout(Math.min(llmTierTimeout, llmAbsoluteCap))
-    const capSignal = AbortSignal.timeout(llmAbsoluteCap)
+    // P0-B1：统一超时阶梯（同非流式路径）
+    const effectiveTimeout = tierTimeoutFor(maxTok, getLlmTimeoutScale())
+    const tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM stream (maxTok=${maxTok})`)
+    const tierSignal = tierTimer.signal
+    const capSignal = AbortSignal.timeout(LLM_TIMEOUT_ABSOLUTE_CAP_MS)
     const fetchSignal = AbortSignal.any([combinedSignal, tierSignal, capSignal])
 
     // M20：是否已向调用方发射过 chunk——流式仅允许首 chunk 前降级切换

@@ -139,6 +139,37 @@ export const useSessionStore = defineStore('session', () => {
     saveSessions(sessions.value)
   }
 
+  // P0-C2：请求级会话归属路由的原语——sendMessage 期间用户切换会话后，
+  // 异步管线的追加消息仍须写入发起请求的原会话，而非切换后的活动会话。
+  // appendSessionMessage 存 msg 引用本身：该 msg 为管线新建对象、从不进入
+  // dialogStore 活动数组，无 P0-8 别名风险；后续 updateSessionMessage 按 id 定位改写。
+
+  function appendSessionMessage(sessionId: string, msg: DialogMessage): void {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    session.messages.push(msg)
+    session.updatedAt = Date.now()
+    saveSessions(sessions.value)
+  }
+
+  function updateSessionMessages(sessionId: string, msgs: DialogMessage[]): void {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    session.messages = msgs.map(m => ({ ...m }))
+    session.updatedAt = Date.now()
+    saveSessions(sessions.value)
+  }
+
+  function updateSessionMessage(sessionId: string, messageId: string, patch: Partial<DialogMessage>): void {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    const msg = session.messages.find(m => m.id === messageId)
+    if (!msg) return
+    Object.assign(msg, patch)
+    session.updatedAt = Date.now()
+    saveSessions(sessions.value)
+  }
+
   function exportSessionQA(sessionId: string): string {
     const session = sessions.value.find(s => s.id === sessionId)
     if (!session || session.messages.length === 0) return ''
@@ -295,6 +326,9 @@ export const useSessionStore = defineStore('session', () => {
     deleteSession,
     renameSession,
     updateActiveMessages,
+    appendSessionMessage,
+    updateSessionMessages,
+    updateSessionMessage,
     exportSessionQA,
     exportSessionNarrative,
     exportAndDownload,

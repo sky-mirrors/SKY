@@ -26,7 +26,8 @@ export const useConfigStore = defineStore('config', () => {
     starmapNodeDensity: 'standard',
     dialogPanelWidth: 460,
     favoriteSkills: [],
-    recentSkills: []
+    recentSkills: [],
+    llmTimeoutScale: 1
   })
   const theme = ref<'dark' | 'light' | 'green'>('dark')
 
@@ -131,6 +132,13 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
+  // P0-B4：LLM 超时缩放系数（0.5~5 钳制；非法/越界回退 1）
+  function setLlmTimeoutScale(scale: number) {
+    const clamped = Number.isFinite(scale) ? Math.max(0.5, Math.min(5, scale)) : 1
+    config.value.llmTimeoutScale = clamped
+    saveToStorage()
+  }
+
   function addFavoriteSkill(skillId: string) {
     if (!config.value.favoriteSkills) config.value.favoriteSkills = []
     if (!config.value.favoriteSkills.includes(skillId)) {
@@ -179,6 +187,7 @@ export const useConfigStore = defineStore('config', () => {
         if (parsed.dialogPanelWidth !== undefined) setDialogPanelWidth(parsed.dialogPanelWidth)
         if (parsed.favoriteSkills) config.value.favoriteSkills = parsed.favoriteSkills
         if (parsed.recentSkills) config.value.recentSkills = parsed.recentSkills
+        if (parsed.llmTimeoutScale !== undefined) setLlmTimeoutScale(parsed.llmTimeoutScale)
         if (parsed.viewMode) config.value.viewMode = parsed.viewMode
         if (parsed.theme) {
           theme.value = parsed.theme as 'dark' | 'light' | 'green'
@@ -220,6 +229,7 @@ export const useConfigStore = defineStore('config', () => {
     setViewMode,
     setStarmapNodeDensity,
     setDialogPanelWidth,
+    setLlmTimeoutScale,
     addFavoriteSkill,
     removeFavoriteSkill,
     addRecentSkill,

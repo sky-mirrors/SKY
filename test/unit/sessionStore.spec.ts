@@ -141,4 +141,47 @@ describe('sessionStore', () => {
     expect(session.exportHistory.length).toBe(1)
     expect(session.exportHistory[0].mode).toBe('qa')
   })
+
+  // P0-C2：请求级会话归属路由原语
+  it('appendSessionMessage追加消息到指定会话（跨会话路由写入）', () => {
+    const store = useSessionStore()
+    const s1 = store.initOrLoad()
+    const s2 = store.createSession('会话2')
+    store.switchToSession(s2.id, [])
+
+    const routed = makeMessage('assistant', '原会话的响应')
+    routed.sessionId = s1.id
+    store.appendSessionMessage(s1.id, routed)
+
+    expect(s1.messages.some(m => m.content === '原会话的响应')).toBe(true)
+    expect(s2.messages.length).toBe(0)
+    // 持久化往返：新 store 实例从 vault 恢复后消息仍在
+    const saved = JSON.parse(vault.readCache('session', 'holo-sessions')!)
+    const savedS1 = saved.find((s: { id: string }) => s.id === s1.id)
+    expect(savedS1.messages.some((m: DialogMessage) => m.content === '原会话的响应')).toBe(true)
+  })
+
+  it('updateSessionMessage按id改写指定会话消息（流式补写/docx附件改写）', () => {
+    const store = useSessionStore()
+    const s1 = store.initOrLoad()
+    const msg = makeMessage('assistant', '生成中...')
+    store.appendSessionMessage(s1.id, msg)
+
+    store.updateSessionMessage(s1.id, msg.id, { content: '已完成', fileAttachment: { fileName: 'a.docx', filePath: 'C:\\a.docx', fileType: 'docx' } })
+
+    const updated = s1.messages.find(m => m.id === msg.id)!
+    expect(updated.content).toBe('已完成')
+    expect(updated.fileAttachment?.fileName).toBe('a.docx')
+  })
+
+  it('updateSessionMessages全量替换指定会话消息（拷贝断别名）', () => {
+    const store = useSessionStore()
+    const s1 = store.initOrLoad()
+    const source: DialogMessage[] = [makeMessage('user', 'v2')]
+    store.updateSessionMessages(s1.id, source)
+    expect(s1.messages[0].content).toBe('v2')
+    // 拷贝断别名：改源数组不回写会话存储
+    source[0].content = 'mutated'
+    expect(s1.messages[0].content).toBe('v2')
+  })
 })
