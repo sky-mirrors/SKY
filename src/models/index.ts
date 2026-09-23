@@ -84,12 +84,6 @@ export interface ApiConfig {
   baseUrl: string
   models: ModelInfo[]
   activeModel: string
-  /**
-   * 模型协同（2026-09-23 用户要求）：按**角色**绑定模型——`main`（大模型，掌舵+兜底）/
-   * `aux`（小模型，做分类/抽取/规范化等辅助活）。见 `src\services\modelRoles.ts`。
-   * 未配置则回退 `activeProviderId`+`activeModel`（老配置零迁移）。
-   */
-  roleModels?: Partial<Record<'main' | 'aux', { providerId: string; model: string }>>
   isReachable: boolean
   lastCheckedAt: number
   providers: ProviderConfig[]
