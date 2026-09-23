@@ -698,6 +698,29 @@ export const useApiStore = defineStore('api', () => {
           recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: ipcResult.usage?.promptTokens ?? 0, completionTokens: ipcResult.usage?.completionTokens ?? 0, cacheHitTokens: ipcResult.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
         }
         emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
+
+        // 小模型兜底 + 诚实陈述（2026-09-23 需求）——远程分支同样适用：
+        // 小档（nano/mini，可能是云端小模型如 deepseek-flash）答不了 → 升级大档模型重试一次；
+        // 无大档可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
+        if (!forceTarget && detectUnsolvable(ipcResult.content)) {
+          const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+          if (escTarget) {
+            debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（远程）')
+            try {
+              const retried = await chatCompletion(
+                messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+              )
+              if (!detectUnsolvable(retried.content)) return retried
+              return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+            } catch (err) {
+              debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+            }
+          }
+          return {
+            ...ipcResult,
+            content: `${ipcResult.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+          }
+        }
         return ipcResult
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
