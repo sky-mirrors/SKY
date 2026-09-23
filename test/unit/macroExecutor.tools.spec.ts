@@ -325,10 +325,20 @@ describe('callToolDirectWithTier - llm_generate', () => {
       .rejects.toThrow()
   })
 
-  it('无输出返回默认文本', async () => {
-    llmChatCompletionFn.mockResolvedValueOnce({ content: '', toolCalls: [] })
+  // 2026-09-23 契约变更：空正文不再立即当最终答案——推理模型可能把整份 maxTokens 花在
+  // reasoning_content 上（插桩实测同一 prompt / 同一档位 / 同一预算下，contentLen 一次 359、一次 0），
+  // 故 `callToolDirectWithTier` 现在会翻倍预算重试，只有**持续为空**才回落到默认文本。
+  it('持续无输出（重试后仍空）才返回默认文本', async () => {
+    llmChatCompletionFn.mockResolvedValue({ content: '', toolCalls: [] })
     const result = await callToolDirectWithTier('llm_generate', { prompt: 'test' }, 'standard')
     expect(result).toBe('(LLM无输出)')
+  })
+
+  it('首次空输出 ⇒ 翻倍预算重试并拿到正文（不再把空当最终答案）', async () => {
+    llmChatCompletionFn.mockResolvedValueOnce({ content: '', toolCalls: [] })
+    const result = await callToolDirectWithTier('llm_generate', { prompt: 'test' }, 'standard')
+    expect(result).toBe('mocked-llm-response')
+    expect(llmChatCompletionFn.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 })
 

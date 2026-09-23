@@ -296,7 +296,7 @@ export async function callToolDirectWithTier(
       tier = modelTier
     }
     const tierConfig = getTierConfig(tier)
-    const maxTokens = Number(args.maxTokens) || tierConfig.maxTokens
+    let maxTokens = Number(args.maxTokens) || tierConfig.maxTokens
     // P0-B2：仅显式 timeoutMs override 武装本地计时器；默认超时交由 apiStore 统一阶梯
     const stepTimeout = timeoutMs || null
 
@@ -325,12 +325,22 @@ export async function callToolDirectWithTier(
         // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
         const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
           messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
-          maxTokens: Math.min(maxTokens, getTierConfig(currentTier).maxTokens),
+          // attempt>0 表示这是"空输出重试"：放开档位上限，否则 min() 会把翻倍后的预算压回档位值
+          maxTokens: attempt === 0 ? Math.min(maxTokens, getTierConfig(currentTier).maxTokens) : Math.min(maxTokens, 16384),
           signal: controller.signal,
           // G-2：tierConfig.temperature 首次真实送达模型（原从未进请求体）
           routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
         })
         if (timeoutId !== null) clearTimeout(timeoutId)
+        // ★ 空输出重试（2026-09-23 定案）：推理模型会先把 maxTokens 花在 reasoning_content 上，
+        // 且 reasoning 长度本身会波动 —— 插桩实测同一 prompt / 同一档位 / 同一预算下，
+        // contentLen 一次 359、一次 0（sent 均为 2048）。空正文不是"模型拒答"，
+        // 而是预算被思考吃满 ⇒ 翻倍预算重试，而不是把它当最终答案交付。
+        if (!resp.content && attempt < 3) {
+          maxTokens = Math.min(maxTokens * 2, 16384)
+          lastError = new Error('空输出（reasoning 吃满预算），已翻倍预算重试')
+          continue
+        }
         return resp.content || '(LLM无输出)'
       } catch (err) {
         if (timeoutId !== null) clearTimeout(timeoutId)
@@ -834,6 +844,24 @@ export interface StepLineage {
 
 export type MacroLineage = StepLineage[]
 
+/**
+ * 空产出（含 `(LLM无输出)`）不得**进入**执行指纹缓存，也不得从中**流出**（复用）。
+ *
+ * 实测（2026-09-23）：验收考试 Q12/Q15 连续三轮 token 数**逐字相同**（2210 / 2140）
+ * 且回复均为 `(LLM无输出)` —— 一次失败一旦写进指纹缓存，后续每次重跑都直接复用该空产出
+ * （`autoCompiled && cached` 早退分支在 `computeStepPlan` 之前就取用 `cached.results`，
+ * 所以只改 `computeStepPlan` 不生效——这正是 HANDOFF 警告的"改错分支不报错也不生效"）。
+ *
+ * 就地实现而非从 `scheduleOptimizer` 导入：本模块在 `funnelMainPath.spec` 中被部分 mock，
+ * 新增跨模块导出会让测试里该导出为 undefined（见 HANDOFF 记录的 8 条失败），故不新增导入。
+ */
+function isReusableCachedResult(value: unknown): boolean {
+  if (typeof value !== 'string') return value !== null && value !== undefined
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return false
+  return !trimmed.includes('(LLM无输出)')
+}
+
 function tierToLineage(tier?: string): StepLineage['source'] {
   switch (tier) {
     case 'pro': return 'llm_pro'
@@ -1047,7 +1075,7 @@ export async function executeMacro(
           }
         }
         if (!ruleMatched) {
-          if (cached.results[step.step]) {
+          if (isReusableCachedResult(cached.results[step.step])) {
             finalResults[step.step] = cached.results[step.step]
             wfUpdate(step.step, step.tool, 'completed')
             onStepReuse?.(step.step)
@@ -1066,7 +1094,7 @@ export async function executeMacro(
       } else {
         // P1-15：统一副作用工具集（原漏 create_docx → docx 结果被编译缓存复用但文件未重建）
         const hasSideEffect = SIDE_EFFECT_TOOLS.has(step.tool)
-        if (!hasSideEffect && cached.results[step.step]) {
+        if (!hasSideEffect && isReusableCachedResult(cached.results[step.step])) {
           finalResults[step.step] = cached.results[step.step]
           wfUpdate(step.step, step.tool, 'completed')
           onStepReuse?.(step.step)
@@ -1142,7 +1170,7 @@ export async function executeMacro(
   for (const reuseStep of stepPlan.willReuse) {
     // P1-15：统一不可复用缓存工具集（含 create_docx）
     if (NO_CACHE_REUSE_TOOLS.has(reuseStep.tool)) continue
-    if (cached?.results[reuseStep.step]) {
+    if (isReusableCachedResult(cached?.results[reuseStep.step])) {
       results[reuseStep.step] = cached.results[reuseStep.step]
       stepDone.set(reuseStep.step, true)
       wfUpdate(reuseStep.step, reuseStep.tool, 'completed')
@@ -1295,12 +1323,18 @@ export async function executeMacro(
     removeCheckpoint(cpId)
   }
 
-  const stepHashes: Record<number, string> = {}
+  // 2026-09-23：空产出不得**写入**指纹缓存——否则一次失败会被永久固化并跨执行重放
+  // （实测：考试 Q12/Q15 连续三轮 token 逐字相同 2210/2140 且始终无输出）。
+  const cacheableResults: Record<number, string> = {}
   for (const [num, result] of Object.entries(results)) {
+    if (isReusableCachedResult(result)) cacheableResults[Number(num)] = result
+  }
+  const stepHashes: Record<number, string> = {}
+  for (const [num, result] of Object.entries(cacheableResults)) {
     stepHashes[Number(num)] = computeStepOutputHash(result)
   }
   const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS.has(s.tool)).map(s => s.step))
-  saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, results, !!cached, sideEffectStepNums)
+  saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, cacheableResults, !!cached, sideEffectStepNums)
 
   if (sideEffects.length > 0) {
     try {

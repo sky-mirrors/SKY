@@ -329,15 +329,36 @@ export function findDirtySteps(
 //   （验收考试 8/18 题即由此而来）。故各档上调，为 reasoning 留出余量。
 // 注意 maxTokens 是**上限**而非配额：提高它不增加实际消耗，反而消除
 // "烧满预算却零产出"的纯浪费（上例 512 tokens 全废）。超时按档位阶梯放宽，无副作用。
+// 2026-09-23 二次校准：2048/3072 仍不够。同一 prompt、同一档位、同一预算下，推理模型的
+// reasoning 长度本身会波动——插桩实测同一请求两次：sent 均为 2048，contentLen 一次 359、一次 0。
+// 即 2048 恰在临界点上（reasoning 吃满 ⇒ 正文归零）。再上调一档，并配合 macroExecutor 的
+// "空输出 ⇒ 预算翻倍重试"兜底（重试会放开档位上限，处理更极端的波动）。
 const MODEL_TIER_CONFIG: Record<string, { maxTokens: number; temperature: number }> = {
-  nano: { maxTokens: 2048, temperature: 0.1 },
-  mini: { maxTokens: 3072, temperature: 0.3 },
+  nano: { maxTokens: 4096, temperature: 0.1 },
+  mini: { maxTokens: 6144, temperature: 0.3 },
   standard: { maxTokens: 8192, temperature: 0.5 },
   pro: { maxTokens: 16384, temperature: 0.7 }
 }
 
 export function getTierConfig(tier?: string): { maxTokens: number; temperature: number } {
   return MODEL_TIER_CONFIG[tier || 'standard'] || MODEL_TIER_CONFIG.standard
+}
+
+/**
+ * 空产出（含 `(LLM无输出)`）不得跨执行复用。
+ *
+ * 宏执行级指纹缓存会把步骤产出固化下来（`macroExecutor` 命中时直接用 cached.results 顶替执行）。
+ * 一旦某次因预算不足/网络失败产出空值并入缓存，后续每次重跑都会**重放同一空结果**——
+ * 实测：验收考试 Q12/Q15 连续两轮的 token 数**逐字相同**（2210 / 2140）且回复均为 `(LLM无输出)`，
+ * token 完全一致即确定性重放的铁证（抖动不会让 token 一模一样）。
+ *
+ * 与 7479149「答不出来的回答不进响应缓存」同构，但那条只覆盖对话级语义缓存。
+ */
+function isReusableCachedResult(value: unknown): boolean {
+  if (typeof value !== 'string') return value !== null && value !== undefined
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return false
+  return !trimmed.includes('(LLM无输出)')
 }
 
 export function computeStepPlan(
@@ -355,9 +376,10 @@ export function computeStepPlan(
       willSkip.push(step)
     } else if (dirtySteps.has(step.step)) {
       willExecute.push(step)
-    } else if (cachedResults && cachedResults[step.step] && !NO_CACHE_REUSE_TOOLS.has(step.tool)) {
+    } else if (cachedResults && isReusableCachedResult(cachedResults[step.step]) && !NO_CACHE_REUSE_TOOLS.has(step.tool)) {
       // P1-15 修复：原仅排除 shell_exec，file_write/create_docx 等副作用工具结果
       // 被跨执行复用=假成功；统一走 NO_CACHE_REUSE_TOOLS
+      // 2026-09-23：再加空产出闸——空结果复用会把一次失败永久固化（见 isReusableCachedResult）
       willReuse.push(step)
     } else {
       willExecute.push(step)

@@ -12,7 +12,7 @@ import { getTierConfig } from '@/services/scheduleOptimizer'
 //
 // 不变量：任何档位都必须为 reasoning 留出余量。maxTokens 是**上限**不是配额，
 // 提高它不会增加实际消耗（512 那次实际烧掉 512 tokens 却零产出，才是真浪费）。
-const MIN_TIER_MAX_TOKENS = 2048
+const MIN_TIER_MAX_TOKENS = 4096
 
 describe('档位 maxTokens 必须为推理模型的 reasoning 留出预算', () => {
   const TIERS = ['nano', 'mini', 'standard', 'pro'] as const

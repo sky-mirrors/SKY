@@ -347,6 +347,35 @@ describe('scheduleOptimizer', () => {
     })
   })
 
+  describe('computeStepPlan - 空结果不得缓存复用（2026-09-23）', () => {
+    const mk = (step: number, tool: string): L2DagStep => ({
+      step, tool, description: `步骤${step}`, params: {}, depends_on: []
+    })
+
+    // 根因：验收考试 Q12/Q15 连续两轮的 token 数**逐字相同**（2210/2140）且回复均为
+    // 「(LLM无输出)」—— token 完全一致不是抖动，而是确定性重放：空产出被宏执行级
+    // 指纹缓存固化后被跨执行复用（macroExecutor 真的会用 cached.results 顶替执行）。
+    // 与 7479149「答不出来的回答不进响应缓存」同构，但那条只覆盖对话级语义缓存。
+    it('缓存值为 (LLM无输出) 时必须重新执行，不得复用', () => {
+      const plan = computeStepPlan([mk(1, 'llm_generate')], new Set(), new Set(), { 1: '(LLM无输出)' })
+      expect(plan.willReuse.some(s => s.step === 1)).toBe(false)
+      expect(plan.willExecute.some(s => s.step === 1)).toBe(true)
+    })
+
+    it('缓存值为空串或纯空白时不得复用', () => {
+      for (const bad of ['', '   ', '\n\t']) {
+        const plan = computeStepPlan([mk(1, 'llm_generate')], new Set(), new Set(), { 1: bad })
+        expect(plan.willExecute.some(s => s.step === 1)).toBe(true)
+      }
+    })
+
+    it('正常结果仍被复用（不误伤缓存收益）', () => {
+      const plan = computeStepPlan([mk(1, 'llm_generate')], new Set(), new Set(), { 1: '正常输出内容' })
+      expect(plan.willReuse.some(s => s.step === 1)).toBe(true)
+      expect(plan.willExecute.some(s => s.step === 1)).toBe(false)
+    })
+  })
+
   describe('getTierConfig', () => {
     // 2026-09-23：档位 maxTokens 上调，为推理模型（deepseek-flash / deepseek-v4-pro）的
     // reasoning_content 留预算。原值 512/1024 是按本地非推理小模型校准的，推理模型下
@@ -354,13 +383,13 @@ describe('scheduleOptimizer', () => {
     // 详见 test/unit/tierMaxTokens.spec.ts 与 MODEL_TIER_CONFIG 处注释。
     it('nano tier', () => {
       const c = getTierConfig('nano')
-      expect(c.maxTokens).toBe(2048)
+      expect(c.maxTokens).toBe(4096)
       expect(c.temperature).toBe(0.1)
     })
 
     it('mini tier', () => {
       const c = getTierConfig('mini')
-      expect(c.maxTokens).toBe(3072)
+      expect(c.maxTokens).toBe(6144)
       expect(c.temperature).toBe(0.3)
     })
 
