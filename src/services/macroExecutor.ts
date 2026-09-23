@@ -383,7 +383,9 @@ export async function callToolDirectWithTier(
           // 2026-09-24 修订：原为"单轮汇报"，实测 Q15 卡住 —— 模型第一轮调 list_directory 拿到清单后
           // 需要**第二轮**才能调 file_move 真正重命名，而单轮回路直接要求它"汇报"，于是它停在
           // "请给出规则"（题目其实已给出 日期-序号.jpg 格式）。改为最多 2 轮续跑。
-          let convo = `我按你的要求调用了工具，真实执行结果如下：\n${outs.join('\n')}\n\n`
+          // 2026-09-24：第二轮必须**带上原始用户请求**。实测模型在第二轮回复"缺少所在目录的绝对路径
+          //（本次消息里…）"，正是因为它只收到了"工具结果 + 请继续"，用户原话（含真实路径与命名格式）被丢了。
+          let convo = `【原始请求】${prompt}\n\n【我按你的要求调用了工具，真实执行结果如下】\n${outs.join('\n')}\n\n`
           let lastOut = outs.join('\n')
           for (let round = 0; round < 2; round++) {
             const followUp = `${convo}请继续：如果用户的任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如果已全部完成，再用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
@@ -411,7 +413,7 @@ export async function callToolDirectWithTier(
                   outs2.push(`${toolName}: ⚠️ 执行失败 - ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`)
                 }
               }
-              convo = `上一轮工具的真实执行结果：\n${outs2.join('\n')}\n\n`
+              convo = `【原始请求】${prompt}\n\n【上一轮工具的真实执行结果】\n${outs2.join('\n')}\n\n`
               lastOut = outs2.join('\n')
             } catch {
               return lastOut
