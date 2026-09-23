@@ -11,6 +11,10 @@ import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
+// 模型协同（2026-09-23 用户纠正后）：按角色分派——main=大模型掌舵+兜底、aux=小模型做辅助活
+import { resolveRole, resolveRoleTarget } from '@/services/modelRoles'
+// 小模型兜底 + 诚实陈述（2026-09-23 需求）
+import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice } from '@/services/escalationPolicy'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
 import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
@@ -496,7 +500,9 @@ export const useApiStore = defineStore('api', () => {
     maxTokens?: number,
     externalSignal?: AbortSignal,
     routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number },
-    degradeState?: DegradeState
+    degradeState?: DegradeState,
+    /** 内部专用：小模型兜底升级时强制指定目标（外部调用不要传） */
+    forceTarget?: { providerId: string; model: string }
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     // M20：降级态绕过远程就绪/熔断检查——能走到降级态说明远程已失败
     if (!degradeState && (!config.value.isReachable || !config.value.activeModel)) {
@@ -623,14 +629,22 @@ export const useApiStore = defineStore('api', () => {
       }
     }
 
+    // 双模型并存（2026-09-23）：按档位解析目标 provider+model（未绑定时回退单值配置）。
+    // 注意：下方分支条件原先用 `activeProvider`（单值）判定 chatFormat，若档位把某档绑到云、
+    // 而 active 是本地 Ollama，会被误判跳过 → 故此处一并改用解析后的 tierProvider。
+    // 角色分派（2026-09-23 用户纠正后）：按调用标识判定 main（大模型掌舵）/ aux（小模型辅助）
+    const role = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+    const tierTarget = forceTarget ?? resolveRoleTarget(config.value, role)
+    const tierProvider = config.value.providers.find(p => p.id === tierTarget.providerId) ?? activeProvider.value
+
     // M17：Ollama 走渲染进程直连（主进程 isHostAllowed 拒绝 loopback），禁走 IPC
     // M20：降级态同样直连（目标是本地 Ollama）
-    if (!degradeState && window.electronAPI?.llmChatCompletion && config.value.activeProviderId
-      && activeProvider.value?.chatFormat !== 'ollama') {
+    if (!degradeState && window.electronAPI?.llmChatCompletion && tierTarget.providerId
+      && tierProvider?.chatFormat !== 'ollama') {
       try {
         const ipcArgs = {
-          providerId: config.value.activeProviderId,
-          model: config.value.activeModel,
+          providerId: tierTarget.providerId,
+          model: tierTarget.model,
           messages: messages.map(m => ({
             role: m.role,
             content: m.content,
@@ -667,7 +681,7 @@ export const useApiStore = defineStore('api', () => {
           toolCalls: result.toolCalls ?? [],
           usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
         }
-        if (cacheEligible && !isLearningIsolated && ipcResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(ipcResult.content) && ipcResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -686,6 +700,29 @@ export const useApiStore = defineStore('api', () => {
           recordOutcome(userContent, decision, effectiveTier, ipcResult.usage?.completionTokens ?? 0, actualCostOf({ promptTokens: ipcResult.usage?.promptTokens ?? 0, completionTokens: ipcResult.usage?.completionTokens ?? 0, cacheHitTokens: ipcResult.usage?.cacheHitTokens ?? 0 }, false), routingOptions?.taskType)
         }
         emitRecordCost(ipcResult.usage, effectiveTier, 'llm')
+
+        // 小模型兜底 + 诚实陈述（2026-09-23 需求）——远程分支同样适用：
+        // 小档（nano/mini，可能是云端小模型如 deepseek-flash）答不了 → 升级大档模型重试一次；
+        // 无大档可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
+        if (!forceTarget && detectUnsolvable(ipcResult.content)) {
+          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+          if (escTarget) {
+            debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（远程）')
+            try {
+              const retried = await chatCompletion(
+                messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+              )
+              if (!detectUnsolvable(retried.content)) return retried
+              return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+            } catch (err) {
+              debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+            }
+          }
+          return {
+            ...ipcResult,
+            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${ipcResult.content}`
+          }
+        }
         return ipcResult
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -783,7 +820,7 @@ export const useApiStore = defineStore('api', () => {
         recordSuccess()
         debugLog(`[chatCompletion:ollama] model=${ollamaModel}, usage: prompt=${r.usage.promptTokens}, completion=${r.usage.completionTokens}, total=${r.usage.totalTokens}`)
         const ollamaResult = { content: r.content, toolCalls: [], usage: r.usage }
-        if (cacheEligible && !isLearningIsolated && r.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(r.content) && r.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -803,6 +840,28 @@ export const useApiStore = defineStore('api', () => {
         }
         // M17/M20：本地 Ollama 零费用记账
         emitRecordCost(r.usage, effectiveTier, 'llm', true)
+
+        // 小模型兜底 + 诚实陈述（2026-09-23 需求）：本地小模型答不了（拒答/能力声明）
+        // → 升级云端大模型重试一次；无大模型可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
+        if (!forceTarget && detectUnsolvable(r.content)) {
+          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+          if (escTarget) {
+            debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底')
+            try {
+              const retried = await chatCompletion(
+                messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+              )
+              if (!detectUnsolvable(retried.content)) return retried
+              return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+            } catch (err) {
+              debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+            }
+          }
+          return {
+            ...ollamaResult,
+            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${r.content}`
+          }
+        }
         return ollamaResult
       }
       const resp = await fetch(`${baseUrl}${endpoint}`, {
@@ -826,7 +885,7 @@ export const useApiStore = defineStore('api', () => {
         const ct = aResp?.usage?.output_tokens || 0
         debugLog(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
         const anthropicResult = { content: text ? String(text) : '', toolCalls: [] }
-        if (cacheEligible && !isLearningIsolated && anthropicResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(anthropicResult.content) && anthropicResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -869,7 +928,7 @@ export const useApiStore = defineStore('api', () => {
       const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
       debugLog(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       const directResult = { content, toolCalls, usage }
-      if (cacheEligible && !isLearningIsolated && content.length > 50 && toolCalls.length === 0) {
+      if (cacheEligible && !isLearningIsolated && !detectUnsolvable(content) && content.length > 50 && toolCalls.length === 0) {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
         if (userMsg) {
           cacheStore({
@@ -888,6 +947,28 @@ export const useApiStore = defineStore('api', () => {
         recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, actualCostOf(usage, false), routingOptions?.taskType)
       }
       emitRecordCost(usage, effectiveTier, 'llm')
+
+      // 小模型兜底 + 诚实陈述（2026-09-23 需求）——direct-fetch 分支（第三个出口）。
+      // 实测：主对话走非流式 chatCompletion，而此前只包了 IPC/本地两处，故一直未生效。
+      if (!forceTarget && detectUnsolvable(directResult.content)) {
+        const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+        if (escTarget) {
+          debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（direct）')
+          try {
+            const retried = await chatCompletion(
+              messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+            )
+            if (!detectUnsolvable(retried.content)) return retried
+            return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+          } catch (err) {
+            debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+          }
+        }
+        return {
+          ...directResult,
+          content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${directResult.content}`
+        }
+      }
       return directResult
       } catch (err) {
         // B-07：调用方主动中止不是故障，不进重试/熔断统计
@@ -964,6 +1045,25 @@ export const useApiStore = defineStore('api', () => {
     const decision = smartRoute(routingInput)
     const effectiveTier = decision.tier
     debugLog(`[chatCompletionStream:route] tier=${effectiveTier}, complexity=${decision.complexity}`)
+
+    // 小模型兜底（2026-09-23 需求）：流式响应边说边发、事后无法收回 ⇒ 若本请求会走小档
+    // 且已绑定大档兜底，则改走**非流式**路径，让「小模型答不了 → 升级大模型」有机会发生。
+    // （实测：主对话走流式 ⇒ 此前接在非流式返回点的兜底从未触发。）
+    if (!degradeState) {
+      const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+      if (escTarget) {
+        debugLog('[chatCompletionStream:delegate] 小档 + 有大档兜底 → 改走非流式以便升级')
+        try {
+          const full = await chatCompletion(messages, true, tools, maxTokens, externalSignal, routingOptions)
+          callbacks.onChunk({ content: full.content, delta: full.content, toolCalls: full.toolCalls, usage: full.usage, done: true })
+          callbacks.onDone({ content: full.content, toolCalls: full.toolCalls, usage: full.usage })
+          return { cancel: () => {} }
+        } catch (err) {
+          callbacks.onError(err instanceof Error ? err : new Error(String(err)))
+          return { cancel: () => {} }
+        }
+      }
+    }
 
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
@@ -1042,7 +1142,16 @@ export const useApiStore = defineStore('api', () => {
                   totalTokens: final.usage?.totalTokens ?? (final.usage?.promptTokens ?? 0) + (final.usage?.completionTokens ?? 0),
                   cacheHitTokens: final.usage?.cacheHitTokens ?? 0
                 }, effectiveTier, 'llm')
-                callbacks.onDone(final)
+                // 诚实陈述（2026-09-23 需求）：流式路径同样适用——模型答不了就明确标注，不包装成成功。
+      // 流式已把原文发出，无法收回，故以追加一段说明的方式呈现。
+      const needsNotice = !!final && typeof final.content === 'string' && detectUnsolvable(final.content)
+      if (needsNotice && final) {
+        const noticeText = buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+        callbacks.onChunk({ content: `${final.content}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
+        callbacks.onDone({ content: `${final.content}\n\n${noticeText}`, toolCalls: final.toolCalls, usage: final.usage })
+      } else {
+        callbacks.onDone(final)
+      }
               }
             },
             onError: (err: string) => {
@@ -1166,7 +1275,18 @@ export const useApiStore = defineStore('api', () => {
             completionTokens: usageInfo?.completionTokens ?? 0,
             totalTokens: usageInfo?.totalTokens ?? 0
           }, effectiveTier, 'llm', true)
-          callbacks.onDone({ content: accumulated, toolCalls: [], usage: usageInfo })
+          {
+        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用。
+        // 关键：UI 端只消费 onChunk 的 delta（App.vue 的 port 忽略 onDone 的 final 载荷），
+        // 因此标注必须经 onChunk 发出，仅改 onDone 不会显示。
+        const noticeText = detectUnsolvable(accumulated)
+          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+          : ''
+        if (noticeText) {
+          callbacks.onChunk({ content: `${accumulated}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
+        }
+        callbacks.onDone({ content: noticeText ? `${accumulated}\n\n${noticeText}` : accumulated, toolCalls: [], usage: usageInfo })
+      }
         }
       }, maxTokens, fetchSignal, routingOptions?.temperature)
     }
@@ -1245,7 +1365,7 @@ export const useApiStore = defineStore('api', () => {
             const toolCalls = Array.from(toolCallMap.values())
             recordSuccess()
             const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
-            if (cacheEligible && !isLearningIsolated && accumulatedContent.length > 50 && toolCalls.length === 0) {
+            if (cacheEligible && !isLearningIsolated && !detectUnsolvable(accumulatedContent) && accumulatedContent.length > 50 && toolCalls.length === 0) {
               const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
               if (userMsg) {
                 cacheStore({
@@ -1269,7 +1389,16 @@ export const useApiStore = defineStore('api', () => {
               totalTokens: usageInfo?.totalTokens ?? (usageInfo?.promptTokens ?? 0) + (usageInfo?.completionTokens ?? 0),
               cacheHitTokens: usageInfo?.cacheHitTokens ?? 0
             }, effectiveTier, 'llm')
-            callbacks.onDone({ content: accumulatedContent, toolCalls, usage: usageInfo })
+            {
+        // 诚实陈述（2026-09-23 需求）：同上——必须经 onChunk 的 delta 发出才会显示在 UI
+        const noticeText2 = detectUnsolvable(accumulatedContent)
+          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+          : ''
+        if (noticeText2) {
+          callbacks.onChunk({ content: `${accumulatedContent}\n\n${noticeText2}`, delta: `\n\n${noticeText2}`, done: false })
+        }
+        callbacks.onDone({ content: noticeText2 ? `${accumulatedContent}\n\n${noticeText2}` : accumulatedContent, toolCalls, usage: usageInfo })
+      }
           }
         }, fetchSignal)
       } catch (err) {
@@ -1332,6 +1461,8 @@ export const useApiStore = defineStore('api', () => {
       if (saved) {
         if (saved.baseUrl) config.value.baseUrl = saved.baseUrl
         if (saved.activeModel) config.value.activeModel = saved.activeModel
+        // 模型协同：恢复角色绑定（与 saveToStorage 对称）
+        if (saved.roleModels) config.value.roleModels = saved.roleModels as ApiConfig['roleModels']
         if (saved.providers) {
           config.value.providers = saved.providers as ProviderConfig[]
           await decryptProviderKeys(config.value.providers)
@@ -1406,7 +1537,9 @@ export const useApiStore = defineStore('api', () => {
       baseUrl: config.value.baseUrl,
       activeModel: config.value.activeModel,
       providers: providersCopy,
-      activeProviderId: config.value.activeProviderId
+      activeProviderId: config.value.activeProviderId,
+      // 模型协同：角色绑定必须随配置持久化（否则刷新后丢失）
+      ...(config.value.roleModels ? { roleModels: config.value.roleModels } : {})
     }
     await storeSet('api-config', data)
     vault.writeThrough('api', 'holo-api-config', JSON.stringify(data), true)

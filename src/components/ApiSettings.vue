@@ -81,6 +81,25 @@
         </div>
       </div>
 
+      <div class="section" v-if="apiStore.config.providers.length > 0">
+        <label>模型协同（大模型掌舵 + 小模型辅助）</label>
+        <div class="row">
+          <span class="prov-name">主模型（大：理解/规划/产出/兜底）</span>
+          <select class="auth-select" :value="mainSlot" @change="applySlot('main', $event)">
+            <option value="">跟随「当前模型」（不启用）</option>
+            <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="row">
+          <span class="prov-name">辅助模型（小：分类/抽取/规范化）</span>
+          <select class="auth-select" :value="auxSlot" @change="applySlot('aux', $event)">
+            <option value="">跟随「当前模型」（不启用）</option>
+            <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="prov-url">主模型负责主线与兜底；辅助模型承担确定性小活。未设置者回退「当前模型」。</div>
+      </div>
+
       <div v-if="checking" class="status">检测中...</div>
       <div v-if="successMsg && !checking && !error" class="status ok">{{ successMsg }}</div>
       <div v-if="error" class="status error">{{ error }}</div>
@@ -94,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useApiStore } from '@/domains/api'
 import { ProviderConfig } from '@/models'
 
@@ -126,6 +145,37 @@ const presets: { id: string; name: string; baseUrl: string; authType: 'none' | '
 
 function isProviderAdded(id: string): boolean {
   return apiStore.config.providers.some(p => p.id === id)
+}
+
+// ── 模型协同（2026-09-23 用户要求）：主模型（大，掌舵+兜底）／辅助模型（小，分类抽取等活）──
+// 注意：这是**协同分工**（同一任务里各司其职），不是"快速/强力二选一"。
+const modelOptions = computed(() =>
+  apiStore.config.providers.flatMap(p => p.models.map(m => ({ key: `${p.id}::${m.id}`, label: `${p.name} / ${m.id}` })))
+)
+function slotKey(role: 'main' | 'aux'): string {
+  const rm = apiStore.config.roleModels as Record<string, { providerId: string; model: string }> | undefined
+  const b = rm ? rm[role] : undefined
+  return b ? `${b.providerId}::${b.model}` : ''
+}
+const mainSlot = computed(() => slotKey('main'))
+const auxSlot = computed(() => slotKey('aux'))
+
+function applySlot(role: 'main' | 'aux', ev: Event): void {
+  const key = (ev.target as HTMLSelectElement).value
+  const rm: Record<string, { providerId: string; model: string }> = {
+    ...((apiStore.config.roleModels as Record<string, { providerId: string; model: string }> | undefined) || {})
+  }
+  if (!key) {
+    delete rm[role]
+  } else {
+    const [providerId, model] = key.split('::')
+    if (providerId && model) rm[role] = { providerId, model }
+  }
+  apiStore.config.roleModels = Object.keys(rm).length > 0
+    ? (rm as typeof apiStore.config.roleModels)
+    : undefined
+  apiStore.saveToStorage()
+  successMsg.value = '模型协同已保存（大模型掌舵与兜底，小模型做辅助活）'
 }
 
 function addPreset(preset: typeof presets[0]) {
