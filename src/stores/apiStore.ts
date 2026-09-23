@@ -1340,6 +1340,8 @@ export const useApiStore = defineStore('api', () => {
       if (saved) {
         if (saved.baseUrl) config.value.baseUrl = saved.baseUrl
         if (saved.activeModel) config.value.activeModel = saved.activeModel
+        // 双模型并存：恢复档位绑定（与 saveToStorage 对称）
+        if (saved.tierModels) config.value.tierModels = saved.tierModels as ApiConfig['tierModels']
         if (saved.providers) {
           config.value.providers = saved.providers as ProviderConfig[]
           await decryptProviderKeys(config.value.providers)
@@ -1414,7 +1416,9 @@ export const useApiStore = defineStore('api', () => {
       baseUrl: config.value.baseUrl,
       activeModel: config.value.activeModel,
       providers: providersCopy,
-      activeProviderId: config.value.activeProviderId
+      activeProviderId: config.value.activeProviderId,
+      // 双模型并存：档位绑定必须随配置持久化，否则刷新后丢失（验收实测抓到的缺陷）
+      ...(config.value.tierModels ? { tierModels: config.value.tierModels } : {})
     }
     await storeSet('api-config', data)
     vault.writeThrough('api', 'holo-api-config', JSON.stringify(data), true)
