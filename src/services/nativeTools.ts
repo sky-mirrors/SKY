@@ -19,6 +19,25 @@ export function isAlwaysAvailableTool(name: string): boolean {
   return (NATIVE_TOOL_NAMES as readonly string[]).includes(name)
 }
 
+/**
+ * 单工具直调场景下补齐常驻原生工具（去重，匹配到的工具排在最前）。
+ *
+ * 背景（2026-09-24 运行时实测）：funnel 的 `mcp-direct` 分支与旧内联 RaaP 的两处 MCP
+ * 直调分支原先只把「匹配到的那一个工具」交给模型（`tools: [matched]`）。插桩实测请求特征
+ * `toolsLen=1, tools=["list_directory"]`——于是 Q15「图片按拍摄日期重命名」时模型只看到
+ * file_move，回复「我只有移动/重命名文件的工具」，无法先列目录再改名（R19 文件类题集体退化）。
+ * 本模块头部已确立约定「常驻工具不得被任何过滤/召回环节剔除」，这三处直调分支违反了它，
+ * 故统一经本函数补齐，而不是点状修补其中一处。
+ */
+export function withAlwaysAvailableTools(
+  matched: ToolDef | undefined | null,
+  allTools: ToolDef[]
+): ToolDef[] {
+  const base = matched ? [matched] : []
+  const always = allTools.filter(t => isAlwaysAvailableTool(t.name))
+  return [...base, ...always].filter((t, i, arr) => arr.findIndex(x => x.name === t.name) === i)
+}
+
 /** 常驻原生工具定义（不含 shell_exec——其定义保留在 dialogStore.buildMcpTools） */
 export const NATIVE_TOOL_DEFS: ToolDef[] = [
   {

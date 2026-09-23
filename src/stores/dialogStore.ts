@@ -82,7 +82,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
   return []
 }
 
-import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool } from '@/services/nativeTools'
+import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools } from '@/services/nativeTools'
 import { yieldToUI } from '@/services/uiYield'
 
 const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
@@ -963,7 +963,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           addSystemNotice(`🎯 自动匹配工具：**${matched.name.replace(/.*___/, '')}**`)
         }
         try {
-          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matched] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: withAlwaysAvailableTools(matched, allMcpTools) }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           if (apiResult) {
             // P1-25：执行模型返回的 toolCalls（此前从不执行 → 恒显"(无输出)"）
             const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
@@ -1447,7 +1447,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 debugLog(`[Dialog] Universal匹配MCP工具: ${universalResult.item.name}，直接调用`)
                 addSystemNotice(`🎯 自动匹配工具：**${universalResult.item.name}**（置信${(universalResult.confidence * 100).toFixed(0)}%，${universalResult.matchMethod}）`)
                 try {
-                  const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+                  const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: withAlwaysAvailableTools(matchedMcpTool, allMcpTools) }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
                   if (apiResult) {
                     // P1-25：此前把整个 result 对象当 content 存库，且从不执行 toolCalls
                     const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
@@ -1615,7 +1615,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                   if (matchedMcpTool) {
                     globalBus.emit('debug:log-probe', { level: 'info', domain: 'raap', message: `LLM仲裁选中MCP工具: ${fbItem.name}，直接调用` })
                     try {
-                      const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: [matchedMcpTool] }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+                      const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: withAlwaysAvailableTools(matchedMcpTool, allMcpTools) }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
                       if (apiResult) {
                         // P1-25：执行 LLM 仲裁选中的 MCP 工具调用（此前从不执行）
                         const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])

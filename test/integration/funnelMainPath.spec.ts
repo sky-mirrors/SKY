@@ -193,10 +193,17 @@ function makePlan(overrides?: Partial<{ intent: string; tool: string }>): {
   }
 }
 
+/** api:chat-completion 收到的 payload 留档——用于断言实际交给模型的工具集 */
+let chatPayloads: Array<Record<string, unknown>> = []
+
 function setupBus(connections: unknown[] = []) {
+  chatPayloads = []
   globalBus.registerHandler('api:is-ready', () => true)
   globalBus.registerHandler('api:get-config', () => ({ activeModel: 'test-model', activeProviderId: 'p1' }))
-  globalBus.registerHandler('api:chat-completion', async () => ({ content: '工具直调结果', toolCalls: [] }))
+  globalBus.registerHandler('api:chat-completion', async (payload) => {
+    chatPayloads.push(payload as Record<string, unknown>)
+    return { content: '工具直调结果', toolCalls: [] }
+  })
   globalBus.registerHandler('node:get-selected-node', () => null)
   globalBus.registerHandler('node:get-all-l2-manifests', () => [])
   globalBus.registerHandler('node:get-visible-l2-ids', () => [])
@@ -427,6 +434,28 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(store.messages.some(m => m.content.includes('工具直调结果'))).toBe(true)
     expect(store.awaitingConfirmation).toBe(false)
     expect(store.isProcessing).toBe(false)
+  })
+
+  it('mcp-direct 直调：工具集必须补齐常驻原生工具（模型不能只看到 1 个工具）', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+
+    await store.sendMessage('算一下')
+
+    expect(chatPayloads).toHaveLength(1)
+    const names = ((chatPayloads[0].tools as Array<{ name: string }>) || []).map(t => t.name)
+    // 匹配到的 MCP 工具仍在
+    expect(names).toContain('srv___calc')
+    // 常驻原生工具不得被单工具直调剔除——否则「先列目录、再改名」这类多步任务，
+    // 模型只拿到其中一个工具，就会回复「我只有移动/重命名文件的工具」（实测 R19 Q15）
+    expect(names).toContain('read_file')
+    expect(names).toContain('list_directory')
+    expect(names).toContain('file_write')
+    expect(names).toContain('file_move')
   })
 
   it('error outcome → 回退旧六层内联路径', async () => {
