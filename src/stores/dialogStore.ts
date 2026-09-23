@@ -1904,7 +1904,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice('⚠️ 计划执行失败，回退到直接回答模式...')
         globalBus.emit('debug:log-probe', { level: 'warn', domain: 'dialog', message: `[Dialog] 原生路径执行失败，回退直接回答 | input="${content.substring(0, 50)}"` })
         try {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: NATIVE_TOOL_DEFS }) as { content?: string }
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: NATIVE_TOOL_DEFS, routingOptions: { callerId: 'ds:direct1907' } }) as { content?: string }
           let finalText = stripHtml(beautify(resp.content || '(无输出)'))
           // P1-D3（验尸1补丁）：失败回退的直答同样过收口闸门——步骤失败后直答可能幻觉
           // 宣称"文件已生成"而磁盘无文件，此路径提前 return 不经过 :2430 的主收口闸门
@@ -2226,7 +2226,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         let result: { content: string; toolCalls: { id: string; name: string; arguments: string }[] }
         try {
           // G-8：主路径记账归因——traceId 经 routingOptions 贯穿 record-cost（仅 traceId，路由行为不变）
-          result = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: activeTools.length > 0 ? activeTools : undefined, routingOptions: { traceId: activeTraceId.value || undefined } })
+          result = await globalBus.requestAsync('api:chat-completion', { messages: chatHistory, stream: true, tools: activeTools.length > 0 ? activeTools : undefined, routingOptions: { traceId: activeTraceId.value || undefined, callerId: 'ds:active2219' } })
         } catch (callErr) {
           const e = String(callErr)
           addSystemNotice(`❌ 请求失败（${classifyError(e)}）`)
