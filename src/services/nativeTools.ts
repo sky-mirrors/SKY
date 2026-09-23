@@ -27,7 +27,7 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '要读取的文件绝对路径，例如 C:\\Users\\X\\Desktop\\a.txt' }
+        path: { type: 'string', description: '要读取的文件绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' }
       },
       required: ['path']
     }
@@ -38,7 +38,7 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '要列出的目录绝对路径，例如 C:\\Users\\X\\Desktop' }
+        path: { type: 'string', description: '要列出的目录绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' }
       },
       required: ['path']
     }
@@ -61,8 +61,8 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
     parameters: {
       type: 'object',
       properties: {
-        from: { type: 'string', description: '源文件绝对路径，例如 C:\\Users\\X\\Desktop\\photos\\IMG_001.jpg' },
-        to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名），例如 C:\\Users\\X\\Desktop\\photos\\20260315-01.jpg' }
+        from: { type: 'string', description: '源文件绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' }
       },
       required: ['from', 'to']
     }

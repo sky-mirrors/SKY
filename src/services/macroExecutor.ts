@@ -380,20 +380,44 @@ export async function callToolDirectWithTier(
               outs.push(`${toolName}: ⚠️ 执行失败 - ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`)
             }
           }
-          const followUp = `我按你的要求调用了工具，真实执行结果如下：\n${outs.join('\n')}\n\n请基于以上真实结果，用中文向用户汇报完成情况：说清实际做了什么、涉及多少个文件、以及每个文件的新名字（若适用）。不要再说"我先看看"之类的前言，也不要编造未执行的动作。`
-          try {
-            const resp2 = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-              messages: [{ role: 'user', content: followUp, timestamp: Date.now() }],
-              tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
-              maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
-              signal: controller.signal,
-              routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
-            })
-            const summary = (resp2.content || '').trim()
-            return summary || outs.join('\n')
-          } catch {
-            return outs.join('\n')
+          // 2026-09-24 修订：原为"单轮汇报"，实测 Q15 卡住 —— 模型第一轮调 list_directory 拿到清单后
+          // 需要**第二轮**才能调 file_move 真正重命名，而单轮回路直接要求它"汇报"，于是它停在
+          // "请给出规则"（题目其实已给出 日期-序号.jpg 格式）。改为最多 2 轮续跑。
+          let convo = `我按你的要求调用了工具，真实执行结果如下：\n${outs.join('\n')}\n\n`
+          let lastOut = outs.join('\n')
+          for (let round = 0; round < 2; round++) {
+            const followUp = `${convo}请继续：如果用户的任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如果已全部完成，再用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
+            try {
+              const resp2 = await globalBus.requestAsync<{ content: string; toolCalls?: Array<{ id?: string; name?: string; arguments?: string }> }>('api:chat-completion', {
+                messages: [{ role: 'user', content: followUp, timestamp: Date.now() }],
+                tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
+                maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
+                signal: controller.signal,
+                routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
+              })
+              const nextCalls = resp2.toolCalls
+              if (!Array.isArray(nextCalls) || nextCalls.length === 0) {
+                return (resp2.content || '').trim() || lastOut
+              }
+              const outs2: string[] = []
+              for (const call of nextCalls) {
+                const rawName = String(call?.name || '')
+                const toolName = rawName.replace(/.*___/, '').trim()
+                let args: Record<string, unknown> = {}
+                try { args = JSON.parse(String(call?.arguments || '{}')) as Record<string, unknown> } catch { args = {} }
+                try {
+                  outs2.push(`${toolName}: ${await callToolDirectWithTier(toolName, args, currentTier)}`)
+                } catch (toolErr) {
+                  outs2.push(`${toolName}: ⚠️ 执行失败 - ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`)
+                }
+              }
+              convo = `上一轮工具的真实执行结果：\n${outs2.join('\n')}\n\n`
+              lastOut = outs2.join('\n')
+            } catch {
+              return lastOut
+            }
           }
+          return lastOut
         }
         return resp.content || '(LLM无输出)'
       } catch (err) {
