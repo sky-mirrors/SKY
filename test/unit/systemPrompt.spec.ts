@@ -30,4 +30,13 @@ describe('system prompt 交付质量约束', () => {
     expect(src).toContain('待补充')
     expect(src).toContain('宁可缺一行署名，也不得留下占位符')
   })
+
+  // 2026-09-23：Direct 直调路径原为 tools: undefined，模型完全看不到原生工具的存在。
+  // Q15 三次回复措辞不同（"无法访问本地路径"→"C 盘"→"没有文件系统权限"）但核心恒定，
+  // 正是因为请求里没有工具定义 —— 光在 system prompt 里声明"你有 read_file"无效。
+  it('Direct 直调路径必须把工具定义传给模型', () => {
+    expect(src).not.toMatch(/directInfo\.prompt \}\], stream: true, tools: undefined/)
+    expect(src).not.toMatch(/content \}\], stream: true, tools: undefined \}\) as \{ content\?: string \}/)
+    expect(src).toContain('tools: NATIVE_TOOL_DEFS, maxTokens: directInfo.maxTokens')
+  })
 })

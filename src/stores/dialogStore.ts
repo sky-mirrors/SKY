@@ -1904,7 +1904,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice('⚠️ 计划执行失败，回退到直接回答模式...')
         globalBus.emit('debug:log-probe', { level: 'warn', domain: 'dialog', message: `[Dialog] 原生路径执行失败，回退直接回答 | input="${content.substring(0, 50)}"` })
         try {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: undefined }) as { content?: string }
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: NATIVE_TOOL_DEFS }) as { content?: string }
           let finalText = stripHtml(beautify(resp.content || '(无输出)'))
           // P1-D3（验尸1补丁）：失败回退的直答同样过收口闸门——步骤失败后直答可能幻觉
           // 宣称"文件已生成"而磁盘无文件，此路径提前 return 不经过 :2430 的主收口闸门
@@ -1936,7 +1936,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           context: content
         })
         if (directInfo) {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          // 2026-09-23：Direct 直调路径原为 tools: undefined，导致模型完全看不到原生工具的存在
+          // （Q15 实测三次回复措辞不同但核心恒定："我无法直接访问你电脑上的本地路径/…C 盘/…没有文件系统权限"
+          //   —— 因为请求里根本没传工具定义，模型只能按常识判断自己没能力；system prompt 里"你有 read_file…"
+          //   的声明与请求事实矛盾时，模型相信自己实际拿到的）。
+          // 与主路径对齐：主路径用 activeTools，其筛选含 isAlwaysAvailableTool(name)，即 nativeTools 恒被包含。
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: NATIVE_TOOL_DEFS, maxTokens: directInfo.maxTokens })
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
           const finalText = stripHtml(beautify(resp.content || '(无输出)'))
           await presentExecutionOutput(finalText)
@@ -2642,7 +2647,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           context: ti.params ? JSON.stringify(ti.params) : ti.originalInput
         })
         if (directInfo) {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          // 2026-09-23：Direct 直调路径原为 tools: undefined，导致模型完全看不到原生工具的存在
+          // （Q15 实测三次回复措辞不同但核心恒定："我无法直接访问你电脑上的本地路径/…C 盘/…没有文件系统权限"
+          //   —— 因为请求里根本没传工具定义，模型只能按常识判断自己没能力；system prompt 里"你有 read_file…"
+          //   的声明与请求事实矛盾时，模型相信自己实际拿到的）。
+          // 与主路径对齐：主路径用 activeTools，其筛选含 isAlwaysAvailableTool(name)，即 nativeTools 恒被包含。
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: NATIVE_TOOL_DEFS, maxTokens: directInfo.maxTokens })
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
           const finalText = stripHtml(beautify(resp.content || '(无输出)'))
           addAssistantMessage(finalText)
@@ -2726,7 +2736,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           context: filledSlots ? JSON.stringify(filledSlots) : lastUserMsg
         })
         if (directInfo) {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          // 2026-09-23：Direct 直调路径原为 tools: undefined，导致模型完全看不到原生工具的存在
+          // （Q15 实测三次回复措辞不同但核心恒定："我无法直接访问你电脑上的本地路径/…C 盘/…没有文件系统权限"
+          //   —— 因为请求里根本没传工具定义，模型只能按常识判断自己没能力；system prompt 里"你有 read_file…"
+          //   的声明与请求事实矛盾时，模型相信自己实际拿到的）。
+          // 与主路径对齐：主路径用 activeTools，其筛选含 isAlwaysAvailableTool(name)，即 nativeTools 恒被包含。
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: NATIVE_TOOL_DEFS, maxTokens: directInfo.maxTokens })
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
           const finalText = stripHtml(beautify(resp.content || '(无输出)'))
           addAssistantMessage(finalText)
@@ -2811,7 +2826,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       try {
         const directInfo = resolveDirectPrompt(manifest, { inputText: lastUserMsg, context: lastUserMsg })
         if (directInfo) {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: undefined, maxTokens: directInfo.maxTokens })
+          // 2026-09-23：Direct 直调路径原为 tools: undefined，导致模型完全看不到原生工具的存在
+          // （Q15 实测三次回复措辞不同但核心恒定："我无法直接访问你电脑上的本地路径/…C 盘/…没有文件系统权限"
+          //   —— 因为请求里根本没传工具定义，模型只能按常识判断自己没能力；system prompt 里"你有 read_file…"
+          //   的声明与请求事实矛盾时，模型相信自己实际拿到的）。
+          // 与主路径对齐：主路径用 activeTools，其筛选含 isAlwaysAvailableTool(name)，即 nativeTools 恒被包含。
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content: directInfo.prompt }], stream: true, tools: NATIVE_TOOL_DEFS, maxTokens: directInfo.maxTokens })
           globalBus.emit('node:set-l1-status', { nodeId: 'l1-model-gateway', status: 'success' })
           const finalText = stripHtml(beautify(resp.content || '(无输出)'))
           addAssistantMessage(finalText)

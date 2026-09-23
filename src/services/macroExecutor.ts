@@ -23,6 +23,7 @@ import { saveCheckpoint, removeCheckpoint, getCheckpoint, createCheckpointId } f
 import { debugLog } from '@/services/debugLog'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
+import { NATIVE_TOOL_DEFS } from './nativeTools'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -325,6 +326,12 @@ export async function callToolDirectWithTier(
         // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
         const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
           messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+          // 2026-09-23：宏步骤此前完全不传 tools —— 插桩实测（handlers.ts 汇聚点）
+          // `chan=nonstream tools=0 caller=macro:nano`，即模型看不到 read_file/list_directory/
+          // file_write/shell_exec 的存在，只能回"我无法访问你电脑上的本地路径/没有文件系统权限"
+          // （Q15 三次改口而行为恒定，正是此因；光在 system prompt 里声明有工具无效）。
+          // 防御 Array.isArray：本模块在 funnelMainPath.spec 中被 mock，避免 undefined 传入。
+          tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
           // attempt>0 表示这是"空输出重试"：放开档位上限，否则 min() 会把翻倍后的预算压回档位值
           maxTokens: attempt === 0 ? Math.min(maxTokens, getTierConfig(currentTier).maxTokens) : Math.min(maxTokens, 16384),
           signal: controller.signal,
