@@ -2063,7 +2063,17 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
 
       const candidateNames = new Set(topCandidates.map(t => t.fullName))
-      const activeTools = planFiltered.filter(t => candidateNames.has(t.name) || isAlwaysAvailableTool(t.name))
+      // 2026-09-24 修复：`activeTools` 原先**只**取自 `planFiltered`（= filterToolsByPlan(allMcpTools, plan)），
+      // 而 plan 裁剪会把原生常驻工具一并裁掉 —— 例如 Q15「图片按日期重命名」的 plan 只提到"重命名"，
+      // 裁完只剩 file_move，于是模型看到"我只有一个【移动/重命名文件】的工具"，据此拒绝执行
+      // （实测请求特征：caller=- max=- n=1 names=["file_move"]）。
+      // `isAlwaysAvailableTool` 的过滤作用在**已裁剪**集合上，因此救不回被裁掉的原生工具。
+      // 改为：原生常驻工具从**未裁剪**的 allMcpTools 取，MCP 工具仍按 plan/top 候选过滤，最后去重。
+      const alwaysAvailable = allMcpTools.filter(t => isAlwaysAvailableTool(t.name))
+      const activeTools = [
+        ...alwaysAvailable,
+        ...planFiltered.filter(t => candidateNames.has(t.name) || isAlwaysAvailableTool(t.name))
+      ].filter((t, i, arr) => arr.findIndex(x => x.name === t.name) === i)
       if (activeTools.length < 3) {
         for (const t of planFiltered) {
           if (!activeTools.some(a => a.name === t.name)) activeTools.push(t)

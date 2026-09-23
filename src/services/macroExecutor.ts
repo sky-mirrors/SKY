@@ -387,7 +387,7 @@ export async function callToolDirectWithTier(
           //（本次消息里…）"，正是因为它只收到了"工具结果 + 请继续"，用户原话（含真实路径与命名格式）被丢了。
           let convo = `【原始请求】${prompt}\n\n【我按你的要求调用了工具，真实执行结果如下】\n${outs.join('\n')}\n\n`
           let lastOut = outs.join('\n')
-          for (let round = 0; round < 2; round++) {
+          for (let round = 0; round < 4; round++) {
             const followUp = `${convo}请继续：如果用户的任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如果已全部完成，再用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
             try {
               const resp2 = await globalBus.requestAsync<{ content: string; toolCalls?: Array<{ id?: string; name?: string; arguments?: string }> }>('api:chat-completion', {
