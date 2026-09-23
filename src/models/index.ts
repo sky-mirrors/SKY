@@ -85,10 +85,11 @@ export interface ApiConfig {
   models: ModelInfo[]
   activeModel: string
   /**
-   * 双模型并存（2026-09-23 需求）：档位 → provider+model 绑定。
-   * 未配置的档位回退 `activeProviderId`+`activeModel`（向后兼容）。见 `src\services\tierModelBinding.ts`。
+   * 模型协同（2026-09-23 用户要求）：按**角色**绑定模型——`main`（大模型，掌舵+兜底）/
+   * `aux`（小模型，做分类/抽取/规范化等辅助活）。见 `src\services\modelRoles.ts`。
+   * 未配置则回退 `activeProviderId`+`activeModel`（老配置零迁移）。
    */
-  tierModels?: Partial<Record<'nano' | 'mini' | 'standard' | 'pro', { providerId: string; model: string }>>
+  roleModels?: Partial<Record<'main' | 'aux', { providerId: string; model: string }>>
   isReachable: boolean
   lastCheckedAt: number
   providers: ProviderConfig[]

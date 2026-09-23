@@ -3,16 +3,15 @@
  *   「小模型跑确定性工作，大模型兜底；若没有大模型，也要能只用小模型工作，
  *     但小模型解决不了的问题必须诚实陈述。」
  *
- * 分工由 `tierModelBinding` 负责（简单/确定任务落 nano|mini → 小模型；
- * 复杂任务落 standard|pro → 大模型）。本模块补两件事：
+ * 分工由 `modelRoles` 负责（主角色=大模型掌舵、辅助角色=小模型做确定性小活）。本模块补两件事：
  *   1) **兜底**：小档跑出「做不了」的结果时，找大档模型重试一次；
  *   2) **诚实**：无大档可兜底、或兜底也没成时，产出明确的「未完成」陈述，
  *      不允许把小模型的失败包装成成功。
  */
-import { resolveTierTarget } from './tierModelBinding'
-import type { TierBindingConfig, TierTarget } from './tierModelBinding'
+import { resolveRoleTarget } from './modelRoles'
+import type { RoleConfig, ModelRole } from './modelRoles'
 
-export type EscalationConfig = TierBindingConfig
+export type EscalationConfig = RoleConfig
 
 /** 小档档位（确定性/常规工作）与大档档位（兜底） */
 const SMALL_TIERS = ['nano', 'mini'] as const
@@ -38,15 +37,19 @@ export function detectUnsolvable(text: string): boolean {
 }
 
 /**
- * 小档遇阻时寻找大档兜底目标。
- * 以下情形返回 null（不升级）：当前档已是大档（防死循环）／未绑定大档／绑定已失效。
+ * 小模型（辅助角色）遇阻时，升级到主模型（大模型）兜底。
+ * 语义即用户要求：「大模型兜底、小模型辅助」——辅助做不了就交给主模型。
+ * 返回 null 的情形：当前已是主模型（无处可升）／未绑定主模型／绑定已失效。
  */
-export function resolveEscalationTarget(config: EscalationConfig, currentTier: string): TierTarget | null {
-  if (!(SMALL_TIERS as readonly string[]).includes(currentTier)) return null
-  const bound = config.tierModels ? config.tierModels[BIG_TIER] : undefined
+export function resolveEscalationTarget(
+  config: EscalationConfig,
+  currentRole: ModelRole
+): { providerId: string; model: string } | null {
+  if (currentRole !== 'aux') return null
+  const bound = config.roleModels ? config.roleModels.main : undefined
   if (!bound || !bound.providerId || !bound.model) return null
-  const target = resolveTierTarget(config, BIG_TIER)
-  // 必须确实解析到「大档绑定」本身——若因绑定失效而回退到单值/小档，则视为无兜底（不空转）
+  const target = resolveRoleTarget(config, 'main')
+  // 必须确实解析到「主模型绑定」本身；若因绑定失效而回退到 active，则视为无兜底
   if (target.providerId !== bound.providerId || target.model !== bound.model) return null
   const provider = config.providers.find(p => p.id === target.providerId)
   if (!provider || !provider.models.some(m => m.id === target.model)) return null

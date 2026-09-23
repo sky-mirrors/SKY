@@ -82,22 +82,22 @@
       </div>
 
       <div class="section" v-if="apiStore.config.providers.length > 0">
-        <label>双模型分工（同时连接两个模型）</label>
+        <label>模型协同（大模型掌舵 + 小模型辅助）</label>
         <div class="row">
-          <span class="prov-name">快速档（nano/mini）</span>
-          <select class="auth-select" :value="fastSlot" @change="applySlot('fast', $event)">
+          <span class="prov-name">主模型（大：理解/规划/产出/兜底）</span>
+          <select class="auth-select" :value="mainSlot" @change="applySlot('main', $event)">
             <option value="">跟随「当前模型」（不启用）</option>
             <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
           </select>
         </div>
         <div class="row">
-          <span class="prov-name">强力档（standard/pro）</span>
-          <select class="auth-select" :value="strongSlot" @change="applySlot('strong', $event)">
+          <span class="prov-name">辅助模型（小：分类/抽取/规范化）</span>
+          <select class="auth-select" :value="auxSlot" @change="applySlot('aux', $event)">
             <option value="">跟随「当前模型」（不启用）</option>
             <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
           </select>
         </div>
-        <div class="prov-url">未设置的档位回退到当前模型——本机小模型与云端大模型可同时生效。</div>
+        <div class="prov-url">主模型负责主线与兜底；辅助模型承担确定性小活。未设置者回退「当前模型」。</div>
       </div>
 
       <div v-if="checking" class="status">检测中...</div>
@@ -147,37 +147,35 @@ function isProviderAdded(id: string): boolean {
   return apiStore.config.providers.some(p => p.id === id)
 }
 
-// ── 双模型并存（2026-09-23 需求）：快速档 / 强力档 两个槽位，
-// 分别绑定 nano+mini / standard+pro；未设置的档位回退「当前模型」。──
-type SlotTier = 'nano' | 'mini' | 'standard' | 'pro'
+// ── 模型协同（2026-09-23 用户要求）：主模型（大，掌舵+兜底）／辅助模型（小，分类抽取等活）──
+// 注意：这是**协同分工**（同一任务里各司其职），不是"快速/强力二选一"。
 const modelOptions = computed(() =>
   apiStore.config.providers.flatMap(p => p.models.map(m => ({ key: `${p.id}::${m.id}`, label: `${p.name} / ${m.id}` })))
 )
-function slotKey(tiers: SlotTier[]): string {
-  const tm = apiStore.config.tierModels as Record<string, { providerId: string; model: string }> | undefined
-  if (!tm) return ''
-  const first = tm[tiers[0]]
-  return first ? `${first.providerId}::${first.model}` : ''
+function slotKey(role: 'main' | 'aux'): string {
+  const rm = apiStore.config.roleModels as Record<string, { providerId: string; model: string }> | undefined
+  const b = rm ? rm[role] : undefined
+  return b ? `${b.providerId}::${b.model}` : ''
 }
-const fastSlot = computed(() => slotKey(['nano', 'mini']))
-const strongSlot = computed(() => slotKey(['standard', 'pro']))
+const mainSlot = computed(() => slotKey('main'))
+const auxSlot = computed(() => slotKey('aux'))
 
-function applySlot(slot: 'fast' | 'strong', ev: Event): void {
+function applySlot(role: 'main' | 'aux', ev: Event): void {
   const key = (ev.target as HTMLSelectElement).value
-  const tiers: SlotTier[] = slot === 'fast' ? ['nano', 'mini'] : ['standard', 'pro']
-  const tm: Record<string, { providerId: string; model: string }> = {
-    ...((apiStore.config.tierModels as Record<string, { providerId: string; model: string }> | undefined) || {})
+  const rm: Record<string, { providerId: string; model: string }> = {
+    ...((apiStore.config.roleModels as Record<string, { providerId: string; model: string }> | undefined) || {})
   }
-  for (const t of tiers) {
-    if (!key) { delete tm[t]; continue }
+  if (!key) {
+    delete rm[role]
+  } else {
     const [providerId, model] = key.split('::')
-    if (providerId && model) tm[t] = { providerId, model }
+    if (providerId && model) rm[role] = { providerId, model }
   }
-  apiStore.config.tierModels = Object.keys(tm).length > 0
-    ? (tm as typeof apiStore.config.tierModels)
+  apiStore.config.roleModels = Object.keys(rm).length > 0
+    ? (rm as typeof apiStore.config.roleModels)
     : undefined
   apiStore.saveToStorage()
-  successMsg.value = '双模型分工已保存（简单请求走快速档，复杂请求走强力档）'
+  successMsg.value = '模型协同已保存（大模型掌舵与兜底，小模型做辅助活）'
 }
 
 function addPreset(preset: typeof presets[0]) {

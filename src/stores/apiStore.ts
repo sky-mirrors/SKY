@@ -11,8 +11,8 @@ import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
-// 双模型并存（2026-09-23）：档位 → provider+model 解析，替代原先只读单一 activeModel
-import { resolveTierTarget, type TierTarget } from '@/services/tierModelBinding'
+// 模型协同（2026-09-23 用户纠正后）：按角色分派——main=大模型掌舵+兜底、aux=小模型做辅助活
+import { resolveRole, resolveRoleTarget } from '@/services/modelRoles'
 // 小模型兜底 + 诚实陈述（2026-09-23 需求）
 import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice } from '@/services/escalationPolicy'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
@@ -502,7 +502,7 @@ export const useApiStore = defineStore('api', () => {
     routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number },
     degradeState?: DegradeState,
     /** 内部专用：小模型兜底升级时强制指定目标（外部调用不要传） */
-    forceTarget?: TierTarget
+    forceTarget?: { providerId: string; model: string }
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     // M20：降级态绕过远程就绪/熔断检查——能走到降级态说明远程已失败
     if (!degradeState && (!config.value.isReachable || !config.value.activeModel)) {
@@ -632,7 +632,9 @@ export const useApiStore = defineStore('api', () => {
     // 双模型并存（2026-09-23）：按档位解析目标 provider+model（未绑定时回退单值配置）。
     // 注意：下方分支条件原先用 `activeProvider`（单值）判定 chatFormat，若档位把某档绑到云、
     // 而 active 是本地 Ollama，会被误判跳过 → 故此处一并改用解析后的 tierProvider。
-    const tierTarget = forceTarget ?? resolveTierTarget(config.value, effectiveTier)
+    // 角色分派（2026-09-23 用户纠正后）：按调用标识判定 main（大模型掌舵）/ aux（小模型辅助）
+    const role = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+    const tierTarget = forceTarget ?? resolveRoleTarget(config.value, role)
     const tierProvider = config.value.providers.find(p => p.id === tierTarget.providerId) ?? activeProvider.value
 
     // M17：Ollama 走渲染进程直连（主进程 isHostAllowed 拒绝 loopback），禁走 IPC
@@ -703,7 +705,7 @@ export const useApiStore = defineStore('api', () => {
         // 小档（nano/mini，可能是云端小模型如 deepseek-flash）答不了 → 升级大档模型重试一次；
         // 无大档可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
         if (!forceTarget && detectUnsolvable(ipcResult.content)) {
-          const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
           if (escTarget) {
             debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（远程）')
             try {
@@ -842,7 +844,7 @@ export const useApiStore = defineStore('api', () => {
         // 小模型兜底 + 诚实陈述（2026-09-23 需求）：本地小模型答不了（拒答/能力声明）
         // → 升级云端大模型重试一次；无大模型可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
         if (!forceTarget && detectUnsolvable(r.content)) {
-          const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
           if (escTarget) {
             debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底')
             try {
@@ -949,7 +951,7 @@ export const useApiStore = defineStore('api', () => {
       // 小模型兜底 + 诚实陈述（2026-09-23 需求）——direct-fetch 分支（第三个出口）。
       // 实测：主对话走非流式 chatCompletion，而此前只包了 IPC/本地两处，故一直未生效。
       if (!forceTarget && detectUnsolvable(directResult.content)) {
-        const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+        const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
         if (escTarget) {
           debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（direct）')
           try {
@@ -1048,7 +1050,7 @@ export const useApiStore = defineStore('api', () => {
     // 且已绑定大档兜底，则改走**非流式**路径，让「小模型答不了 → 升级大模型」有机会发生。
     // （实测：主对话走流式 ⇒ 此前接在非流式返回点的兜底从未触发。）
     if (!degradeState) {
-      const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+      const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
       if (escTarget) {
         debugLog('[chatCompletionStream:delegate] 小档 + 有大档兜底 → 改走非流式以便升级')
         try {
@@ -1144,7 +1146,7 @@ export const useApiStore = defineStore('api', () => {
       // 流式已把原文发出，无法收回，故以追加一段说明的方式呈现。
       const needsNotice = !!final && typeof final.content === 'string' && detectUnsolvable(final.content)
       if (needsNotice && final) {
-        const noticeText = buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+        const noticeText = buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
         callbacks.onChunk({ content: `${final.content}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
         callbacks.onDone({ content: `${final.content}\n\n${noticeText}`, toolCalls: final.toolCalls, usage: final.usage })
       } else {
@@ -1278,7 +1280,7 @@ export const useApiStore = defineStore('api', () => {
         // 关键：UI 端只消费 onChunk 的 delta（App.vue 的 port 忽略 onDone 的 final 载荷），
         // 因此标注必须经 onChunk 发出，仅改 onDone 不会显示。
         const noticeText = detectUnsolvable(accumulated)
-          ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
           : ''
         if (noticeText) {
           callbacks.onChunk({ content: `${accumulated}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
@@ -1390,7 +1392,7 @@ export const useApiStore = defineStore('api', () => {
             {
         // 诚实陈述（2026-09-23 需求）：同上——必须经 onChunk 的 delta 发出才会显示在 UI
         const noticeText2 = detectUnsolvable(accumulatedContent)
-          ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
           : ''
         if (noticeText2) {
           callbacks.onChunk({ content: `${accumulatedContent}\n\n${noticeText2}`, delta: `\n\n${noticeText2}`, done: false })
@@ -1459,8 +1461,8 @@ export const useApiStore = defineStore('api', () => {
       if (saved) {
         if (saved.baseUrl) config.value.baseUrl = saved.baseUrl
         if (saved.activeModel) config.value.activeModel = saved.activeModel
-        // 双模型并存：恢复档位绑定（与 saveToStorage 对称）
-        if (saved.tierModels) config.value.tierModels = saved.tierModels as ApiConfig['tierModels']
+        // 模型协同：恢复角色绑定（与 saveToStorage 对称）
+        if (saved.roleModels) config.value.roleModels = saved.roleModels as ApiConfig['roleModels']
         if (saved.providers) {
           config.value.providers = saved.providers as ProviderConfig[]
           await decryptProviderKeys(config.value.providers)
@@ -1536,8 +1538,8 @@ export const useApiStore = defineStore('api', () => {
       activeModel: config.value.activeModel,
       providers: providersCopy,
       activeProviderId: config.value.activeProviderId,
-      // 双模型并存：档位绑定必须随配置持久化，否则刷新后丢失（验收实测抓到的缺陷）
-      ...(config.value.tierModels ? { tierModels: config.value.tierModels } : {})
+      // 模型协同：角色绑定必须随配置持久化（否则刷新后丢失）
+      ...(config.value.roleModels ? { roleModels: config.value.roleModels } : {})
     }
     await storeSet('api-config', data)
     vault.writeThrough('api', 'holo-api-config', JSON.stringify(data), true)
