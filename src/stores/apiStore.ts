@@ -945,6 +945,28 @@ export const useApiStore = defineStore('api', () => {
         recordOutcome(userContent, decision, effectiveTier, usage.completionTokens, actualCostOf(usage, false), routingOptions?.taskType)
       }
       emitRecordCost(usage, effectiveTier, 'llm')
+
+      // 小模型兜底 + 诚实陈述（2026-09-23 需求）——direct-fetch 分支（第三个出口）。
+      // 实测：主对话走非流式 chatCompletion，而此前只包了 IPC/本地两处，故一直未生效。
+      if (!forceTarget && detectUnsolvable(directResult.content)) {
+        const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+        if (escTarget) {
+          debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（direct）')
+          try {
+            const retried = await chatCompletion(
+              messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+            )
+            if (!detectUnsolvable(retried.content)) return retried
+            return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+          } catch (err) {
+            debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+          }
+        }
+        return {
+          ...directResult,
+          content: `${directResult.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+        }
+      }
       return directResult
       } catch (err) {
         // B-07：调用方主动中止不是故障，不进重试/熔断统计
