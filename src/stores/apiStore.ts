@@ -1252,10 +1252,15 @@ export const useApiStore = defineStore('api', () => {
             totalTokens: usageInfo?.totalTokens ?? 0
           }, effectiveTier, 'llm', true)
           {
-        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用
+        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用。
+        // 关键：UI 端只消费 onChunk 的 delta（App.vue 的 port 忽略 onDone 的 final 载荷），
+        // 因此标注必须经 onChunk 发出，仅改 onDone 不会显示。
         const noticeText = detectUnsolvable(accumulated)
           ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
           : ''
+        if (noticeText) {
+          callbacks.onChunk({ content: `${accumulated}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
+        }
         callbacks.onDone({ content: noticeText ? `${accumulated}\n\n${noticeText}` : accumulated, toolCalls: [], usage: usageInfo })
       }
         }
@@ -1361,10 +1366,13 @@ export const useApiStore = defineStore('api', () => {
               cacheHitTokens: usageInfo?.cacheHitTokens ?? 0
             }, effectiveTier, 'llm')
             {
-        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用
+        // 诚实陈述（2026-09-23 需求）：同上——必须经 onChunk 的 delta 发出才会显示在 UI
         const noticeText2 = detectUnsolvable(accumulatedContent)
           ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
           : ''
+        if (noticeText2) {
+          callbacks.onChunk({ content: `${accumulatedContent}\n\n${noticeText2}`, delta: `\n\n${noticeText2}`, done: false })
+        }
         callbacks.onDone({ content: noticeText2 ? `${accumulatedContent}\n\n${noticeText2}` : accumulatedContent, toolCalls, usage: usageInfo })
       }
           }
