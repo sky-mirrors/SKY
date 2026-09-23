@@ -84,6 +84,11 @@ export interface ApiConfig {
   baseUrl: string
   models: ModelInfo[]
   activeModel: string
+  /**
+   * 双模型并存（2026-09-23 需求）：档位 → provider+model 绑定。
+   * 未配置的档位回退 `activeProviderId`+`activeModel`（向后兼容）。见 `src\services\tierModelBinding.ts`。
+   */
+  tierModels?: Partial<Record<'nano' | 'mini' | 'standard' | 'pro', { providerId: string; model: string }>>
   isReachable: boolean
   lastCheckedAt: number
   providers: ProviderConfig[]

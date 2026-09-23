@@ -11,6 +11,8 @@ import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
+// 双模型并存（2026-09-23）：档位 → provider+model 解析，替代原先只读单一 activeModel
+import { resolveTierTarget } from '@/services/tierModelBinding'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
 import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
@@ -623,14 +625,20 @@ export const useApiStore = defineStore('api', () => {
       }
     }
 
+    // 双模型并存（2026-09-23）：按档位解析目标 provider+model（未绑定时回退单值配置）。
+    // 注意：下方分支条件原先用 `activeProvider`（单值）判定 chatFormat，若档位把某档绑到云、
+    // 而 active 是本地 Ollama，会被误判跳过 → 故此处一并改用解析后的 tierProvider。
+    const tierTarget = resolveTierTarget(config.value, effectiveTier)
+    const tierProvider = config.value.providers.find(p => p.id === tierTarget.providerId) ?? activeProvider.value
+
     // M17：Ollama 走渲染进程直连（主进程 isHostAllowed 拒绝 loopback），禁走 IPC
     // M20：降级态同样直连（目标是本地 Ollama）
-    if (!degradeState && window.electronAPI?.llmChatCompletion && config.value.activeProviderId
-      && activeProvider.value?.chatFormat !== 'ollama') {
+    if (!degradeState && window.electronAPI?.llmChatCompletion && tierTarget.providerId
+      && tierProvider?.chatFormat !== 'ollama') {
       try {
         const ipcArgs = {
-          providerId: config.value.activeProviderId,
-          model: config.value.activeModel,
+          providerId: tierTarget.providerId,
+          model: tierTarget.model,
           messages: messages.map(m => ({
             role: m.role,
             content: m.content,
