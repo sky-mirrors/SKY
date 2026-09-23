@@ -500,7 +500,18 @@ export function setupIpc(_win: BrowserWindow | null) {
       const filePath = join(storeDir, `${key}.json`)
       if (!existsSync(filePath)) return null
       const data = readFileSync(filePath, 'utf-8')
-      return JSON.parse(data)
+      // 2026-09-23 事故：api-config.json 被写成「BOM(3)+{}(2)」共 5 字节 ⇒ JSON.parse 抛错 ⇒
+      // 应用表现为「没有配置」⇒ 所有 LLM 调用失败。此处先剥 BOM，且失败**不再静默**。
+      const cleaned = data.charCodeAt(0) === 0xfeff ? data.slice(1) : data
+      try {
+        return JSON.parse(cleaned)
+      } catch (parseErr) {
+        console.warn(
+          `[vault:read] 键「${key}」解析失败（文件可能被 BOM 或异常写入损坏，前 80 字：${cleaned.slice(0, 80)}）：`,
+          String(parseErr).slice(0, 120)
+        )
+        return null
+      }
     } catch {
       return null
     }

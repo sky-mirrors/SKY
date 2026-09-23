@@ -11,6 +11,7 @@ import { lookup as cacheLookup, store as cacheStore, getConfig as getCacheConfig
 import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, getHistoricalTokenAvg } from '@/services/smartRouter'
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
+import { parseJsonSafe } from '@/services/jsonSafe'
 // 模型协同（2026-09-23 用户纠正后）：按角色分派——main=大模型掌舵+兜底、aux=小模型做辅助活
 import { resolveRole, resolveRoleTarget } from '@/services/modelRoles'
 // 小模型兜底 + 诚实陈述（2026-09-23 需求）
@@ -1457,7 +1458,8 @@ export const useApiStore = defineStore('api', () => {
     try {
       const stored = await storeGet('api-config') as Partial<ApiConfig> | null
       const vaultData = vault.readCache('api', 'holo-api-config')
-      const saved = stored || (vaultData ? JSON.parse(vaultData) as Partial<ApiConfig> : null)
+      // BOM 容错（2026-09-23 事故修复）：曾因 vault 里的 api-config 带 BOM 而 JSON.parse 抛错
+      const saved = stored || parseJsonSafe<Partial<ApiConfig>>(vaultData, 'vault:api-config')
       if (saved) {
         if (saved.baseUrl) config.value.baseUrl = saved.baseUrl
         if (saved.activeModel) config.value.activeModel = saved.activeModel
