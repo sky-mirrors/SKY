@@ -1022,6 +1022,25 @@ export const useApiStore = defineStore('api', () => {
     const effectiveTier = decision.tier
     debugLog(`[chatCompletionStream:route] tier=${effectiveTier}, complexity=${decision.complexity}`)
 
+    // 小模型兜底（2026-09-23 需求）：流式响应边说边发、事后无法收回 ⇒ 若本请求会走小档
+    // 且已绑定大档兜底，则改走**非流式**路径，让「小模型答不了 → 升级大模型」有机会发生。
+    // （实测：主对话走流式 ⇒ 此前接在非流式返回点的兜底从未触发。）
+    if (!degradeState) {
+      const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+      if (escTarget) {
+        debugLog('[chatCompletionStream:delegate] 小档 + 有大档兜底 → 改走非流式以便升级')
+        try {
+          const full = await chatCompletion(messages, true, tools, maxTokens, externalSignal, routingOptions)
+          callbacks.onChunk({ content: full.content, delta: full.content, toolCalls: full.toolCalls, usage: full.usage, done: true })
+          callbacks.onDone({ content: full.content, toolCalls: full.toolCalls, usage: full.usage })
+          return { cancel: () => {} }
+        } catch (err) {
+          callbacks.onError(err instanceof Error ? err : new Error(String(err)))
+          return { cancel: () => {} }
+        }
+      }
+    }
+
     const estimatedInput = estimateTokens(messages.map(m => m.content || '').join(''))
     const budgetResult = checkBudget(estimatedInput, effectiveTier)
     // #5：benchmark 压测流量不受预算 block（budget=0 恒超限时 benchmark 会被误拦）
