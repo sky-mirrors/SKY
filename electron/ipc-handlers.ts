@@ -469,7 +469,23 @@ export function setupIpc(_win: BrowserWindow | null) {
       const entries = readdirSync(validatedPath, { withFileTypes: true })
         .map(e => (e.isDirectory() ? `${e.name}/` : e.name))
         .sort()
-      return { success: true, entries }
+      // 2026-09-24：附带修改时间。Q15「按拍摄日期重命名」需要日期信息，而 file:read 对二进制图片
+      // 只能返回 "[二进制文件…]"，文件名（img0.jpg）也不含日期 ⇒ 在列举时就带上 mtime，
+      // 让模型可以直接用文件时间推导目标名。（isDir 一并给出，便于模型区分目录。）
+      const entriesWithMeta = readdirSync(validatedPath, { withFileTypes: true })
+        .map(e => {
+          const full = join(validatedPath, e.name)
+          let mtimeMs = 0
+          try { mtimeMs = statSync(full).mtimeMs } catch { mtimeMs = 0 }
+          return {
+            name: e.isDirectory() ? `${e.name}/` : e.name,
+            isDir: e.isDirectory(),
+            mtimeMs,
+            mtimeIso: mtimeMs ? new Date(mtimeMs).toISOString() : null
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+      return { success: true, entries, entriesWithMeta }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }

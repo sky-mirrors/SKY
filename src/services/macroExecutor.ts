@@ -460,11 +460,24 @@ export async function callToolDirectWithTier(
     const { isPathUnsafe } = await import('./dualEngineValidator')
     if (isPathUnsafe(dirPath)) throw new Error(`list_directory: 拒绝敏感路径 ${dirPath}`)
     const api = window.electronAPI as unknown as {
-      fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; error?: string }>
+      fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; entriesWithMeta?: Array<{ name: string; isDir: boolean; mtimeMs: number; mtimeIso: string | null }>; error?: string }>
     }
     if (api?.fileList) {
       const r = await api.fileList(dirPath)
       if (!r?.success) throw new Error(`list_directory failed: ${r?.error || 'unknown'}`)
+      // 2026-09-24：优先输出"文件名 + 修改日期"。Q15「按拍摄日期重命名」此前因拿不到日期而无法完成
+      // （file:read 对图片只返回"[二进制文件…]"）；带上 mtime 后模型可直接据此推导 日期-序号.jpg。
+      if (Array.isArray(r.entriesWithMeta) && r.entriesWithMeta.length > 0) {
+        return r.entriesWithMeta
+          .map(e => {
+            const d = e.mtimeIso ? new Date(e.mtimeIso) : null
+            const stamp = d && !Number.isNaN(d.getTime())
+              ? `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+              : '未知日期'
+            return `${e.name}\t修改日期=${stamp}${e.mtimeIso ? ` (${e.mtimeIso})` : ''}`
+          })
+          .join('\n')
+      }
       return (r.entries && r.entries.length > 0) ? r.entries.join('\n') : '(空目录)'
     }
     if (!window.electronAPI?.shellExec) throw new Error('list_directory not available')
