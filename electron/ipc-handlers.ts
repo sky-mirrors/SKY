@@ -239,28 +239,24 @@ async function safeFetch(
     }
     if (url.protocol === 'https:') reqOpts.servername = url.hostname
     const req = lib(reqOpts, (res) => {
-      res.on('error', reject)
-      // 请求被 abort/超时：res 随后会被 destroy，'end' 仍可能触发 ⇒ 不能再构造 Response
-      res.on('aborted', () => reject(new Error('请求被中止')))
-      res.on('end', () => {
-        // 防御（2026-09-23 实测复现）：abort/超时后 res 已 destroyed，`Readable.toWeb(res)` +
-        // `new Response(...)` 会抛 "Response body object should not be disturbed or locked"。
-        // 本回调在 Promise executor 之外异步执行，抛错会逃逸为 uncaughtException **直接崩掉主进程**
-        // （实测：云端请求 abort ⇒ 整个 app 退出 ⇒ 考试中断/0%）。故必须在此 catch → reject。
-        try {
-          const status = res.statusCode || 0
-          const headers: Record<string, string> = {}
-          for (const [k, v] of Object.entries(res.headers)) {
-            if (v === undefined) continue
-            headers[k] = Array.isArray(v) ? v.join(', ') : String(v)
-          }
-          const nullBody = status === 204 || status === 205 || status === 304
-          // 透传原始流（SSE 流式响应必须实时可读，不能整体缓冲）
-          resolve(new Response(nullBody ? null : Readable.toWeb(res), { status, headers }))
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)))
+      // ★ 根因修复（2026-09-23，插桩实测）：此处**不能**等 `res.on('end')`。
+      // `res` 是 IncomingMessage（可读流），在无人 read/resume/data 消费时**不会流动**，
+      // 'end' 永不触发 ⇒ Promise 永久 pending ⇒ 只能等 signal 超时 abort
+      // （实测：云端 `https://api.deepseek.com/v1/models` 在 173ms 就返回 200，
+      //   却被挂满 5s/60s 后报 "The operation was aborted"；探针脚本因写了 res.resume() 而 187ms 通过）。
+      // 正确语义是**立即**把原始流交给下游（SSE 需实时可读，更不能整体缓冲）。
+      try {
+        const status = res.statusCode || 0
+        const headers: Record<string, string> = {}
+        for (const [k, v] of Object.entries(res.headers)) {
+          if (v === undefined) continue
+          headers[k] = Array.isArray(v) ? v.join(', ') : String(v)
         }
-      })
+        const nullBody = status === 204 || status === 205 || status === 304
+        resolve(new Response(nullBody ? null : Readable.toWeb(res), { status, headers }))
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)))
+      }
     })
     req.on('error', reject)
     if (init.body != null) req.write(init.body)
