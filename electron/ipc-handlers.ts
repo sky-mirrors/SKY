@@ -22,6 +22,7 @@ import * as iconv from 'iconv-lite'
 // B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
 // A-19：closeVault 移至 main.ts 的 before-quit 调用，此处不再导入
 import { openVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
 
@@ -38,6 +39,30 @@ const knowledgeDir = join(userDataDir, 'knowledge')
 
 function ensureDir(dir: string) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+}
+
+/**
+ * 统一读取 api-config（vault 优先、文件回退）。
+ *
+ * 2026-09-23 事故（见 electron/apiConfigStore.ts 顶部与 .rivet/HANDOFF.md 追加二十三/二十四）：
+ * 三处 LLM 通道此前只读 `store/api-config.json` 文件，而渲染进程写入的是 vault ⇒ 主进程
+ * 永远查不到 provider ⇒ 云端调用与判卷全失败、考试 0%。改为与渲染层同一真相源：
+ *   ① vault `secure:holo-api-config`（storeSet 立即落盘，与渲染层 storeGet 同源）
+ *   ② vault `api:holo-api-config`（saveToStorage 的 writeThrough 备份）
+ *   ③ 文件 `store/api-config.json`（store:write 通道，兼容旧数据/旧安装）
+ */
+function readStoredApiConfig(): StoredApiConfig | null {
+  return pickApiConfig([
+    { label: 'vault:secure:holo-api-config', read: () => vaultRead('secure', 'holo-api-config') },
+    { label: 'vault:api:holo-api-config', read: () => vaultRead('api', 'holo-api-config') },
+    {
+      label: 'file:store/api-config.json',
+      read: () => {
+        const configPath = join(storeDir, 'api-config.json')
+        return existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null
+      }
+    }
+  ])
 }
 
 // A-15：响应体流式限量读取——resp.text() 会先把整个响应载入内存后才截断，
@@ -215,16 +240,26 @@ async function safeFetch(
     if (url.protocol === 'https:') reqOpts.servername = url.hostname
     const req = lib(reqOpts, (res) => {
       res.on('error', reject)
+      // 请求被 abort/超时：res 随后会被 destroy，'end' 仍可能触发 ⇒ 不能再构造 Response
+      res.on('aborted', () => reject(new Error('请求被中止')))
       res.on('end', () => {
-        const status = res.statusCode || 0
-        const headers: Record<string, string> = {}
-        for (const [k, v] of Object.entries(res.headers)) {
-          if (v === undefined) continue
-          headers[k] = Array.isArray(v) ? v.join(', ') : String(v)
+        // 防御（2026-09-23 实测复现）：abort/超时后 res 已 destroyed，`Readable.toWeb(res)` +
+        // `new Response(...)` 会抛 "Response body object should not be disturbed or locked"。
+        // 本回调在 Promise executor 之外异步执行，抛错会逃逸为 uncaughtException **直接崩掉主进程**
+        // （实测：云端请求 abort ⇒ 整个 app 退出 ⇒ 考试中断/0%）。故必须在此 catch → reject。
+        try {
+          const status = res.statusCode || 0
+          const headers: Record<string, string> = {}
+          for (const [k, v] of Object.entries(res.headers)) {
+            if (v === undefined) continue
+            headers[k] = Array.isArray(v) ? v.join(', ') : String(v)
+          }
+          const nullBody = status === 204 || status === 205 || status === 304
+          // 透传原始流（SSE 流式响应必须实时可读，不能整体缓冲）
+          resolve(new Response(nullBody ? null : Readable.toWeb(res), { status, headers }))
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)))
         }
-        const nullBody = status === 204 || status === 205 || status === 304
-        // 透传原始流（SSE 流式响应必须实时可读，不能整体缓冲）
-        resolve(new Response(nullBody ? null : Readable.toWeb(res), { status, headers }))
       })
     })
     req.on('error', reject)
@@ -968,18 +1003,9 @@ export function setupIpc(_win: BrowserWindow | null) {
       return { success: false, error: 'Missing providerId, model, or messages' }
     }
     try {
-      const configPath = join(storeDir, 'api-config.json')
-      if (!existsSync(configPath)) {
+      const stored = readStoredApiConfig()
+      if (!stored) {
         return { success: false, error: 'No API configuration found' }
-      }
-      const raw = readFileSync(configPath, 'utf-8')
-      const stored = JSON.parse(raw) as {
-        baseUrl?: string
-        providers?: Array<{
-          id: string; name: string; baseUrl: string; authType: string; apiKey: string
-          modelsEndpoint?: string; chatFormat?: string; models?: Array<{ id: string; name: string }>
-          isReachable?: boolean; lastCheckedAt?: number
-        }>
       }
       const provider = (stored.providers || []).find(p => p.id === providerId)
       if (!provider) {
@@ -1115,18 +1141,9 @@ export function setupIpc(_win: BrowserWindow | null) {
       return { success: false, error: 'Missing providerId' }
     }
     try {
-      const configPath = join(storeDir, 'api-config.json')
-      if (!existsSync(configPath)) {
+      const stored = readStoredApiConfig()
+      if (!stored) {
         return { success: false, error: 'No API configuration found' }
-      }
-      const raw = readFileSync(configPath, 'utf-8')
-      const stored = JSON.parse(raw) as {
-        baseUrl?: string
-        providers?: Array<{
-          id: string; name: string; baseUrl: string; authType: string; apiKey: string
-          modelsEndpoint?: string; chatFormat?: string; models?: Array<{ id: string; name: string }>
-          isReachable?: boolean; lastCheckedAt?: number
-        }>
       }
       const provider = (stored.providers || []).find(p => p.id === opts.providerId)
       if (!provider) {
@@ -1377,19 +1394,11 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       activeStreamControllers.delete(streamId)
       return
     }
-    const configPath = join(storeDir, 'api-config.json')
-    if (!existsSync(configPath)) {
+    const stored = readStoredApiConfig()
+    if (!stored) {
       event.sender.send(errorChannel, 'No API configuration found')
       activeStreamControllers.delete(streamId)
       return
-    }
-    const raw = readFileSync(configPath, 'utf-8')
-    const stored = JSON.parse(raw) as {
-      baseUrl?: string
-      providers?: Array<{
-        id: string; name: string; baseUrl: string; authType: string; apiKey: string
-        modelsEndpoint?: string; chatFormat?: string; models?: Array<{ id: string; name: string }>
-      }>
     }
     const provider = (stored.providers || []).find(p => p.id === providerId)
     if (!provider) {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { isReactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { useApiStore } from '@/stores/apiStore'
 
@@ -165,6 +166,60 @@ describe('apiStore', () => {
       const id = store.addProvider({ id: 'prov-1', name: 'P1', baseUrl: 'http://p1', authType: 'none' })
       store.switchProvider(id)
       expect(store.config.activeProviderId).toBe(id)
+    })
+  })
+
+  // 2026-09-23 事故根治：主进程（判卷/云端调用）读的是 <userData>\store\api-config.json 文件，
+  // 而 saveToStorage 此前只写 vault（secure:/api: 命名空间）⇒ 文件永远是 {} ⇒ 主进程报
+  // "Provider '...' not found"、云端与判卷全失败、考试 0%。此组用例锁死"文件通道必须被写"。
+  describe('持久化：api-config 必须落入主进程可读的文件通道', () => {
+    it('saveToStorage 经 store:write 落盘 api-config，且含 providers 数组', async () => {
+      const store = useApiStore()
+      store.addProvider({ id: 'custom-1', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', authType: 'api-key', apiKey: 'sk-test' })
+      await store.saveToStorage()
+      expect(electronApi.storeWrite).toHaveBeenCalledWith(
+        'api-config',
+        expect.objectContaining({ providers: expect.any(Array) })
+      )
+    })
+
+    it('落盘的 providers 与内存配置一一对应（id 顺序一致）', async () => {
+      const store = useApiStore()
+      store.addProvider({ id: 'custom-2', name: 'DS', baseUrl: 'https://api.deepseek.com', authType: 'api-key', apiKey: 'sk-x' })
+      store.addProvider({ id: 'ollama', name: 'Ollama(本地)', baseUrl: 'http://127.0.0.1:11434', authType: 'none' })
+      await store.saveToStorage()
+      const call = (electronApi.storeWrite as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(c => c[0] === 'api-config')
+      expect(call).toBeTruthy()
+      const written = call![1] as { providers: Array<{ id: string }> }
+      expect(written.providers.map(p => p.id)).toEqual(store.config.providers.map(p => p.id))
+      expect(written.providers.length).toBe(2)
+    })
+
+    it('store:write 不可用时 saveToStorage 不抛错（vault 写入仍然完成）', async () => {
+      const store = useApiStore()
+      const saved = (globalThis as unknown as { window: { electronAPI: Record<string, unknown> } }).window.electronAPI.storeWrite
+      delete (globalThis as unknown as { window: { electronAPI: Record<string, unknown> } }).window.electronAPI.storeWrite
+      store.addProvider({ id: 'custom-3', name: 'DS', baseUrl: 'https://api.deepseek.com', authType: 'api-key' })
+      await expect(store.saveToStorage()).resolves.toBeUndefined()
+      ;(globalThis as unknown as { window: { electronAPI: Record<string, unknown> } }).window.electronAPI.storeWrite = saved
+    })
+
+    // 实测（2026-09-23 20:2x，CDP 直连运行中的 app）：
+    //   storeWrite('api-config', store.config.providers) → Error: An object could not be cloned.
+    //   storeWrite('api-config', JSON.parse(JSON.stringify(...))) → true
+    // data.providers 来自 pinia reactive state（嵌套 Proxy），ipcRenderer.invoke 的结构化克隆
+    // 拒收 Proxy ⇒ 抛错被 catch 吞掉 = 静默不落盘。此用例用 structuredClone 复刻该约束。
+    it('传给 store:write 的载荷必须是可结构化克隆的 plain object（Proxy 会被 IPC 拒收）', async () => {
+      const store = useApiStore()
+      store.addProvider({ id: 'custom-4', name: 'DS', baseUrl: 'https://api.deepseek.com', authType: 'api-key', apiKey: 'sk-y' })
+      await store.saveToStorage()
+      const call = (electronApi.storeWrite as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(c => c[0] === 'api-config')
+      expect(call).toBeTruthy()
+      const payload = call![1] as { providers: unknown[] }
+      expect(isReactive(payload)).toBe(false)
+      expect(isReactive(payload.providers)).toBe(false)
+      expect(isReactive(payload.providers[0])).toBe(false)
+      expect(() => structuredClone(payload)).not.toThrow()
     })
   })
 

@@ -1545,6 +1545,25 @@ export const useApiStore = defineStore('api', () => {
     }
     await storeSet('api-config', data)
     vault.writeThrough('api', 'holo-api-config', JSON.stringify(data), true)
+    // 2026-09-23 事故根治（HANDOFF 追加二十三/二十四）：主进程（云端 LLM 调用 / 判卷 judge）
+    // 读的是 `<userData>\store\api-config.json`（store:write 文件通道），而上面两处只写 vault
+    // ⇒ 该文件从无写入者、长期为 `{}` ⇒ 主进程报 "Provider '…' not found" ⇒ 云端与判卷全失败、
+    // 考试 0%。此处补写文件通道，与主进程读取对齐。失败不阻断保存：vault 是渲染层真相源，
+    // 文件是给主进程消费的投影（主进程亦已支持 vault 优先读取）。
+    try {
+      // 实测（CDP 直连运行中的 app，2026-09-23）：
+      //   storeWrite('api-config', config.providers)            → Error: An object could not be cloned.
+      //   storeWrite('api-config', JSON.parse(JSON.stringify(…))) → true
+      // data.providers 来自 pinia reactive state（嵌套 Proxy），ipcRenderer.invoke 的结构化克隆
+      // 拒收 Proxy ⇒ 抛错。此前该错误被下面的 catch 吞掉，表现为"保存成功但文件从不落盘"。
+      // 故先深拷贝为 plain object 再交给 IPC（data 内容均为可 JSON 化的字面量）。
+      const plain = JSON.parse(JSON.stringify(data)) as typeof data
+      await window.electronAPI?.storeWrite?.('api-config', plain)
+    } catch (err) {
+      // 失败必须可见：此处静默过一次，导致"主进程查不到 provider"隐身数小时
+      console.warn('[apiStore] ⚠️ 写 api-config 文件通道失败（主进程将读不到 provider）:', err)
+      debugLog('[apiStore] ⚠️ 写 api-config 文件通道失败（主进程可能读不到 provider）:', err)
+    }
   }
 
   return {
