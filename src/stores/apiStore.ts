@@ -1251,7 +1251,13 @@ export const useApiStore = defineStore('api', () => {
             completionTokens: usageInfo?.completionTokens ?? 0,
             totalTokens: usageInfo?.totalTokens ?? 0
           }, effectiveTier, 'llm', true)
-          callbacks.onDone({ content: accumulated, toolCalls: [], usage: usageInfo })
+          {
+        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用
+        const noticeText = detectUnsolvable(accumulated)
+          ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+          : ''
+        callbacks.onDone({ content: noticeText ? `${accumulated}\n\n${noticeText}` : accumulated, toolCalls: [], usage: usageInfo })
+      }
         }
       }, maxTokens, fetchSignal, routingOptions?.temperature)
     }
@@ -1354,7 +1360,13 @@ export const useApiStore = defineStore('api', () => {
               totalTokens: usageInfo?.totalTokens ?? (usageInfo?.promptTokens ?? 0) + (usageInfo?.completionTokens ?? 0),
               cacheHitTokens: usageInfo?.cacheHitTokens ?? 0
             }, effectiveTier, 'llm')
-            callbacks.onDone({ content: accumulatedContent, toolCalls, usage: usageInfo })
+            {
+        // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用
+        const noticeText2 = detectUnsolvable(accumulatedContent)
+          ? buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+          : ''
+        callbacks.onDone({ content: noticeText2 ? `${accumulatedContent}\n\n${noticeText2}` : accumulatedContent, toolCalls, usage: usageInfo })
+      }
           }
         }, fetchSignal)
       } catch (err) {
