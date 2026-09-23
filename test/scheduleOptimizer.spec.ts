@@ -348,32 +348,36 @@ describe('scheduleOptimizer', () => {
   })
 
   describe('getTierConfig', () => {
+    // 2026-09-23：档位 maxTokens 上调，为推理模型（deepseek-flash / deepseek-v4-pro）的
+    // reasoning_content 留预算。原值 512/1024 是按本地非推理小模型校准的，推理模型下
+    // 会被思考吃满预算 ⇒ 正文为空（验收考试 8/18 题「(LLM无输出)」的根因）。
+    // 详见 test/unit/tierMaxTokens.spec.ts 与 MODEL_TIER_CONFIG 处注释。
     it('nano tier', () => {
       const c = getTierConfig('nano')
-      expect(c.maxTokens).toBe(512)
+      expect(c.maxTokens).toBe(2048)
       expect(c.temperature).toBe(0.1)
     })
 
     it('mini tier', () => {
       const c = getTierConfig('mini')
-      expect(c.maxTokens).toBe(1024)
+      expect(c.maxTokens).toBe(3072)
       expect(c.temperature).toBe(0.3)
     })
 
     it('standard tier (默认)', () => {
       const c = getTierConfig()
-      expect(c.maxTokens).toBe(4096)
+      expect(c.maxTokens).toBe(8192)
     })
 
     it('pro tier', () => {
       const c = getTierConfig('pro')
-      expect(c.maxTokens).toBe(8192)
+      expect(c.maxTokens).toBe(16384)
       expect(c.temperature).toBe(0.7)
     })
 
     it('无效tier → standard', () => {
       const c = getTierConfig('nonexistent')
-      expect(c.maxTokens).toBe(4096)
+      expect(c.maxTokens).toBe(8192)
     })
   })
 

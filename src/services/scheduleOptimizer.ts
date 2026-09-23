@@ -319,11 +319,21 @@ export function findDirtySteps(
   return dirty
 }
 
+// 2026-09-23 重校准：原值（nano 512 / mini 1024 / standard 4096 / pro 8192）是按
+// **本地非推理小模型**校准的（qwen2.5:3b ~10 tok/s，maxTokens 可视为纯正文预算）。
+// 现行模型 deepseek-flash / deepseek-v4-pro 都是**推理模型**：会先消耗 reasoning_content
+// 的 token，同一份预算要先被思考吃掉。实测（CDP 直连同一提示词，只改预算）：
+//   maxTokens=512  → completionTokens=512、content 为空（预算被 reasoning 吃满）
+//   maxTokens=2048 → reasoning ≈820 + 正文 249 字，正常输出
+// ⇒ 512/1024 档下低档调用**必然**产出空正文，落到 macroExecutor 的 `'(LLM无输出)'`
+//   （验收考试 8/18 题即由此而来）。故各档上调，为 reasoning 留出余量。
+// 注意 maxTokens 是**上限**而非配额：提高它不增加实际消耗，反而消除
+// "烧满预算却零产出"的纯浪费（上例 512 tokens 全废）。超时按档位阶梯放宽，无副作用。
 const MODEL_TIER_CONFIG: Record<string, { maxTokens: number; temperature: number }> = {
-  nano: { maxTokens: 512, temperature: 0.1 },
-  mini: { maxTokens: 1024, temperature: 0.3 },
-  standard: { maxTokens: 4096, temperature: 0.5 },
-  pro: { maxTokens: 8192, temperature: 0.7 }
+  nano: { maxTokens: 2048, temperature: 0.1 },
+  mini: { maxTokens: 3072, temperature: 0.3 },
+  standard: { maxTokens: 8192, temperature: 0.5 },
+  pro: { maxTokens: 16384, temperature: 0.7 }
 }
 
 export function getTierConfig(tier?: string): { maxTokens: number; temperature: number } {
