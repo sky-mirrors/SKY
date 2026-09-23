@@ -12,7 +12,9 @@ import { route as smartRoute, recordRoutingOutcome, detectOverkill, textHash, ge
 import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
 // 双模型并存（2026-09-23）：档位 → provider+model 解析，替代原先只读单一 activeModel
-import { resolveTierTarget } from '@/services/tierModelBinding'
+import { resolveTierTarget, type TierTarget } from '@/services/tierModelBinding'
+// 小模型兜底 + 诚实陈述（2026-09-23 需求）
+import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice } from '@/services/escalationPolicy'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
 import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
@@ -498,7 +500,9 @@ export const useApiStore = defineStore('api', () => {
     maxTokens?: number,
     externalSignal?: AbortSignal,
     routingOptions?: { taskType?: string; domain?: string; callerId?: string; traceId?: string; temperature?: number },
-    degradeState?: DegradeState
+    degradeState?: DegradeState,
+    /** 内部专用：小模型兜底升级时强制指定目标（外部调用不要传） */
+    forceTarget?: TierTarget
   ): Promise<{ content: string; toolCalls: { id: string; name: string; arguments: string }[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }> {
     // M20：降级态绕过远程就绪/熔断检查——能走到降级态说明远程已失败
     if (!degradeState && (!config.value.isReachable || !config.value.activeModel)) {
@@ -628,7 +632,7 @@ export const useApiStore = defineStore('api', () => {
     // 双模型并存（2026-09-23）：按档位解析目标 provider+model（未绑定时回退单值配置）。
     // 注意：下方分支条件原先用 `activeProvider`（单值）判定 chatFormat，若档位把某档绑到云、
     // 而 active 是本地 Ollama，会被误判跳过 → 故此处一并改用解析后的 tierProvider。
-    const tierTarget = resolveTierTarget(config.value, effectiveTier)
+    const tierTarget = forceTarget ?? resolveTierTarget(config.value, effectiveTier)
     const tierProvider = config.value.providers.find(p => p.id === tierTarget.providerId) ?? activeProvider.value
 
     // M17：Ollama 走渲染进程直连（主进程 isHostAllowed 拒绝 loopback），禁走 IPC
@@ -811,6 +815,28 @@ export const useApiStore = defineStore('api', () => {
         }
         // M17/M20：本地 Ollama 零费用记账
         emitRecordCost(r.usage, effectiveTier, 'llm', true)
+
+        // 小模型兜底 + 诚实陈述（2026-09-23 需求）：本地小模型答不了（拒答/能力声明）
+        // → 升级云端大模型重试一次；无大模型可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
+        if (!forceTarget && detectUnsolvable(r.content)) {
+          const escTarget = resolveEscalationTarget(config.value, effectiveTier)
+          if (escTarget) {
+            debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底')
+            try {
+              const retried = await chatCompletion(
+                messages, retryOnFailure, tools, maxTokens, externalSignal, routingOptions, undefined, escTarget
+              )
+              if (!detectUnsolvable(retried.content)) return retried
+              return { ...retried, content: `${retried.content}\n\n${buildHonestNotice('both-failed')}` }
+            } catch (err) {
+              debugLog(`[chatCompletion:escalate] 兜底调用失败：${String(err).slice(0, 120)}`)
+            }
+          }
+          return {
+            ...ollamaResult,
+            content: `${r.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+          }
+        }
         return ollamaResult
       }
       const resp = await fetch(`${baseUrl}${endpoint}`, {
