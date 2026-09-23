@@ -81,6 +81,25 @@
         </div>
       </div>
 
+      <div class="section" v-if="apiStore.config.providers.length > 0">
+        <label>双模型分工（同时连接两个模型）</label>
+        <div class="row">
+          <span class="prov-name">快速档（nano/mini）</span>
+          <select class="auth-select" :value="fastSlot" @change="applySlot('fast', $event)">
+            <option value="">跟随「当前模型」（不启用）</option>
+            <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="row">
+          <span class="prov-name">强力档（standard/pro）</span>
+          <select class="auth-select" :value="strongSlot" @change="applySlot('strong', $event)">
+            <option value="">跟随「当前模型」（不启用）</option>
+            <option v-for="opt in modelOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+          </select>
+        </div>
+        <div class="prov-url">未设置的档位回退到当前模型——本机小模型与云端大模型可同时生效。</div>
+      </div>
+
       <div v-if="checking" class="status">检测中...</div>
       <div v-if="successMsg && !checking && !error" class="status ok">{{ successMsg }}</div>
       <div v-if="error" class="status error">{{ error }}</div>
@@ -94,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useApiStore } from '@/domains/api'
 import { ProviderConfig } from '@/models'
 
@@ -126,6 +145,39 @@ const presets: { id: string; name: string; baseUrl: string; authType: 'none' | '
 
 function isProviderAdded(id: string): boolean {
   return apiStore.config.providers.some(p => p.id === id)
+}
+
+// ── 双模型并存（2026-09-23 需求）：快速档 / 强力档 两个槽位，
+// 分别绑定 nano+mini / standard+pro；未设置的档位回退「当前模型」。──
+type SlotTier = 'nano' | 'mini' | 'standard' | 'pro'
+const modelOptions = computed(() =>
+  apiStore.config.providers.flatMap(p => p.models.map(m => ({ key: `${p.id}::${m.id}`, label: `${p.name} / ${m.id}` })))
+)
+function slotKey(tiers: SlotTier[]): string {
+  const tm = apiStore.config.tierModels as Record<string, { providerId: string; model: string }> | undefined
+  if (!tm) return ''
+  const first = tm[tiers[0]]
+  return first ? `${first.providerId}::${first.model}` : ''
+}
+const fastSlot = computed(() => slotKey(['nano', 'mini']))
+const strongSlot = computed(() => slotKey(['standard', 'pro']))
+
+function applySlot(slot: 'fast' | 'strong', ev: Event): void {
+  const key = (ev.target as HTMLSelectElement).value
+  const tiers: SlotTier[] = slot === 'fast' ? ['nano', 'mini'] : ['standard', 'pro']
+  const tm: Record<string, { providerId: string; model: string }> = {
+    ...((apiStore.config.tierModels as Record<string, { providerId: string; model: string }> | undefined) || {})
+  }
+  for (const t of tiers) {
+    if (!key) { delete tm[t]; continue }
+    const [providerId, model] = key.split('::')
+    if (providerId && model) tm[t] = { providerId, model }
+  }
+  apiStore.config.tierModels = Object.keys(tm).length > 0
+    ? (tm as typeof apiStore.config.tierModels)
+    : undefined
+  apiStore.saveToStorage()
+  successMsg.value = '双模型分工已保存（简单请求走快速档，复杂请求走强力档）'
 }
 
 function addPreset(preset: typeof presets[0]) {
