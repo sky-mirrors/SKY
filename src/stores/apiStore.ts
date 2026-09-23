@@ -679,7 +679,7 @@ export const useApiStore = defineStore('api', () => {
           toolCalls: result.toolCalls ?? [],
           usage: result.usage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
         }
-        if (cacheEligible && !isLearningIsolated && ipcResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(ipcResult.content) && ipcResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -818,7 +818,7 @@ export const useApiStore = defineStore('api', () => {
         recordSuccess()
         debugLog(`[chatCompletion:ollama] model=${ollamaModel}, usage: prompt=${r.usage.promptTokens}, completion=${r.usage.completionTokens}, total=${r.usage.totalTokens}`)
         const ollamaResult = { content: r.content, toolCalls: [], usage: r.usage }
-        if (cacheEligible && !isLearningIsolated && r.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(r.content) && r.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -883,7 +883,7 @@ export const useApiStore = defineStore('api', () => {
         const ct = aResp?.usage?.output_tokens || 0
         debugLog(`[chatCompletion:direct] usage: prompt=${pt}, completion=${ct}, total=${pt + ct}`)
         const anthropicResult = { content: text ? String(text) : '', toolCalls: [] }
-        if (cacheEligible && !isLearningIsolated && anthropicResult.content.length > 50) {
+        if (cacheEligible && !isLearningIsolated && !detectUnsolvable(anthropicResult.content) && anthropicResult.content.length > 50) {
           const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
           if (userMsg) {
             cacheStore({
@@ -926,7 +926,7 @@ export const useApiStore = defineStore('api', () => {
       const usage = data.usage ? { promptTokens: data.usage.prompt_tokens || 0, completionTokens: data.usage.completion_tokens || 0, totalTokens: data.usage.total_tokens || 0, cacheHitTokens: data.usage.prompt_cache_hit_tokens || 0, cacheMissTokens: data.usage.prompt_cache_miss_tokens || 0 } : { promptTokens: 0, completionTokens: 0, totalTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
       debugLog(`[chatCompletion:direct] usage: prompt=${usage.promptTokens}, completion=${usage.completionTokens}, total=${usage.totalTokens}, cacheHit=${usage.cacheHitTokens}, cacheMiss=${usage.cacheMissTokens}`)
       const directResult = { content, toolCalls, usage }
-      if (cacheEligible && !isLearningIsolated && content.length > 50 && toolCalls.length === 0) {
+      if (cacheEligible && !isLearningIsolated && !detectUnsolvable(content) && content.length > 50 && toolCalls.length === 0) {
         const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
         if (userMsg) {
           cacheStore({
@@ -1363,7 +1363,7 @@ export const useApiStore = defineStore('api', () => {
             const toolCalls = Array.from(toolCallMap.values())
             recordSuccess()
             const cacheEligible = (!tools || tools.length === 0) && messages.length <= 5
-            if (cacheEligible && !isLearningIsolated && accumulatedContent.length > 50 && toolCalls.length === 0) {
+            if (cacheEligible && !isLearningIsolated && !detectUnsolvable(accumulatedContent) && accumulatedContent.length > 50 && toolCalls.length === 0) {
               const userMsg = messages.filter(m => m.role === 'user').map(m => m.content || '').join('\n')
               if (userMsg) {
                 cacheStore({
