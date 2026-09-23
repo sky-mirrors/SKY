@@ -718,7 +718,7 @@ export const useApiStore = defineStore('api', () => {
           }
           return {
             ...ipcResult,
-            content: `${ipcResult.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${ipcResult.content}`
           }
         }
         return ipcResult
@@ -857,7 +857,7 @@ export const useApiStore = defineStore('api', () => {
           }
           return {
             ...ollamaResult,
-            content: `${r.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${r.content}`
           }
         }
         return ollamaResult
@@ -964,7 +964,7 @@ export const useApiStore = defineStore('api', () => {
         }
         return {
           ...directResult,
-          content: `${directResult.content}\n\n${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}`
+          content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${directResult.content}`
         }
       }
       return directResult
