@@ -154,6 +154,19 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_write failed')
   }
 
+  // 2026-09-24：重命名/移动（对应主进程 file:move）。shell 白名单不含 ren/move（shell-security.ts:4），
+  // 故不走 shell_exec；且返回值带上 from→to，便于上游如实报告"改成了什么名字"。
+  if (fullName === 'file_move') {
+    if (!window.electronAPI?.fileMove) throw new Error('file_move not available')
+    const from = await resolveFilePath(String(args.from || args.path || args.source || ''))
+    if (!from) throw new Error('file_move: missing from')
+    const to = await resolveFilePath(String(args.to || args.target || args.newPath || ''))
+    if (!to) throw new Error('file_move: missing to')
+    const result = await window.electronAPI.fileMove({ from, to })
+    if (result.success) return `已重命名/移动: ${result.from} → ${result.to}`
+    throw new Error(result.error || 'file_move failed')
+  }
+
   if (fullName === 'create_directory') {
     if (!window.electronAPI?.createDirectory) throw new Error('create_directory not available')
     const dirPath = await resolveFilePath(String(args.path || args.dirPath || ''))
@@ -347,6 +360,40 @@ export async function callToolDirectWithTier(
           maxTokens = Math.min(maxTokens * 2, 16384)
           lastError = new Error('空输出（reasoning 吃满预算），已翻倍预算重试')
           continue
+        }
+        // 2026-09-24：模型发起了工具调用却无人执行 —— 插桩实测 Q15 的 resp 为
+        // `contentLen=14 toolCalls=1`（keys=content,toolCalls,usage），而本函数原先只取 content，
+        // 于是那句开场白"我先看看这个文件夹里有什么。"成了最终答案。
+        // 此处补一环工具回路：执行 toolCalls ⇒ 把真实结果回灌为新一轮 user 消息 ⇒ 让模型据此汇报。
+        // 上限一轮（避免死循环与成本失控）；工具执行失败也如实回灌，不掩盖。
+        const toolCalls = (resp as { toolCalls?: Array<{ id?: string; name?: string; arguments?: string }> }).toolCalls
+        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+          const outs: string[] = []
+          for (const call of toolCalls) {
+            const rawName = String(call?.name || '')
+            const toolName = rawName.replace(/.*___/, '').trim()
+            let args: Record<string, unknown> = {}
+            try { args = JSON.parse(String(call?.arguments || '{}')) as Record<string, unknown> } catch { args = {} }
+            try {
+              outs.push(`${toolName}: ${await callToolDirectWithTier(toolName, args, currentTier)}`)
+            } catch (toolErr) {
+              outs.push(`${toolName}: ⚠️ 执行失败 - ${toolErr instanceof Error ? toolErr.message : String(toolErr)}`)
+            }
+          }
+          const followUp = `我按你的要求调用了工具，真实执行结果如下：\n${outs.join('\n')}\n\n请基于以上真实结果，用中文向用户汇报完成情况：说清实际做了什么、涉及多少个文件、以及每个文件的新名字（若适用）。不要再说"我先看看"之类的前言，也不要编造未执行的动作。`
+          try {
+            const resp2 = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
+              messages: [{ role: 'user', content: followUp, timestamp: Date.now() }],
+              tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
+              maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
+              signal: controller.signal,
+              routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
+            })
+            const summary = (resp2.content || '').trim()
+            return summary || outs.join('\n')
+          } catch {
+            return outs.join('\n')
+          }
         }
         return resp.content || '(LLM无输出)'
       } catch (err) {

@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -53,6 +53,18 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         content: { type: 'string', description: '要写入的文本内容' }
       },
       required: ['path', 'content']
+    }
+  },
+  {
+    name: 'file_move',
+    description: '重命名或移动本机文件/文件夹（源路径 → 目标路径）。用于按规则批量重命名图片、整理文件等。',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: '源文件绝对路径，例如 C:\\Users\\X\\Desktop\\photos\\IMG_001.jpg' },
+        to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名），例如 C:\\Users\\X\\Desktop\\photos\\20260315-01.jpg' }
+      },
+      required: ['from', 'to']
     }
   }
 ]

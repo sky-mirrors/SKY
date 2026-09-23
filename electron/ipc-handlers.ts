@@ -395,6 +395,27 @@ export function setupIpc(_win: BrowserWindow | null) {
     }
   })
 
+  // 2026-09-24 新增「重命名/移动」原生工具。原因（实测）：electron\shell-security.ts:4 的
+  // SHELL_ALLOWED_COMMANDS 不含 ren / move / Move-Item / del，所以 Q15「图片按日期重命名」
+  // 即使生成 shell_exec 命令也会被白名单拒绝。走 IPC 直连 fs 可绕开 shell 白名单；
+  // 源路径用 validatePath、目标路径用 validateWritePath（与 file:write 同一写类口径）。
+  ipcMain.handle('file:move', (_event, opts: { from: string; to: string }) => {
+    const srcCheck = validatePath(opts.from)
+    if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
+    const dstCheck = validateWritePath(opts.to)
+    if (!dstCheck.safe) return { success: false, error: dstCheck.reason }
+    if (srcCheck.resolved === dstCheck.resolved) return { success: false, error: '源与目标路径相同' }
+    try {
+      if (!existsSync(srcCheck.resolved)) return { success: false, error: `源不存在: ${srcCheck.resolved}` }
+      const dir = join(dstCheck.resolved, '..')
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      renameSync(srcCheck.resolved, dstCheck.resolved)
+      return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('file:createDirectory', (_event, dirPath: string) => {
     const pathCheck = validatePath(dirPath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }

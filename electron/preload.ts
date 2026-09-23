@@ -72,6 +72,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   fileWrite: (opts: { filePath: string; content: string; encoding?: string }) =>
     ipcRenderer.invoke('file:write', opts),
+  fileMove: (opts: { from: string; to: string }) =>
+    ipcRenderer.invoke('file:move', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),
