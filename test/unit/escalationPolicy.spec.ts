@@ -34,6 +34,18 @@ describe('detectUnsolvable：识别"小模型做不了"', () => {
     expect(detectUnsolvable('抱歉，我不能访问你的本地文件系统')).toBe(true)
   })
 
+  it('识别真实运行中的其它措辞（实测漏判过，补上）', () => {
+    // 真实回复原话（13:5x / 14:0x 两次实测）——此前因「我」与「无法」之间有间隔而漏判
+    expect(detectUnsolvable('我做不到——无法直接控制你本机的蓝牙或代你配对耳机。手动操作（Windows）：设置 → 蓝牙和设备')).toBe(true)
+    expect(detectUnsolvable('做不到。我不能直接访问或操作你的电脑硬件、摄像头、麦克风、文件等。')).toBe(true)
+    expect(detectUnsolvable('我无法直接访问或操控你的本机外设，不能替你打开蓝牙、配对新设备，也不会假装已完成。')).toBe(true)
+  })
+
+  it('解释性文字不误判（避免给正常回答乱加"未完成"）', () => {
+    expect(detectUnsolvable('如果无法连接，请检查网络设置后重试。')).toBe(false)
+    expect(detectUnsolvable('该操作用户未授权，因此不能执行；请先在设置里开启权限。')).toBe(false)
+  })
+
   it('正常可交付回答不误判', () => {
     expect(detectUnsolvable('张三的报销总金额是3,970元。')).toBe(false)
     expect(detectUnsolvable('会议纪要：一、项目进度；二、风险；三、下周计划')).toBe(false)
