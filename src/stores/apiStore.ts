@@ -1118,7 +1118,16 @@ export const useApiStore = defineStore('api', () => {
                   totalTokens: final.usage?.totalTokens ?? (final.usage?.promptTokens ?? 0) + (final.usage?.completionTokens ?? 0),
                   cacheHitTokens: final.usage?.cacheHitTokens ?? 0
                 }, effectiveTier, 'llm')
-                callbacks.onDone(final)
+                // 诚实陈述（2026-09-23 需求）：流式路径同样适用——模型答不了就明确标注，不包装成成功。
+      // 流式已把原文发出，无法收回，故以追加一段说明的方式呈现。
+      const needsNotice = !!final && typeof final.content === 'string' && detectUnsolvable(final.content)
+      if (needsNotice && final) {
+        const noticeText = buildHonestNotice(resolveEscalationTarget(config.value, effectiveTier) ? 'both-failed' : 'small-only')
+        callbacks.onChunk({ content: `${final.content}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
+        callbacks.onDone({ content: `${final.content}\n\n${noticeText}`, toolCalls: final.toolCalls, usage: final.usage })
+      } else {
+        callbacks.onDone(final)
+      }
               }
             },
             onError: (err: string) => {
