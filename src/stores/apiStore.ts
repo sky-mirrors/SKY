@@ -1138,6 +1138,13 @@ export const useApiStore = defineStore('api', () => {
             },
             onDone: (final) => {
               if (!combinedSignal.aborted) {
+                // S-4：主进程在未见终止标记时以 truncated 收尾——内容不完整，
+                // 不得记成功、不得入语义缓存（原实现无条件 recordSuccess）
+                if ((final as { truncated?: boolean }).truncated) {
+                  debugLog('[chatCompletionStream:ipc] 流被截断（未收到终止标记），不计成功、不入缓存')
+                  callbacks.onDone(final)
+                  return
+                }
                 recordSuccess()
                 // G-17：流式 IPC 成功路径原缺隔离守卫——benchmark 流量泄漏 ZOL routingHistory；
                 // exam 流量恰走流式主路径，不修则考试污染生产学习（EXAM-1 一并接入）
@@ -1367,6 +1374,22 @@ export const useApiStore = defineStore('api', () => {
               cacheHitTokens: delta.usage.cacheHitTokens ?? usageInfo?.cacheHitTokens ?? 0,
               cacheMissTokens: delta.usage.cacheMissTokens ?? usageInfo?.cacheMissTokens ?? 0,
             }
+          }
+
+          if (delta.error) {
+            // S-4：流内错误事件 → 判失败（原实现无此分支，错误被丢弃后当成功收尾）
+            if (!combinedSignal.aborted) {
+              recordFailure()
+              callbacks.onError(new Error(delta.error))
+            }
+            return
+          }
+
+          if (delta.done && delta.truncated) {
+            // S-4：截断流——内容已发出但未收终止标记，不计成功、不入缓存
+            debugLog('[chatCompletionStream] 流被截断（未收到终止标记），不计成功、不入缓存')
+            callbacks.onDone({ content: accumulatedContent, toolCalls: Array.from(toolCallMap.values()), usage: usageInfo })
+            return
           }
 
           if (delta.done) {

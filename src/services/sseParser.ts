@@ -8,6 +8,10 @@ export interface StreamDelta {
   toolCalls?: { index: number; id?: string; name?: string; arguments?: string }[]
   usage?: { promptTokens?: number; completionTokens?: number; cacheHitTokens?: number; cacheMissTokens?: number }
   done: boolean
+  /** S-4：服务端在流内报错（OpenAI error 对象 / Anthropic type=error）——必须判失败 */
+  error?: string
+  /** S-4：流在未见终止标记的情况下结束（EOF）——内容不完整，不得当成功、不得入缓存 */
+  truncated?: boolean
 }
 
 export function parseSSELines(chunk: string, buffer: string): { events: SSEEvent[]; remainingBuffer: string } {
@@ -43,6 +47,10 @@ export function extractOpenAIDelta(event: SSEEvent): StreamDelta {
   }
   try {
     const p = JSON.parse(event.data)
+    // S-4：服务端在流内报错必须判失败，不得静默丢弃后当成功收尾（截断内容会入缓存与账本）
+    if (p.error) {
+      return { done: false, error: typeof p.error === 'string' ? p.error : (p.error.message || JSON.stringify(p.error)) }
+    }
     const delta: StreamDelta = { done: false }
     if (p.choices?.[0]?.delta?.content) {
       delta.content = p.choices[0].delta.content
@@ -75,6 +83,11 @@ export function extractAnthropicDelta(event: SSEEvent): StreamDelta {
   try {
     const p = JSON.parse(event.data)
     const type = p.type
+
+    // S-4：Anthropic 流内错误事件（overloaded_error 等）必须判失败，原实现无此分支
+    if (type === 'error') {
+      return { done: false, error: p.error?.message || p.error?.type || 'anthropic stream error' }
+    }
 
     if (type === 'message_stop') {
       return { done: true }
@@ -179,7 +192,9 @@ export async function readSSEStream(
         }
       }
     }
-    onDelta({ done: true })
+    // S-4：走到这里说明整个流都没见到终止标记（[DONE]/message_stop 都会在上方 return）——
+    // 这是被截断的流，不能当成功完成（原实现合成 done:true，导致截断内容入缓存/账本）
+    onDelta({ done: true, truncated: true })
   } finally {
     reader.releaseLock()
   }
@@ -256,7 +271,8 @@ export async function readNDJSONStream(
     }
     buffer += decoder.decode()
     if (buffer.trim()) emitLine(buffer)
-    if (!doneEmitted) onDelta({ done: true })
+    // S-4：无 done 行即被截断，不得当成功完成
+    if (!doneEmitted) onDelta({ done: true, truncated: true })
   } finally {
     reader.releaseLock()
   }

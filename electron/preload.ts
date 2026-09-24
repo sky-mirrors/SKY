@@ -209,7 +209,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     callbacks: {
       onChunk: (chunk: { content: string; delta: string; done: boolean }) => void
-      onDone: (final: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }) => void
+      onDone: (final: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }>; truncated?: boolean; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens: number; cacheMissTokens: number } }) => void
       onError: (err: string) => void
     }
   ) => {

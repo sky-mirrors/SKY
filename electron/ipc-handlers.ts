@@ -1653,9 +1653,11 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       buffer = lines.pop() || ''
 
       for (const line of lines) {
-        if (!line.startsWith('data: ') && !line.startsWith('event: ')) continue
-        if (line.startsWith('data: ')) {
-          const d = line.slice(6)
+        // S-4/B-11 对齐渲染层：冒号后至多剥一个空格——data:xxx（无空格）此前被整行丢弃
+        if (!line.startsWith('data:') && !line.startsWith('event:')) continue
+        if (line.startsWith('data:')) {
+          const raw = line.slice(5)
+          const d = raw.startsWith(' ') ? raw.slice(1) : raw
           if (chatFormat === 'openai') {
             if (d.trim() === '[DONE]') {
               const toolCalls = Array.from(toolCallMap.values())
@@ -1665,6 +1667,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
             }
             try {
               const p = JSON.parse(d)
+              // S-4：服务端在流内报错必须走 error 频道，不得静默丢弃后当成功收尾
+              if (p.error) {
+                event.sender.send(errorChannel, typeof p.error === 'string' ? p.error : (p.error.message || 'stream error'))
+                activeStreamControllers.delete(streamId)
+                return
+              }
               if (p.choices?.[0]?.delta?.content) {
                 accumulatedContent += p.choices[0].delta.content
                 event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.choices[0].delta.content, toolCalls: undefined, usage: undefined, done: false })
@@ -1690,6 +1698,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
           } else {
             try {
               const p = JSON.parse(d)
+              // S-4：Anthropic 流内错误事件（overloaded_error 等）→ error 频道
+              if (p.type === 'error') {
+                event.sender.send(errorChannel, p.error?.message || p.error?.type || 'anthropic stream error')
+                activeStreamControllers.delete(streamId)
+                return
+              }
               if (p.type === 'content_block_delta' && p.delta?.type === 'text_delta' && p.delta?.text) {
                 accumulatedContent += p.delta.text
                 event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.delta.text, toolCalls: undefined, usage: undefined, done: false })
@@ -1721,8 +1735,10 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     }
 
     if (!abortCtrl.signal.aborted) {
+      // S-4：走到这里说明流已 EOF 但从未见到终止标记（[DONE]/message_stop）——标记 truncated，
+      // 交由渲染层判失败/不入缓存，不再当成正常完成
       const toolCalls = Array.from(toolCallMap.values())
-      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
     }
     activeStreamControllers.delete(streamId)
   } catch (err) {
