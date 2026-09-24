@@ -131,13 +131,12 @@ describe('pipelineExecutor', () => {
       expect(progress).toHaveBeenCalled()
     })
 
-    it('returns fallback for unregistered tool', async () => {
+    it('H-3：工具未注册 → 管道失败（不再以 fallback 字符串假完成）', async () => {
       const pipeline = makePipeline([
         { toolId: 'nonexistent-tool', params: {}, outputKey: 'missing' }
       ])
 
-      const result = await executePipeline(pipeline)
-      expect(result['missing']).toContain('not registered')
+      await expect(executePipeline(pipeline)).rejects.toThrow(/未注册|not registered/)
     })
 
     it('executes serial pipeline steps in order with context passing', async () => {

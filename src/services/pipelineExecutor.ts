@@ -350,12 +350,18 @@ export async function executePipeline(
 
     const handler = getHandler(step.toolId)
     if (!handler) {
-      const fallback = `Tool ${step.toolId} not registered`
-      stringResults[step.outputKey] = fallback
-      results[step.outputKey] = { response: fallback }
+      // H-3：工具未注册必须让管道失败——原实现把 "not registered" 写入该步输出、
+      // 标 completedSteps 后 continue，最终整体报 completed：下游把错误字符串当输入继续跑，
+      // 时间线「步骤 failed / 整体 completed」自相矛盾，且该步被固化成已完成
+      //（checkpoint 一旦接通 resume 将永久跳过）。此处直接抛错：不写 checkpoint、
+      // 不标记完成，finally 里以 failed 收口。
+      const msg = `Tool ${step.toolId} not registered`
+      pipelineFailed = true
+      stringResults[step.outputKey] = `Error: ${msg}`
+      results[step.outputKey] = { response: `Error: ${msg}` }
       wfUpdate(stepId, 'failed')
-      completedSteps.push(stepId)
-      continue
+      onProgress?.(stepId, `✗ ${step.toolId}: ${msg}`)
+      throw new Error(`Pipeline step 失败：工具未注册 (${step.toolId})`)
     }
 
     const previousContext = Object.entries(results)

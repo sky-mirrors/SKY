@@ -821,7 +821,16 @@ export async function executeStep(
   onSideEffect?: (stepNum: number, tool: string, operation: 'create' | 'modify' | 'read', filePath: string) => void,
   traceId?: string
 ): Promise<{ done: boolean; result?: string; fromCache?: boolean; fromRule?: boolean; ruleMatchedId?: string; usedFallback?: boolean }> {
-  const resolvedArgs = resolveParams(step, manifest, userInput, stepResults)
+  // H-6：resolveParams 原在 try 之外——模板编译异常会整条逃出 executeStep，令
+  // executeMacro 主循环抛错，wfLog 永久卡 running 且 abortController 泄漏。
+  // 改为如实标记该步失败并返回（由主循环按 fallbackStrategy 处理），不逃逸。
+  let resolvedArgs: ReturnType<typeof resolveParams>
+  try {
+    resolvedArgs = resolveParams(step, manifest, userInput, stepResults)
+  } catch (err) {
+    onStepFailed?.(step.step, `参数解析失败: ${String(err)}`)
+    return { done: false }
+  }
   onStepStart?.(step.step, step.tool)
 
   try {
@@ -1538,8 +1547,12 @@ export async function executeMacro(
     saveCheckpoint(cp)
   }
 
+  // H-5：取消 ≠ 清理。原实现（a）allDone 为假时保留 checkpoint——同输入下次运行会静默
+  // 续跑残留步骤（existingCp 分支）；（b）无条件写指纹缓存；（c）零失败时把被取消的运行
+  // 记为 completed。此处先取取消态，供下方三处收口共用。
+  const aborted = macroController.signal.aborted
   const allDone = steps.every(s => stepDone.has(s.step) || stepFailed.has(s.step) || skipSteps.has(s.step))
-  if (allDone) {
+  if (allDone || aborted) {
     removeCheckpoint(cpId)
   }
 
@@ -1554,7 +1567,12 @@ export async function executeMacro(
     stepHashes[Number(num)] = computeStepOutputHash(result)
   }
   const sideEffectStepNums = new Set(steps.filter(s => SIDE_EFFECT_TOOLS.has(s.tool)).map(s => s.step))
-  saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, cacheableResults, !!cached, sideEffectStepNums)
+  if (aborted) {
+    // H-5：取消的运行不得写指纹缓存——半途结果一旦入缓存，下次同输入会把它当完整结果复用
+    debugLog(`[macro] 已取消：跳过指纹缓存写入（manifest=${manifest.identity.id}）`)
+  } else {
+    saveExecutionFingerprint(manifest.identity.id, inputFingerprint, stepHashes, cacheableResults, !!cached, sideEffectStepNums)
+  }
 
   if (sideEffects.length > 0) {
     try {
@@ -1582,7 +1600,8 @@ export async function executeMacro(
       gatedResult = await applyDeliverableGate(userInput.inputText || '', createdArtifacts, lastResult, manifest.identity.id, inputFingerprint)
     } catch { /* fail-open */ }
   }
-  wfComplete(stepFailed.size > 0 ? 'failed' : 'completed')
+  // H-5：被取消的运行不得记为 completed（原实现只看 stepFailed，取消时零失败 → 假报 completed）
+  wfComplete(aborted || stepFailed.size > 0 ? 'failed' : 'completed')
   // B-09：定向注销本宏的控制器，不再清空全局注册表（避免误杀并发任务）
   unregisterAbort()
   return { results, lastResult: gatedResult, savedTokens, lineage, sideEffects }
