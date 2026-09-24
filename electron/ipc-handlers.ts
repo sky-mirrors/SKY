@@ -30,6 +30,8 @@ import * as iconv from 'iconv-lite'
 import { openVault, closeVault, checkpointVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
 import { planRestoreTargets, applyRestore, validateBackupDir, BACKUP_EXTS } from './backupRestore'
 import { decodeShellOutput } from './shellOutput'
+// S-3：流式 usage 解析（含缓存命中字段）——与渲染层 sseParser 同口径
+import { parseStreamUsage } from './streamUsage'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
@@ -1657,6 +1659,10 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>()
     let promptTokens = 0
     let completionTokens = 0
+    // S-3：缓存命中/未命中同样要透传——原实现 end payload 硬编码 0，令 G-5「按实际 usage
+    // 计价」在桌面流式主路径整段失效（DeepSeek 等缓存折扣被清零，账本按全价记）
+    let cacheHitTokens = 0
+    let cacheMissTokens = 0
 
     const reader = (resp.body as unknown as ReadableStream<Uint8Array>).getReader()
     const decoder = new TextDecoder('utf-8')
@@ -1679,7 +1685,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
           if (chatFormat === 'openai') {
             if (d.trim() === '[DONE]') {
               const toolCalls = Array.from(toolCallMap.values())
-              event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+              event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
               activeStreamControllers.delete(streamId)
               return
             }
@@ -1709,8 +1715,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
                 }
               }
               if (p.usage) {
-                promptTokens = p.usage.prompt_tokens || promptTokens
-                completionTokens = p.usage.completion_tokens || completionTokens
+                // S-3：四个字段一并解析（含 prompt_cache_hit_tokens / prompt_tokens_details.cached_tokens）
+                const u = parseStreamUsage(p.usage)
+                if (u.promptTokens !== undefined) promptTokens = u.promptTokens
+                if (u.completionTokens !== undefined) completionTokens = u.completionTokens
+                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
+                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
               }
             } catch { /* skip */ }
           } else {
@@ -1735,14 +1745,21 @@ ipcMain.on('llm:stream:start', async (event, opts: {
                 if (existing) existing.arguments += p.delta.partial_json
               }
               if (p.type === 'message_start' && p.message?.usage) {
-                promptTokens = p.message.usage.input_tokens || 0
+                // S-3：Anthropic 的 cache_read_input_tokens 同样计入命中（此前只取 input_tokens）
+                const u = parseStreamUsage(p.message.usage)
+                if (u.promptTokens !== undefined) promptTokens = u.promptTokens
+                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
+                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
               }
               if (p.type === 'message_delta' && p.usage) {
-                completionTokens = p.usage.output_tokens || 0
+                const u = parseStreamUsage(p.usage)
+                if (u.completionTokens !== undefined) completionTokens = u.completionTokens
+                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
+                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
               }
               if (p.type === 'message_stop') {
                 const toolCalls = Array.from(toolCallMap.values())
-                event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+                event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
                 activeStreamControllers.delete(streamId)
                 return
               }
@@ -1756,7 +1773,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       // S-4：走到这里说明流已 EOF 但从未见到终止标记（[DONE]/message_stop）——标记 truncated，
       // 交由渲染层判失败/不入缓存，不再当成正常完成
       const toolCalls = Array.from(toolCallMap.values())
-      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens: 0, cacheMissTokens: 0 } })
+      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
     }
     activeStreamControllers.delete(streamId)
   } catch (err) {
