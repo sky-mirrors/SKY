@@ -2,12 +2,28 @@ const DEBUG = process.env.HOLO_DEBUG === '1'
 import { BrowserWindow, shell, globalShortcut } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { attachNavigationGuard } from './navigation-guard'
 
 let mainWindow: BrowserWindow | null = null
 let pipelineWindow: BrowserWindow | null = null
 let debugWindow: BrowserWindow | null = null
 let benchmarkWindow: BrowserWindow | null = null
 let onPipelineWindowReady: (() => void) | null = null
+
+// E-1 修复：导航白名单策略 = 应用渲染目录（生产 file:// 入口）+ dev 渲染服务器 origin
+function navigationPolicy() {
+  return {
+    rendererDir: join(__dirname, '../renderer'),
+    devServerUrl: is.dev ? process.env['ELECTRON_RENDERER_URL'] : undefined,
+  }
+}
+
+// E-1 修复：给窗口挂 will-navigate 白名单——阻止渲染层把整窗导航到远程源
+// （preload 会随窗口注入到新页面，等于把完整 electronAPI 交给攻击者页面）。
+// 白名单外的 http(s) 目标交给系统浏览器打开。
+function guardWindow(win: BrowserWindow): void {
+  attachNavigationGuard(win.webContents, navigationPolicy(), (url) => { void shell.openExternal(url) })
+}
 
 export function setOnPipelineWindowReady(cb: () => void) {
   onPipelineWindowReady = cb
@@ -53,6 +69,8 @@ export function createWindow(): BrowserWindow {
     }
     return { action: 'deny' }
   })
+
+  guardWindow(mainWindow)
 
   mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     console.log(`[renderer][${level}] ${message} @ ${sourceId}:${line}`)
@@ -112,6 +130,8 @@ export function createPipelineWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  guardWindow(pipelineWindow)
+
   pipelineWindow.webContents.on('did-finish-load', () => {
     if (onPipelineWindowReady) onPipelineWindowReady()
   })
@@ -168,6 +188,8 @@ export function createDebugWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  guardWindow(debugWindow)
+
   // P1-35：ready 协议统一走主进程 did-finish-load（与 pipeline 窗一致），不再依赖渲染层手动上报
   debugWindow.webContents.on('did-finish-load', () => {
     onDebugWindowReady?.()
@@ -220,6 +242,8 @@ export function createBenchmarkWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  guardWindow(benchmarkWindow)
+
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     benchmarkWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/benchmark.html`)
   } else {
@@ -265,6 +289,8 @@ export function createRuleReviewWindow(): BrowserWindow {
     }
     return { action: 'deny' }
   })
+
+  guardWindow(ruleReviewWindow)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     ruleReviewWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/rule-review.html`)

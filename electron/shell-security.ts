@@ -1,5 +1,5 @@
-import { resolve } from 'path'
-import { validateReadPath, validateWritePath } from './pathValidator'
+import { resolve, join, sep } from 'path'
+import { validateReadPath, validateWritePath, getSafeExtension, DANGEROUS_EXTENSIONS } from './pathValidator'
 
 const SHELL_ALLOWED_COMMANDS = [
   'npm install',
@@ -125,10 +125,69 @@ const NODE_E_TRUSTED_SIGNATURES = [
   /require\s*\(\s*['"]marked['"]\s*\)/,
 ]
 
-const NODE_E_ALLOWED_WRITE_PATTERNS = [
-  /writeFileSync\s*\(\s*['"](?:[^'"]*[/\\])?(Desktop|Documents|Downloads)[/\\]/i,
-  /writeFileSync\s*\(\s*process\.env\.(?:USERPROFILE|HOME|userprofile|home)/i,
-]
+// E-3 修复：node -e 里写文件的调用，其目标路径必须被解析出来、规范化为绝对路径后
+// 落在 Desktop/Documents/Downloads 内，且产物扩展名不得是可执行/脚本类型。
+// 原实现 NODE_E_ALLOWED_WRITE_PATTERNS 只对源码文本做正则匹配——
+//   writeFileSync('C:\\Users\\x\\Desktop\\..\\..\\..\\Windows\\evil.dll')  （.. 穿越）
+//   writeFileSync('C:\\Users\\x\\Desktop\\x.js')                          （危险扩展名）
+// 两者都能匹配通过，配合 mcp:spawn node 执行构成"写盘→执行"RCE 链。
+
+// 还原 JS 字符串字面量里的反斜杠转义（够用：\\ \' \"）
+function unescapeJsStringLiteral(lit: string): string {
+  return lit.replace(/\\(['"\\])/g, '$1')
+}
+
+// 从写调用的首个实参源码文本解析出绝对目标路径；非受支持形态返回 null（fail-closed）
+function resolveNodeWriteTarget(rawArg: string): string | null {
+  const arg = rawArg.trim()
+  // 形态一：纯字符串字面量
+  const lit = /^(['"])([\s\S]*)\1$/.exec(arg)
+  if (lit) return resolve(unescapeJsStringLiteral(lit[2]))
+  // 形态二：process.env.USERPROFILE|HOME 与字面量拼接
+  const concat = /^process\.env\.(?:USERPROFILE|HOME|userprofile|home)\s*\+\s*(['"])([\s\S]*)\1$/.exec(arg)
+  if (concat) return resolve(defaultHome() + unescapeJsStringLiteral(concat[2]))
+  return null
+}
+
+// 提取代码中每个 writeFile/writeFileSync/createWriteStream 调用的首个实参源码文本
+function extractWriteArgs(code: string): string[] {
+  const args: string[] = []
+  const re = /\.(?:writeFile(?:Sync)?|createWriteStream)\s*\(/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(code)) !== null) {
+    const start = m.index + m[0].length
+    let depth = 0
+    let i = start
+    let inStr: string | null = null
+    for (; i < code.length; i++) {
+      const ch = code[i]
+      if (inStr) {
+        if (ch === '\\') { i++; continue }
+        if (ch === inStr) inStr = null
+        continue
+      }
+      if (ch === '"' || ch === "'" || ch === '`') { inStr = ch; continue }
+      if (ch === '(') depth++
+      else if (ch === ')') { if (depth === 0) break; depth-- }
+      else if (ch === ',' && depth === 0) break
+    }
+    args.push(code.slice(start, i))
+  }
+  return args
+}
+
+// 写目标是否落在允许目录内且扩展名安全
+function isAllowedNodeWriteTarget(rawArg: string): boolean {
+  const target = resolveNodeWriteTarget(rawArg)
+  if (!target) return false
+  const home = defaultHome()
+  const allowedDirs = ['Desktop', 'Documents', 'Downloads'].map(d => resolve(join(home, d)))
+  const normalized = resolve(target)
+  if (!allowedDirs.some(d => normalized === d || normalized.startsWith(d + sep))) return false
+  const { ext } = getSafeExtension(normalized)
+  if (ext && DANGEROUS_EXTENSIONS.includes(ext)) return false
+  return true
+}
 
 // P0-2 收尾：require 实参必须是与白名单完全一致的字符串字面量。
 // 原黑名单仅枚举危险模块的字面量写法，require(process.env.M) 这类动态
@@ -165,7 +224,11 @@ function isNodeTrustedTemplate(codeContent: string): boolean {
   for (const hit of dangerHits) {
     const isWriteFile = hit.source.startsWith('\\.writefile') || hit.source.startsWith('\\.createwritestream')
     if (isWriteFile) {
-      if (!NODE_E_ALLOWED_WRITE_PATTERNS.some(p => p.test(codeContent))) return false
+      // E-3 修复：写目标必须能解析、规范化后落在 Desktop/Documents/Downloads 内、
+      // 且产物扩展名不是可执行/脚本类型（原正则匹配可被 `..` 穿越与任意扩展名绕过）
+      const writeArgs = extractWriteArgs(codeContent)
+      if (writeArgs.length === 0) return false
+      if (!writeArgs.every(isAllowedNodeWriteTarget)) return false
       continue
     }
     const isProcessEnv = hit.source.includes('process\\.env')

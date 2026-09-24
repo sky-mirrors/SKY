@@ -44,14 +44,30 @@ const FORBIDDEN_WRITE_PATHS = [
   /\/program files\//i,
 ]
 
+// E-2 修复：openPath 采用白名单（fail-closed）。validateOpenPath 先过黑名单
+// （DANGEROUS_EXTENSIONS 优先），再要求扩展名落在本表内——杜绝"黑名单漏一项即
+// 放行 ShellExecute"的结构性缺口。含 .js 之类会被 ShellExecute/WScript 直接执行
+// 的扩展名不得进入本表（已在 DANGEROUS_EXTENSIONS 内）。无扩展名文件同样拒绝。
 const SAFE_OPEN_EXTENSIONS = [
-  '.txt', '.md', '.json', '.csv', '.xml', '.yaml', '.yml', '.toml',
-  '.html', '.htm', '.css', '.js', '.ts', '.vue', '.java', '.c', '.cpp', '.h',
+  // 文本 / 数据
+  '.txt', '.md', '.markdown', '.rst', '.log', '.csv', '.tsv', '.json', '.json5',
+  '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env.example',
+  // 网页 / 源码（非 ShellExecute 可执行）
+  '.html', '.htm', '.css', '.scss', '.less', '.ts', '.tsx', '.vue', '.jsx',
+  '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.go', '.rs', '.rb', '.php',
+  // 图像
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.webp', '.ico',
-  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-  '.zip', '.tar', '.gz', '.7z',
-  '.mp3', '.mp4', '.wav', '.avi', '.mkv', '.webm',
-  '.log', '.ini', '.cfg', '.conf', '.env.example',
+  '.tif', '.tiff', '.heic', '.psd', '.ai',
+  // 文档
+  '.pdf', '.doc', '.docx', '.docm', '.xls', '.xlsx', '.xlsm', '.ppt', '.pptx',
+  '.odt', '.ods', '.odp', '.rtf', '.epub', '.pages', '.numbers', '.key',
+  // 压缩包
+  '.zip', '.tar', '.gz', '.tgz', '.bz2', '.xz', '.7z', '.rar',
+  // 音视频
+  '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.wav', '.wma',
+  '.mp4', '.mov', '.avi', '.mkv', '.webm', '.wmv', '.flv',
+  // 字幕
+  '.srt', '.vtt',
 ]
 
 // P1-3 收尾：.py/.pyw 与 .mjs/.cjs 是解释器可直接执行的脚本扩展名，
@@ -64,6 +80,12 @@ const DANGEROUS_EXTENSIONS = [
   '.scr', '.pif', '.com', '.cpl', '.inf', '.reg', '.hta',
   '.sh', '.bash', '.zsh', '.fish', '.run', '.bin', '.app',
   '.deb', '.rpm', '.dmg', '.pkg',
+  // E-2 修复：ShellExecute 可解析执行/跳转的"快捷方式/系统组件"类型。
+  // 黑名单此前漏了它们——file:write 落盘 .lnk + shell:openPath 打开 = 渲染层
+  // RCE 闭环（快捷方式内部的目标路径与参数完全绕开路径层校验）
+  '.lnk', '.url', '.application', '.appref-ms',
+  '.msc', '.scf', '.gadget', '.ps1xml', '.psc1', '.ps2',
+  '.shb', '.shs', '.jnlp', '.jar', '.website', '.library-ms', '.search-ms',
 ]
 
 let _allowedBaseDirs: string[] | null = null
@@ -191,6 +213,10 @@ export function validateWritePath(inputPath: string): { safe: boolean; resolved:
   return result
 }
 
+// E-2 修复：openPath 由"黑名单"升级为"黑名单优先 + 白名单兜底"（fail-closed）。
+// 旧实现只挡 DANGEROUS_EXTENSIONS 命中项，漏了 .lnk/.url 等 ShellExecute 可解析
+// 类型即可整链绕过；现改为：① 命中可执行/脚本/快捷方式黑名单 → 拒绝；② 其余
+// 扩展名必须落在 SAFE_OPEN_EXTENSIONS 白名单内，否则拒绝（未知/无扩展名一并拒绝）。
 export function validateOpenPath(filePath: string): { safe: boolean; resolved: string; reason?: string } {
   const pathCheck = validatePath(filePath)
   if (!pathCheck.safe) return pathCheck
@@ -201,7 +227,10 @@ export function validateOpenPath(filePath: string): { safe: boolean; resolved: s
 
   const { ext } = getSafeExtension(pathCheck.resolved)
   if (ext && DANGEROUS_EXTENSIONS.includes(ext)) {
-    return { safe: false, resolved: pathCheck.resolved, reason: `禁止打开可执行文件: ${ext}` }
+    return { safe: false, resolved: pathCheck.resolved, reason: `禁止打开可执行/脚本文件: ${ext}` }
+  }
+  if (!ext || !SAFE_OPEN_EXTENSIONS.includes(ext)) {
+    return { safe: false, resolved: pathCheck.resolved, reason: `文件类型不在可打开白名单内: ${ext || '(无扩展名)'}` }
   }
 
   return pathCheck

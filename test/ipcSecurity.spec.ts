@@ -472,3 +472,81 @@ describe('IPC安全 - P1-30 回归：l2-file-creator-v1 的 node -e 命令可执
     expect(check.allowed).toBe(true)
   })
 })
+
+
+describe('IPC安全 - E-2 修复：快捷方式类扩展名封禁 + openPath 白名单', () => {
+  const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+  const onDesktop = (name: string) => join(home, 'Desktop', name)
+
+  it('file:write 写入 .lnk 快捷方式 → 拒绝', () => {
+    expect(validateWritePath(onDesktop('x.lnk')).safe).toBe(false)
+  })
+
+  it('file:write 写入 .url → 拒绝', () => {
+    expect(validateWritePath(onDesktop('x.url')).safe).toBe(false)
+  })
+
+  it('file:open 打开 .lnk 快捷方式 → 拒绝', () => {
+    expect(validateOpenPath(onDesktop('x.lnk')).safe).toBe(false)
+  })
+
+  it('file:open 打开 .url → 拒绝', () => {
+    expect(validateOpenPath(onDesktop('x.url')).safe).toBe(false)
+  })
+
+  it('file:open 打开 .application/.appref-ms → 拒绝', () => {
+    expect(validateOpenPath(onDesktop('x.application')).safe).toBe(false)
+    expect(validateOpenPath(onDesktop('x.appref-ms')).safe).toBe(false)
+  })
+
+  it('file:open 打开未知扩展名（不在白名单）→ 拒绝（fail-closed）', () => {
+    expect(validateOpenPath(onDesktop('payload.xyz')).safe).toBe(false)
+  })
+
+  it('file:open 打开常见文档/图片/媒体 → 仍允许', () => {
+    for (const f of ['report.docx', 'report.pdf', 'note.txt', 'pic.png', 'pic.jpg', 'clip.mp4', 'bundle.zip', 'doc.md', 'page.html', 'data.csv']) {
+      expect(validateOpenPath(onDesktop(f)).safe).toBe(true)
+    }
+  })
+})
+
+
+describe('IPC安全 - E-3 修复：node -e 写路径规范化 + 扩展名校验', () => {
+  const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+  const posixHome = home.replace(/\\/g, '/')
+
+  it('字面量路径 + .. 穿越到 Windows\\evil.dll → 拒绝', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync('${posixHome}/Desktop/../../../Windows/evil.dll','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+  })
+
+  it('字面量路径写到 Desktop\\x.js（危险扩展名）→ 拒绝', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync('${posixHome}/Desktop/x.js','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+  })
+
+  it('process.env.USERPROFILE 拼接 + .. 穿越 → 拒绝', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync(process.env.USERPROFILE+'/Desktop/../../../Windows/evil.dll','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+  })
+
+  it('process.env.USERPROFILE 拼接写到 Desktop\\x.js → 拒绝', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync(process.env.USERPROFILE+'/Desktop/x.js','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+  })
+
+  it('无法解析的写目标表达式 → 拒绝（fail-closed）', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync(getPath(),'data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+  })
+
+  it('字面量路径写到 Desktop\\x.docx（安全）→ 仍允许', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync('${posixHome}/Desktop/x.docx','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(true)
+  })
+
+  it('env 拼接写到 Desktop\\x.docx（安全，manifest 形态）→ 仍允许', () => {
+    const cmd = `node -e "require('docx');require('fs').writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\x.docx','data')"`
+    expect(isShellCommandAllowed(cmd).allowed).toBe(true)
+  })
+})
