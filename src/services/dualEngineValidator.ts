@@ -55,6 +55,10 @@ function isUrlSafe(url: string): boolean {
 }
 
 function isWriteOperation(command: string): boolean {
+  // 2026-09-24：P1-19 的收窄遗漏了 **shell 输出重定向**——`echo x > important.txt`
+  // 不含 writeFileSync/rm/mv 等任何关键字，整条写操作绕过审计。补 `> file`
+  //（排除 `>&fd` 这类 fd 复制与管道，避免把 `2>&1` 误判成写盘）。
+  if (/>\s*[^\s&|]/.test(command)) return true
   return /writeFileSync|writeFile|mkdir|mv |cp |rm |del |rename|truncate|unlink/i.test(command)
 }
 
@@ -117,12 +121,19 @@ export function shouldValidate(step: { tool: string; params?: Record<string, unk
   }
   if (step.tool === 'file_write') return true
   if (step.tool === 'http_request') return true
-  if (step.tool === 'read_file') return true
+  // G-6（2026-09-24）：读类不再无差别审计——审核 prompt 看不到文件内容（只看意图与路径），
+  // 对一次本地读近乎纯开销（一次 read_file 付 5000 maxTokens，比动作本身贵一个数量级），
+  // 且审核缓存 key 含 targetFile、路径一换即 miss。改为**仅当目标路径敏感时**才审，
+  // 与 shell_exec 的 P1-19 收窄同构。fail-closed 方向不放松：敏感路径照审。
+  if (step.tool === 'read_file' || step.tool === 'list_directory') {
+    const p = String(
+      step.params?.path ?? step.params?.file_path ?? step.params?.dir ?? step.params?.dirPath ?? ''
+    )
+    return isPathUnsafe(p)
+  }
   // A4-24 修复：目录创建 / docx 落盘 / MCP 工具调用纳入双引擎审计
   if (step.tool === 'create_directory') return true
   if (step.tool === 'create_docx') return true
-  // P1-17：原生目录列举（directory_tree 别名）——与 read_file 同级的读取类审计
-  if (step.tool === 'list_directory') return true
   if (step.tool.includes('___')) return true
   return false
 }

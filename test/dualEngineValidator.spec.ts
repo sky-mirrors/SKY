@@ -64,8 +64,14 @@ describe('dualEngineValidator', () => {
       expect(shouldValidate({ tool: 'http_request', params: { url: 'https://api.example.com/data' } })).toBe(true)
     })
 
-    it('read_file → 需要验证', () => {
-      expect(shouldValidate({ tool: 'read_file', params: { path: '/home/user/doc.txt' } })).toBe(true)
+    // G-6（2026-09-24）契约变更：读类不再无差别审计——审核 prompt 看不到文件内容，
+    // 对一次本地读近乎纯开销。改为只有**敏感路径**才审（fail-closed 方向不放松）。
+    it('read_file + 普通路径 → 不需要验证（G-6 收窄）', () => {
+      expect(shouldValidate({ tool: 'read_file', params: { path: '/home/user/doc.txt' } })).toBe(false)
+    })
+
+    it('read_file + 敏感路径 → 需要验证（收窄不放松 fail-closed）', () => {
+      expect(shouldValidate({ tool: 'read_file', params: { path: '/etc/passwd' } })).toBe(true)
     })
 
     it('非验证工具 → 不需要验证', () => {
