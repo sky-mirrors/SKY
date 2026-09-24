@@ -13,7 +13,7 @@ import type { RouteInput, RoutingDecision } from '@/services/smartRouter'
 import { readSSEStream } from '@/services/sseParser'
 import { parseJsonSafe } from '@/services/jsonSafe'
 // 模型协同（2026-09-23 用户纠正后）：按角色分派——main=大模型掌舵+兜底、aux=小模型做辅助活
-import { resolveRole, resolveRoleTarget } from '@/services/modelRoles'
+import { resolveRole, resolveRoleTarget, resolveDirectTarget } from '@/services/modelRoles'
 // 小模型兜底 + 诚实陈述（2026-09-23 需求）
 import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice } from '@/services/escalationPolicy'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
@@ -751,24 +751,36 @@ export const useApiStore = defineStore('api', () => {
       }
     }
 
+    // S-1：直连分支（Ollama 目标 / 降级态 / 无 electronAPI）此前一律用 activeProvider +
+    // activeModel，使 tierTarget（角色绑定 + 大模型兜底）完全失效——aux 绑定打的是
+    // activeModel、升级重试是同一个模型原地重跑。此处按 tierTarget 解析本请求的目标；
+    // 未绑定角色时 tierTarget 即 active，与旧实现等价。
     const provider = activeProvider.value
-    const baseUrl = (provider?.baseUrl || config.value.baseUrl).replace(/\/+$/, '')
+    const direct = resolveDirectTarget(
+      config.value,
+      tierTarget,
+      degradeState ? { baseUrl: degradeState.target.baseUrl, model: degradeState.model } : null
+    )
+    const targetProvider = degradeState
+      ? provider
+      : (config.value.providers.find(p => p.id === direct.providerId) ?? provider)
+    const baseUrl = direct.baseUrl
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (provider?.authType === 'bearer' && provider.apiKey) {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`
-    } else if (provider?.authType === 'api-key' && provider.apiKey) {
-      headers['x-api-key'] = provider.apiKey
+    if (targetProvider?.authType === 'bearer' && targetProvider.apiKey) {
+      headers['Authorization'] = `Bearer ${targetProvider.apiKey}`
+    } else if (targetProvider?.authType === 'api-key' && targetProvider.apiKey) {
+      headers['x-api-key'] = targetProvider.apiKey
     }
 
     // M20：降级态强制走 Ollama 分支（目标是本地 Ollama，非 active provider）
-    const chatFormat = degradeState ? 'ollama' : (provider?.chatFormat || 'openai')
+    const chatFormat = direct.chatFormat
     let body: Record<string, unknown>
     let endpoint = '/v1/chat/completions'
 
     if (chatFormat === 'anthropic') {
       endpoint = '/v1/messages'
       body = {
-        model: config.value.activeModel,
+        model: direct.model,
         messages: messages.filter(m => m.role !== 'system'),
         system: messages.find(m => m.role === 'system')?.content,
         // G-9（2026-09-24）：原为硬编码 4096——无视调用方传入的 maxTokens，
@@ -777,7 +789,7 @@ export const useApiStore = defineStore('api', () => {
       }
     } else {
       body = {
-        model: config.value.activeModel,
+        model: direct.model,
         messages,
         stream: false,
         max_tokens: maxTokens || 16384
@@ -797,7 +809,7 @@ export const useApiStore = defineStore('api', () => {
     try {
       const hasTools = !!body.tools
       const toolCount = hasTools ? (body.tools as unknown[]).length : 0
-      debugLog(`[chatCompletion:direct] model=${config.value.activeModel}, msgs=${messages.length}, tools=${toolCount}, format=${chatFormat}`)
+      debugLog(`[chatCompletion:direct] model=${direct.model}, msgs=${messages.length}, tools=${toolCount}, format=${chatFormat}`)
       const maxTok = maxTokens || (body.max_tokens as number) || 16384
       // P0-B1：统一超时阶梯（CPU 校准值，llmTimeouts.ts 唯一定义点）+ llmTimeoutScale 缩放；
       // abort 带 TimeoutError 理由（B3 errorClassifier 确定性归类，不再触发 unknown→额外 LLM 分类调用）
@@ -813,11 +825,10 @@ export const useApiStore = defineStore('api', () => {
       }
       // M17：Ollama 原生 /api/chat（stream:false）——单 JSON 响应，无 toolCalls
       if (chatFormat === 'ollama') {
-        // M20：降级态使用降级目标的端点与模型
-        const ollamaBase = degradeState ? degradeState.target.baseUrl : baseUrl
-        const ollamaModel = degradeState
-          ? degradeState.model
-          : (config.value.activeModel || provider?.models?.[0]?.id || '')
+        // S-1：模型取本请求的目标（角色绑定 / 兜底大模型），不再是 activeModel；
+        // 降级态已由 direct 解析（baseUrl/model/chatFormat 均取自降级目标）
+        const ollamaBase = baseUrl
+        const ollamaModel = direct.model || targetProvider?.models?.[0]?.id || ''
         if (!ollamaModel) {
           throw new Error('Ollama: 无可用模型（请先 pingProvider 拉取模型清单）')
         }

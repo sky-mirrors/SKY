@@ -52,3 +52,53 @@ export function resolveRoleTarget(config: RoleConfig, role: ModelRole): { provid
   if (!provider || !provider.models.some(m => m.id === bind.model)) return fallback
   return { providerId: bind.providerId, model: bind.model }
 }
+
+/** 直连分支解析所需的配置形状（apiStore 的 ProviderConfig 结构上满足） */
+export interface DirectTargetConfig {
+  activeProviderId: string
+  activeModel: string
+  baseUrl?: string
+  providers: Array<{ id: string; baseUrl?: string; chatFormat?: string }>
+}
+
+export interface DirectTarget {
+  providerId: string
+  baseUrl: string
+  model: string
+  chatFormat: string
+}
+
+/**
+ * S-1：解析「直连分支」（Ollama 目标 / 降级态 / 无 electronAPI）的实际目标。
+ *
+ * 原实现直连分支一律用 activeProvider + activeModel，`tierTarget` 一次都没用上——
+ * 于是：① aux 角色绑定到某个 Ollama provider 时，辅助调用实际打的是 activeModel；
+ * ② resolveEscalationTarget 返回的兜底大模型若也是 Ollama（本项目主打配置），
+ * 「升级重试」就是同一个 activeModel 原地重跑，必然再次判不可解，最终给用户挂
+ * 「大模型也没做成」横幅——而大模型从未被调用。
+ *
+ * 未绑定角色时 tierTarget === {activeProviderId, activeModel}，故本解析与旧行为等价。
+ */
+export function resolveDirectTarget(
+  config: DirectTargetConfig,
+  tierTarget: { providerId: string; model: string },
+  degrade?: { baseUrl: string; model: string } | null
+): DirectTarget {
+  if (degrade) {
+    return {
+      providerId: tierTarget.providerId || config.activeProviderId,
+      baseUrl: String(degrade.baseUrl || '').replace(/\/+$/, ''),
+      model: degrade.model,
+      chatFormat: 'ollama',
+    }
+  }
+  const provider =
+    config.providers.find(p => p.id === tierTarget.providerId) ??
+    config.providers.find(p => p.id === config.activeProviderId)
+  return {
+    providerId: provider?.id ?? '',
+    baseUrl: String(provider?.baseUrl || config.baseUrl || '').replace(/\/+$/, ''),
+    model: tierTarget.model || config.activeModel,
+    chatFormat: provider?.chatFormat || 'openai',
+  }
+}
