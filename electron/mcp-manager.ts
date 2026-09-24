@@ -58,6 +58,30 @@ function notifyRenderer(win: BrowserWindow | null, channel: string, data: unknow
   }
 }
 
+// 对账 §4 #8：shell:true 通道的元字符面必须与 shell-security.ts 的
+// findShellMetacharacter 同口径——那里把 % 列为拒绝项（cmd 的 %VAR% 展开可以
+// 拼出命令分隔符），此处原先只拦 &|<>^ 与换行，等于在 MCP spawn 这条路上
+// 留了一个与 P0-1 标准不一致的旁路。（括号与 ! 不拦：没有 & 与换行时它们
+// 构不成命令分隔或重定向，拦了反而误伤合法参数如 path(1).json。）
+const SHELL_UNSAFE_ARG_CHARS = /[%&|<>^\n\r]/
+
+/** shell:true 通道的参数准入：非字符串 / 含双引号（外层会再包引号）/ 含 cmd 元字符一律拒绝 */
+export function validateShellArgs(args: unknown[]): { allowed: boolean; reason?: string } {
+  for (const a of args) {
+    if (typeof a !== 'string') {
+      return { allowed: false, reason: 'MCP参数必须是字符串，被安全策略拒绝' }
+    }
+    if (a.includes('"')) {
+      return { allowed: false, reason: 'MCP参数包含双引号，被安全策略拒绝' }
+    }
+    const hit = SHELL_UNSAFE_ARG_CHARS.exec(a)
+    if (hit) {
+      return { allowed: false, reason: `MCP参数包含shell元字符 '${hit[0]}'，被安全策略拒绝` }
+    }
+  }
+  return { allowed: true }
+}
+
 export function startMcpProcess(
   id: string,
   command: string,
@@ -91,18 +115,24 @@ export function startMcpProcess(
 
     DEBUG && console.log(`[MCP spawn] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}`)
 
-    try {
-      const logPath = join(app.getPath('home'), 'Desktop', 'mcp-spawn-debug.log')
-      appendFileSync(logPath, `[${new Date().toISOString()}] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}\n`)
-    } catch { /* ignore */ }
+    // 对账 §4 #7：原先无条件把 command/args 追加到「用户桌面\mcp-spawn-debug.log」。
+    // args 里常带 --api-key/--token 之类凭据，等于每次 spawn 都往用户桌面留一份
+    // 明文副本，且不受任何开关控制。与上一行 console.log 同口径：仅 HOLO_DEBUG=1 落盘。
+    if (DEBUG) {
+      try {
+        const logPath = join(app.getPath('home'), 'Desktop', 'mcp-spawn-debug.log')
+        appendFileSync(logPath, `[${new Date().toISOString()}] id=${id} cmd=${finalCommand} args=${JSON.stringify(finalArgs)} isFs=${isFilesystem}\n`)
+      } catch { /* ignore */ }
+    }
 
     // A-11：Windows 上 npx/npm/pnpm/yarn/bunx 只有 .cmd shim，shell:false 直接 spawn 抛 EINVAL/ENOENT。
     // 对这些白名单命令改用 shell:true，但参数必须无引号/元字符防注入，含空格参数加引号包裹。
     const CMD_SHIMS = new Set(['npx', 'npm', 'pnpm', 'yarn', 'bunx'])
     const useShell = isWindows && CMD_SHIMS.has(finalCommand)
     if (useShell) {
-      if (finalArgs.some(a => typeof a !== 'string' || a.includes('"') || /[&|<>^\n\r]/.test(a))) {
-        return { success: false, error: 'MCP arguments contain characters not allowed for shell execution' }
+      const argCheck = validateShellArgs(finalArgs)
+      if (!argCheck.allowed) {
+        return { success: false, error: argCheck.reason }
       }
       finalArgs = finalArgs.map(a => a.includes(' ') ? `"${a}"` : a)
     }
