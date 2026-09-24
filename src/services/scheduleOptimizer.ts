@@ -73,6 +73,12 @@ const AUTO_COMPILE_REAL_EXEC_RATE = 0.8
 
 const FP_STORE_KEY = 'execution-fingerprints'
 const STATS_STORE_KEY = 'manifest-execution-stats'
+/**
+ * G-13（2026-09-24）：单步结果的持久化上限——任一步超过此长度则**整条指纹不落 results**
+ * （重启后该条不可复用），而不是落一份被截断的残缺结果去冒充完整结果。
+ * 上限远大于消费者截断阈值（nano 300 / mini 600 / standard 800 / pro 2000）。
+ */
+const PERSIST_RESULT_MAX_CHARS = 16000
 let persistDirty = false
 
 function persistToStore(): void {
@@ -80,13 +86,21 @@ function persistToStore(): void {
   persistDirty = false
   try {
     if (window.electronAPI?.storeWrite) {
-      const fpData = fingerprintStore.map(f => ({
-        manifestId: f.manifestId,
-        inputHash: f.inputHash,
-        stepHashes: f.stepHashes,
-        executedAt: f.executedAt,
-        resultHashes: Object.fromEntries(Object.entries(f.results).map(([k, v]) => [k, structHash(v.substring(0, 200))]))
-      }))
+      // G-13（2026-09-24）：原先只存 resultHashes —— 重载时 results 只能清空，
+      // auto-compile 攒下的复用资产一重启清零重攒，晋级机制收益大打折扣。
+      // 改为**连 results 一起存**；超长则整条不存（见 PERSIST_RESULT_MAX_CHARS）。
+      const fpData = fingerprintStore.map(f => {
+        const entries = Object.entries(f.results)
+        const persistable = entries.every(([, v]) => v.length <= PERSIST_RESULT_MAX_CHARS)
+        return {
+          manifestId: f.manifestId,
+          inputHash: f.inputHash,
+          stepHashes: f.stepHashes,
+          executedAt: f.executedAt,
+          ...(persistable ? { results: f.results } : {}),
+          resultHashes: Object.fromEntries(entries.map(([k, v]) => [k, structHash(v.substring(0, 200))]))
+        }
+      })
       window.electronAPI.storeWrite(FP_STORE_KEY, fpData).catch(() => {})
       const statsArr: ManifestExecutionStats[] = []
       manifestStats.forEach(s => statsArr.push(s))
@@ -98,11 +112,13 @@ function persistToStore(): void {
 export async function loadPersistedFingerprints(): Promise<void> {
   try {
     if (window.electronAPI?.storeRead) {
-      const fpData = await window.electronAPI.storeRead(FP_STORE_KEY) as Array<{ manifestId: string; inputHash: string; stepHashes: Record<number, string>; executedAt: number }> | null
+      const fpData = await window.electronAPI.storeRead(FP_STORE_KEY) as Array<{ manifestId: string; inputHash: string; stepHashes: Record<number, string>; results?: Record<number, string>; executedAt: number }> | null
       if (fpData && Array.isArray(fpData)) {
         fingerprintStore.length = 0
         for (const f of fpData.slice(-MAX_FINGERPRINTS)) {
-          fingerprintStore.push({ manifestId: f.manifestId, inputHash: f.inputHash, stepHashes: f.stepHashes, results: {}, executedAt: f.executedAt })
+          // G-13：读回 results（旧格式无此字段 ⇒ 保持 {} 的向后兼容）
+          const results = f.results && typeof f.results === 'object' ? f.results : {}
+          fingerprintStore.push({ manifestId: f.manifestId, inputHash: f.inputHash, stepHashes: f.stepHashes, results, executedAt: f.executedAt })
         }
       }
       const statsData = await window.electronAPI.storeRead(STATS_STORE_KEY) as ManifestExecutionStats[] | null
