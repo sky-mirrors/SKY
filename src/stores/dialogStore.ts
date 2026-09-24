@@ -975,14 +975,46 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           addSystemNotice(`🎯 自动匹配工具：**${matched.name.replace(/.*___/, '')}**`)
         }
         try {
-          const apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: withAlwaysAvailableTools(matched, allMcpTools) }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
-          if (apiResult) {
+          const directTools = withAlwaysAvailableTools(matched, allMcpTools)
+          let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: directTools }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          // 2026-09-24：原为**单轮**（执行一次 toolCalls 即呈现）。实测（HANDOFF 追加五十）
+          // 路由落到本分支时，模型调一次 list_directory 就再无续跑——多步任务（先列目录再改名）
+          // 必然停在第一步且不报任何错。改为有限轮次回路（同 macro 的收口模式）：
+          // 执行 → 回灌真实结果 + 原始请求 → 由模型决定继续或收口；耗尽则不带 tools 强制汇报。
+          let lastOutput: string | null = null
+          for (let round = 0; round < 4; round++) {
             // P1-25：执行模型返回的 toolCalls（此前从不执行 → 恒显"(无输出)"）
-            const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
-            if (toolOutput != null) {
-              await presentExecutionOutput(toolOutput)
-            } else {
-              await presentExecutionOutput(apiResult.content || '(模型未发起工具调用)')
+            const toolOutput = await executeMcpToolCalls(apiResult?.toolCalls || [])
+            if (toolOutput == null) break // 模型不再调工具 ⇒ 已有自然语言回复
+            lastOutput = toolOutput
+            apiResult = await globalBus.requestAsync('api:chat-completion', {
+              messages: [{
+                role: 'user',
+                content: `【原始请求】${content}\n\n【工具真实执行结果】\n${toolOutput}\n\n如任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如已全部完成，用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
+              }],
+              stream: true,
+              tools: directTools
+            }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          }
+          if (lastOutput == null) {
+            // 模型一次都没调工具（或首轮即收口）
+            if (apiResult) await presentExecutionOutput(apiResult.content || '(模型未发起工具调用)')
+          } else if (!apiResult?.toolCalls?.length) {
+            // 模型在回路内主动收口 —— 直接用它的汇报
+            await presentExecutionOutput(apiResult?.content || lastOutput)
+          } else {
+            // 回路耗尽：不带 tools 强制汇报，避免把工具原始输出当最终答案（同 macro 收口）
+            try {
+              const wrap = await globalBus.requestAsync('api:chat-completion', {
+                messages: [{
+                  role: 'user',
+                  content: `【原始请求】${content}\n\n【全部工具执行结果】\n${lastOutput}\n\n【收口】任务已执行完毕，请**不要再调用任何工具**，直接用中文汇报：做了什么、涉及多少文件、每个文件的新名字（或新位置）、是否有失败项。`
+                }],
+                stream: true
+              }) as { content?: string }
+              await presentExecutionOutput((wrap?.content || '').trim() || lastOutput)
+            } catch {
+              await presentExecutionOutput(lastOutput)
             }
           }
         } catch (e) {

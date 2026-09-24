@@ -201,17 +201,21 @@ let chatPayloads: Array<Record<string, unknown>> = []
 
 /** O10 用：让 chat-completion 返回可配置的 toolCalls（默认空） */
 let chatToolCalls: Array<{ id: string; name: string; arguments: string }> = []
+/** 工具回路用：按轮次消费的 toolCalls 队列（优先于上面的固定值；空则回落固定值） */
+let chatToolCallsQueue: Array<Array<{ id: string; name: string; arguments: string }>> = []
 
 function setupBus(connections: unknown[] = []) {
   chatPayloads = []
   chatToolCalls = []
+  chatToolCallsQueue = []
   // O10：清授权缓存，避免跨用例污染（授权是模块级内存缓存）
   resetWriteGrantCache()
   globalBus.registerHandler('api:is-ready', () => true)
   globalBus.registerHandler('api:get-config', () => ({ activeModel: 'test-model', activeProviderId: 'p1' }))
   globalBus.registerHandler('api:chat-completion', async (payload) => {
     chatPayloads.push(payload as Record<string, unknown>)
-    return { content: '工具直调结果', toolCalls: chatToolCalls }
+    const queued = chatToolCallsQueue.length > 0 ? chatToolCallsQueue.shift()! : chatToolCalls
+    return { content: '工具直调结果', toolCalls: queued }
   })
   globalBus.registerHandler('node:get-selected-node', () => null)
   globalBus.registerHandler('node:get-all-l2-manifests', () => [])
@@ -486,7 +490,11 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     await store.sendMessage('写个文件')
 
     expect((globalThis as any).window.electronAPI.fileWrite).not.toHaveBeenCalled()
-    expect(noticeTexts(store)).toContain('用户拒绝执行')
+    // 拒绝结果会被回灌给模型（模型据此得知"未写入"，而不是以为自己写成功了）——
+    // 2026-09-24 mcp-direct 加回路后，最终呈现的是模型的收口回复而非拒绝文本本身，
+    // 故断言回灌内容而非消息文本。
+    const feedback = chatPayloads.map(p => JSON.stringify(p.messages)).join('\n')
+    expect(feedback).toContain('用户拒绝执行')
   })
 
   it('O10：用户本次允许 → 写盘执行', async () => {
@@ -505,6 +513,28 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     await store.sendMessage('写个文件')
 
     expect((globalThis as any).window.electronAPI.fileWrite).toHaveBeenCalled()
+  })
+
+  // 2026-09-24：原 mcp-direct 分支只执行一轮 toolCalls 就呈现——实测（HANDOFF 追加五十）
+  // 路由落到该分支时模型调一次 list_directory 就再无续跑，多步任务（先列目录再改名）
+  // 必然停在第一步且不报错。本用例断言「回灌 + 续跑」确实发生。
+  it('mcp-direct：多步任务不再停在第一步（有限轮次回路）', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+    // 第 1 次调用发起工具调用；回灌后的第 2 次不再调工具（模型收口）
+    chatToolCallsQueue = [
+      [{ id: 'c1', name: 'calc', arguments: '{}' }],
+      []
+    ]
+
+    await store.sendMessage('算一下')
+
+    expect(chatPayloads.length).toBeGreaterThanOrEqual(2)
+    expect(noticeTexts(store)).toContain('工具直调结果')
   })
 
   it('error outcome → 回退旧六层内联路径', async () => {
