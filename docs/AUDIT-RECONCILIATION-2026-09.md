@@ -375,3 +375,74 @@ A1-26(半)/27/28/30/31/32(半)、A2-4(半)/10/11(半)/12、A3-18..26、A4-27..33
 - 行号基于 HEAD `acdc875`，后续提交会漂移，使用时应按机制重新定位
 - 九簇复核相互独立，跨簇同一发现（如 A1-25≡B-10）在两簇各自验证，结论一致
 - 动态行为仍以静态推理为主；"现行可达"判定（P0-2/P1-3 残留）基于机制推演，未经运行时渗透验证
+
+---
+
+## 7. 2026-09-24 现状复核（本轮，HEAD `53194eb`）
+
+**为什么需要这一节**：本文件第 1–4 章的对账结论写于 HEAD `acdc875`（2026-09-16）。此后修复继续推进，
+§5.1「建议插队」清单里绝大多数条目**已实际修复**——照旧表开工会重做已完成的工作。
+本节只记录**本轮亲手读过代码**的结论；来源为只读侦察而未亲验的，明确标注。
+
+### 7.1 已复核为「已修」（旧表标 ❌/◐，现况 FIXED）
+
+| 旧 ID | 旧判定 | 现况证据 |
+|---|---|---|
+| P0-2 | ◐ 任意写盘链可达 | `electron\shell-security.ts`：`NODE_E_ALLOWED_REQUIRE_MODULES` 白名单 + `findIllegalRequire()`（require 实参必须是白名单字面量）；`.open/.opensync/.write/.writesync/.copyfile` 等句柄式写原语已入黑名单 |
+| P1-3 | ◐ 组合 RCE 链 | `isMcpCommandAllowed`：node 只收 `.js/.mjs/.cjs`、python 只收 `.py/.pyw`，首个非 flag 参数按脚本入口校验扩展名并过 `validateReadPath`；`-e/-p/-c/-m` 等参数一律拒绝 |
+| P1-5 | ❌ 备份空壳 | `electron\ipc-handlers.ts:918-931` `archive.directory(vaultsDir,'vaults')` + knowledge 目录 |
+| P1-6 | ❌ openVault 裸调用 | `electron\ipc-handlers.ts:1372-1384` try/catch + `dialog.showErrorBox` |
+| P1-10 | ❌ 纯注释修复 | `src\stores\ruleStore.ts:144-147` 三条 pack 生命周期订阅已移出 `markFalsePositive()`——真实代码位移，非注释 |
+| P1-20 | ❌ 首实体 break | `src\services\factGuard.ts` 比对循环已改为遍历全部候选（`if (!matched && conflict)` 累计），不再首不匹配即 break |
+| P1-21 | ❌ 万亿归一化 | `src\services\nerExtractor.ts:41-64` `multiplier` 已按 万元/亿元/万/亿 换算 |
+| P1-29 | ◐ 倒灌竞态 | `src\vault\index.ts:15,52-56` writeQueue 改 Map，`write()` 先摘同键排队项与脏键 |
+| P1-30 | ❌ 创建文件必抛 | `src\data\l2Manifests.ts:416` 内联 `node -e` 脚本已无 `debugLog`（全文件仅 :1 的 import 命中） |
+| P1-31 | ❌ 桌面核验三重死 | `src\services\macroExecutor.ts:242-247` 用 `USERPROFILE/HOME` + `console.log` 出结果，另经 `env:{EXPECTED_FILE}` 传参 |
+| P1-32 | ❌ 不做插槽替换 | `src\benchmark\benchmarkRunner.ts:59-64` 复用 `fillCompiledPrompt(compilePrompt(...))`，调用点 :125/:134/:157 |
+| A4-20 | ❌ 首实体 break | `src\services\crossDocValidator.ts:104-107` 注记同型并已改 |
+| §4 #1 | P2 降级路径复活 | `src\main.ts:100-113` sync 失败 fail-fast（overlay + `return`，`app.mount` 不可达） |
+| §4 #2 | P2 traceId 并发污染 | `src\services\trace.ts` 只剩 `newTraceId()` 纯函数，改随 routingOptions 传参 |
+| §4 #3 | P2 autoCompile 门槛写反 | `src\services\scheduleOptimizer.ts:218-226` 改为「真实执行率 ≥ 0.8」 |
+| §4 #4 | P2 流式记账缺口 | `src\stores\apiStore.ts:1095-1147` 流式 onDone 已发射 record-cost |
+| §4 #5 | P2 benchmark 污染预算/路由 | `src\stores\apiStore.ts:530/535/623/700` 以 `taskType==='benchmark'` 隔离学习与记账 |
+| §4 #6 | P2 会话活引用分叉 | `src\components\workbench\WorkbenchNav.vue:110-122` 改走 `dialogStore.switchSession`（拷贝断别名 + 复位 isProcessing）。注：旧文档写的 `src\components\WorkbenchNav.vue` 路径不存在 |
+
+### 7.2 本轮已修（新提交）
+
+| 旧 ID | 提交 | 内容 |
+|---|---|---|
+| G-9（第三处） | `4edc4df` | 探测失败 TTL 定值 60s → 连续失败退避 5s→10s→20s→40s→60s 上限，成功清零（`src\services\providerChain.ts` 的 `PROBE_TTL_FAIL_BASE_MS`/`failTtlFor`） |
+| §4 #7 | `74b0021` | MCP spawn 桌面日志（args 常含凭据）加 `HOLO_DEBUG` 门控 |
+| §4 #8 | `74b0021` | MCP shell 通道补拦 `%`，与 `shell-security.ts` 同口径（新增 `validateShellArgs`，拒绝原因按文件既有中文风格回传） |
+| §4 #9 | `53194eb` | 重定向每一跳显式 `body.cancel()`，不再把连接留给 GC |
+
+三项均有「回滚变异 → 测试转红」的敏感性验证（G-9 三条、#7/#8 三条；#9 用独立探针验证原语语义）。
+
+### 7.3 复核后仍开放（附证据）
+
+| 旧 ID | 现况 | 证据 | 备注 |
+|---|---|---|---|
+| P1-22 | ◐ | `src\App.vue:554-556` `Promise.all([initKernelRuntime(), initPackRuntime()])` 未 await；全仓无 ready 门禁信号 | 冷启动到 pack 挂载之间约束校验静默放行。**侦察结论，本轮未亲验**；改动涉及启动时序，需先评估与 `2c1ead7` 的关系 |
+| §4 #10 | ❌ | `recordStepCost` 只有定义（`debugStore.ts:108`）与导出（:452），**零生产调用**（仅两处测试 mock）→ `stepCosts` 恒空、`macroExecutor.ts:58` 的 `debug:get-step-cost` 恒 undefined | 不是补一行调用：需先定「谁提供 stepNum ↔ token 的关联」——apiStore 的 record-cost 只带 tier/callerId，不带步骤号。属机制设计 |
+| §4 #11 | ? | DEV 下 usage 行被 `captureConsole` 与 `record-cost` 双计；`_skipNextCapture` 与 debugLog 时序错位 | 侦察标 UNCERTAIN，需 DEV 运行时对照 |
+| §4 #12 | ❌ | `apiStore.ts:586` 语义缓存命中以 0 token 发射 record-cost | **勿直接删**：G-5「缓存节省可见」依赖这条发射；正确改法是让聚合口径的 callCount 不把 cache 类计入，需先读 `getCostBreakdownByCategory` |
+| §4 #13 | ❌ | `test\utils\mockElectronAPI.ts` 缺 `vectorDeleteBin`/`pipelineRunRequest`/`onPipelineRunEvent`/`onPipelineRunRequest`/`pipelineRunProgress` | 旧文档写的 `src\services\mockElectronAPI.ts` 路径不存在，真实文件在 `test\utils\` |
+| §4 #14 | ❌ | `src\components\PipelinePage.vue:151` 原生 `window.confirm` | 与项目自绘确认条不一致 |
+| §4 #15 | ❌ | 审计编号注释错乱/复用（`CommandPalette.vue:164`、`SettingsPage.vue:22`、`src\main.ts:61` 等） | 会误导后续按注释回溯 |
+| §4 #16 | ❌ | `dialogStore.ts:904-916` 候选选择流先 `addUserMessage` 再拦截 | 会话留孤立消息 |
+| §4 #17 | ❌ | `dialogStore.ts:2502-2506` 风险排队忙等 600 次后静默清空 | 5 分钟硬丢弃，有提示无补救 |
+| §4 #18 | ❌ | `App.vue:514` `onPipelineRunRequest` 的 disposer 未注销 | 与已修的 A6-19(c) 同型 |
+| §4 #19 | ❌ | `vault\index.ts:104-119` 冷启动逐 key 串行读 | 性能面，放大 mount 阻塞 |
+
+### 7.4 §2.1/§2.3/§2.4 的 A1/A2/A3/A4 群：本轮复核未完成
+
+本轮派出的只读侦察共 5 组，其中「A1 主进程 + A2 内核」与「A3 路由链 + A4 执行与安全」两组的回执
+在汇总层被截断、未落地——**这是「未获取」，不是「无发现」**。两组覆盖的条目
+（A1-16/18/20/21/22/23/24/25/27/28、A2-7/8/9/10/12、A3-5/12/16/17/25、A4-10/11/16/21/25/29/30）
+**状态未知**，下一轮应先补侦察再动手。
+
+### 7.5 复核方式（可复现）
+
+- 工具：`grep`/`read_file`（本仓库 `rg` 不可用，grep 走慢速回退）；行号见上表。
+- 每个「已修」判定都读到**实际逻辑体**，不以修复注释为准（第 3 章记过「纯注释修复」的先例）。
+- 未获取回执的部分按「未知」记，不按「已修/未修」记。
