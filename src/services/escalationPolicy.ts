@@ -13,10 +13,6 @@ import type { RoleConfig, ModelRole } from './modelRoles'
 
 export type EscalationConfig = RoleConfig
 
-/** 小档档位（确定性/常规工作）与大档档位（兜底） */
-const SMALL_TIERS = ['nano', 'mini'] as const
-const BIG_TIER = 'standard' as const
-
 /** 拒答 / 能力不足的典型表述——取自真实运行轨迹（考试 Q3/Q16/Q18 与兜底探针的模型原话） */
 const UNSOLVABLE_PATTERNS: RegExp[] = [
   // 「我(做不到|无法|不能)…」类声明——允许「我」与关键字之间有短间隔

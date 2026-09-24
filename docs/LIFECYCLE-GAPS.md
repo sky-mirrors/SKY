@@ -43,9 +43,20 @@ S1 一个本地 `read_file` 要付一次 **maxTokens 5000** 的审核调用（du
 
 ## 第三批：机制承诺与实际行为的落差
 
-### G-7 llm 步"4 次降档重试"是安慰剂 ✅（Phase A+B 靶心）
+### G-7 llm 步"4 次降档重试"是安慰剂 ✅（能力升级已由 role/escalation 提供，2026-09-24 核实）
 
-`pro→standard→mini→nano→rule`（macroExecutor.ts:34-39）降档只改 maxTokens/temperature——模型从头到尾是同一个（事实：tier 从不切换真实模型）。模型能力不够时，4 次尝试是对同一模型的重复失败。已由 MODEL-CAPABILITY-LEDGER-DESIGN.md 认领（无能力账本 → 无法换真正该换的模型；同源问题：降级链 models[0] 盲选、全链路无模型归因）。
+`pro→standard→mini→nano→rule`（macroExecutor.ts）降档只改 maxTokens/temperature——模型从头到尾是同一个；模型能力不够时，4 次尝试是对同一模型的重复失败。
+
+**缓解现状（2026-09-24 源码核实）**：能力升级**不通过 tier**，而通过**角色/escalation 机制**：
+`roleModels`（main=大模型掌舵 / aux=小模型做确定性小活）→ `resolveRole(callerId/taskType)` 选模型
+→ 辅助档遇阻时 `detectUnsolvable` 检出并 `resolveEscalationTarget` **升级到主模型重试一次**
+→ 仍无解则 `buildHonestNotice` 诚实陈述「未完成」，不把失败包装成成功。
+接入点：`apiStore.ts:685/708/716/829/852/860`；单测 `test/unit/escalationPolicy.spec.ts`（9 例）。
+**运行时证据**：考试 R26 的 Q15 回复逐字是 `buildHonestNotice('small-only')` 的文案——
+证明该链路真实在跑（当时被误判为「模型幻觉」）。
+
+**仍缺**：tier 本身与真实模型的绑定（`tierModels` 字段未引入）；降级链 `models[0]` 盲选、
+全链路无模型归因（Phase A+B 未落地）。**本条的"安慰剂"指控对 tier 成立，对整体能力升级不成立。**
 
 ### G-8 主聊天路径 traceId 断链 ✅（H-1 已修）
 

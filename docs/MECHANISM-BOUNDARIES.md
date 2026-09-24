@@ -124,7 +124,7 @@
 ### 模型网关 tier 体系
 
 - **能解决**：复杂度打分定预算档（maxTokens/temperature/步级超时/计价）；A3 后复考 0 误投。
-- **不能解决**：**tier 从不切换真实模型**（REQUEST-LIFECYCLE 贯穿不变式 1）——pro 档的「高档」承诺是 token 预算不是能力升级（G-7，Phase A+B 认领）。
+- **不能解决**：**tier 从不切换真实模型**（REQUEST-LIFECYCLE 贯穿不变式 1）——pro 档的「高档」承诺是 token 预算不是能力升级（G-7）。**但能力升级另有出口**（2026-09-24 核实）：`roleModels` + `resolveRole` 按调用标识选模型，辅助档遇阻由 `escalationPolicy.resolveEscalationTarget` 升级到主模型重试一次，无解则 `buildHonestNotice` 诚实陈述——即「tier 不切模型」成立，「系统无升级路径」不成立。仍缺 tier↔模型 的显式绑定（`tierModels`）与降级链 `models[0]` 盲选的归因。
 - **边界界定**：confidence = budgetCapped ? 0.6 : 0.9；模式白名单 zero 仅 nano、economy 仅 nano+mini。
 - **边界衔接**：网关内关卡顺序（policy 闸 × 预算闸 × 熔断）→ **O6 顺延代码批**（观察闸门未建，无现行冲突）。
 
