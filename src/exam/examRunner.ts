@@ -64,6 +64,10 @@ export interface ExamReport {
     zeroInterventionRate: number
     avgDurationMs: number
     totalTokens: number
+    /** X-1：判卷失败题数（判卷基建失败，非能力失败）——单列，不并入可交付率分母 */
+    judgeErrors: number
+    /** X-1：可判题数（graded − judgeErrors），可交付率的分母 */
+    judgeable: number
   }
   questions: ExamQuestionResult[]
   notes: string[]
@@ -446,12 +450,20 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
 
     const finishedAt = Date.now()
     const graded = results.filter(r => r.status === 'done')
-    const deliverable = graded.filter(r => r.judgeVerdict === 'deliverable' && r.hardAssertPassed !== false)
+    // X-1：判卷失败（judge-error）是判卷基建失败，不是能力失败——计入可交付率分母会让一次
+    // provider 配置事故把成绩单打成 0（快照 X-1 引用的那份 8 题 judge-error 报告即此形态）。
+    // 单列出来并从分母剔除，同时保留 graded 供耗时/干预计数（那些指标反映的是执行而非判卷）。
+    const judgeErrors = graded.filter(r => r.judgeVerdict === 'judge-error')
+    const judgeable = graded.filter(r => r.judgeVerdict !== 'judge-error')
+    const deliverable = judgeable.filter(r => r.judgeVerdict === 'deliverable' && r.hardAssertPassed !== false)
     const zeroIntervention = graded.filter(r => r.interventions === 0)
     const skippedFixture = results.filter(r => r.status === 'skipped-fixture')
 
     if (skippedFixture.length > 0) {
       notes.push(`素材依赖题跳过：${skippedFixture.map(r => r.id).join('、')}（不计入分母，见 EXAM-RUNBOOK.md）`)
+    }
+    if (judgeErrors.length > 0) {
+      notes.push(`判卷失败题单列：${judgeErrors.map(r => r.id).join('、')}（共 ${judgeErrors.length} 题，属判卷基建失败而非能力失败）——已从可交付率分母剔除，本轮可交付率以 ${judgeable.length} 道可判题为分母`)
     }
     notes.push('exam 流量隔离学习回路（语义缓存/预算/ZOL 不污染），record-cost 照常记账（EXAM-1）')
     notes.push('指纹缓存未隔离：考试=真实使用形态，每题单次执行，指纹参与为真实行为（EXAM 决策记录）')
@@ -473,11 +485,13 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
         graded: graded.length,
         skippedFixture: skippedFixture.length,
         deliverable: deliverable.length,
-        deliverableRate: graded.length > 0 ? deliverable.length / graded.length : 0,
+        deliverableRate: judgeable.length > 0 ? deliverable.length / judgeable.length : 0,
         zeroIntervention: zeroIntervention.length,
         zeroInterventionRate: graded.length > 0 ? zeroIntervention.length / graded.length : 0,
         avgDurationMs: graded.length > 0 ? Math.round(graded.reduce((s, r) => s + r.durationMs, 0) / graded.length) : 0,
-        totalTokens: results.reduce((s, r) => s + r.totalTokens, 0)
+        totalTokens: results.reduce((s, r) => s + r.totalTokens, 0),
+        judgeErrors: judgeErrors.length,
+        judgeable: judgeable.length
       },
       questions: results,
       notes
