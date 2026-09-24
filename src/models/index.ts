@@ -126,6 +126,8 @@ export interface Pipeline {
   id: string
   name: string
   steps: PipelineStep[]
+  // H-1：仅 'serial' 已实现。'parallel' 保留在类型中以兼容既有数据，但执行器为顺序执行
+  // （executePipeline 遇 parallel 会显式告警），UI 不得据此暗示并行。
   mode: 'serial' | 'parallel'
   createdAt: number
   lastRunAt?: number

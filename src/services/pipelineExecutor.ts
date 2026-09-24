@@ -259,6 +259,32 @@ export async function executePipeline(
     deps: i > 0 && pipeline.mode === 'serial' ? [`step-${i - 1}`] : []
   }))
 
+  // H-1：原先 deps 只在 serial 下生成线性链、Pipeline.dagEdges（画布上用户连的依赖边、
+  // pipelineStore.addDagEdge 持久化的边）零读取——执行顺序只由 steps 数组序决定，
+  // 用户看到的依赖图与执行语义脱钩。此处：当 pipeline 携带与 steps 一一对应的 dagNodes 时，
+  // 按 dagEdges 推导依赖做拓扑排序；无 DAG 数据时回退上面的线性链。环由 topologicalSort
+  // 抛错（fail-loud，不静默按错误顺序跑）。
+  if (
+    pipeline.dagNodes && pipeline.dagEdges &&
+    pipeline.dagNodes.length === pipeline.steps.length &&
+    pipeline.dagEdges.length > 0
+  ) {
+    const idToIndex = new Map(pipeline.dagNodes.map((n, i) => [n.id, i]))
+    for (const n of dagNodes) n.deps = []
+    for (const e of pipeline.dagEdges) {
+      const from = idToIndex.get(e.sourceNodeId)
+      const to = idToIndex.get(e.targetNodeId)
+      if (from === undefined || to === undefined || from === to) continue
+      const depId = `step-${from}`
+      if (!dagNodes[to].deps.includes(depId)) dagNodes[to].deps.push(depId)
+    }
+  }
+
+  if (pipeline.mode === 'parallel') {
+    // 诚实声明：并行执行尚未实现（下方执行循环为顺序 for）——不静默假装有并行效果
+    console.warn('[pipeline] mode=parallel 尚未实现并行执行，将按顺序执行')
+  }
+
   const sorted = topologicalSort(dagNodes)
 
   // P1-43：工作流时间线生命周期（无 pinia 环境(测试)时静默降级）
