@@ -866,6 +866,13 @@ export function setupIpc(_win: BrowserWindow | null) {
       let currentBody = opts.body
       let resp: Response | null = null
 
+      // 对账 §4 #9：跳转响应体既不消费也不 cancel 时，undici 连接要等 GC 才回收——
+      // 连续 302 用不到几次就能把连接池占住。每一跳（含超限返回）都显式释放。
+      const releaseRedirectBody = async () => {
+        if (!resp?.body) return
+        try { await resp.body.cancel() } catch { /* 已关闭/已消费 */ }
+      }
+
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         // P0-3：每一跳都重新做协议 + DNS 解析 + 私网判定，堵死 302 重定向绕过；
         // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
@@ -888,6 +895,7 @@ export function setupIpc(_win: BrowserWindow | null) {
           const location = resp.headers.get('location')
           if (!location) break
           if (hop === MAX_REDIRECTS) {
+            await releaseRedirectBody()
             return { success: false, status: 0, error: `重定向次数超过上限(${MAX_REDIRECTS})` }
           }
           currentUrl = new URL(location, currentUrl).toString()
@@ -895,6 +903,7 @@ export function setupIpc(_win: BrowserWindow | null) {
             currentMethod = 'GET'
             currentBody = undefined
           }
+          await releaseRedirectBody()
           continue
         }
         break
