@@ -45,7 +45,9 @@ vi.mock('@/stores/feedbackStore', () => ({
 vi.mock('@/services/dualEngineValidator', () => ({
   shouldValidate: vi.fn().mockReturnValue(false),
   buildActionManifest: vi.fn().mockReturnValue({ skill_id: 'test', target_file: 'test.txt', operation: '文件写入', expected_output: '', intent: '' }),
-  dualEngineValidate: vi.fn().mockResolvedValue({ intent_match: true, parameter_sane: true, risk_level: 'low' })
+  dualEngineValidate: vi.fn().mockResolvedValue({ intent_match: true, parameter_sane: true, risk_level: 'low' }),
+  // list_directory 路径校验依赖此函数（此前无 list_directory 用例，故 mock 缺此项未暴露）
+  isPathUnsafe: vi.fn().mockReturnValue(false)
 }))
 
 vi.mock('@/services/errorClassifier', () => ({
@@ -110,6 +112,14 @@ beforeEach(() => {
   const httpFetchFn = vi.fn().mockResolvedValue({ success: true, status: 200, body: 'http-body' })
   const fileWriteFn = vi.fn().mockResolvedValue({ success: true, path: 'C:\\Users\\Test\\Desktop\\out.txt' })
   const createDocxFn = vi.fn().mockResolvedValue({ success: true, path: 'C:\\Users\\Test\\Desktop\\out.docx' })
+  const fileListFn = vi.fn().mockResolvedValue({
+    success: true,
+    entries: ['img0.jpg', 'img1.jpg'],
+    entriesWithMeta: [
+      { name: 'img0.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:00.000Z' },
+      { name: 'img1.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:01.000Z' }
+    ]
+  })
 
   ;(globalThis as any).window = {
     electronAPI: {
@@ -118,6 +128,7 @@ beforeEach(() => {
       httpFetch: httpFetchFn,
       fileWrite: fileWriteFn,
       createDocx: createDocxFn,
+      fileList: fileListFn,
       vaultRead: vi.fn().mockResolvedValue(null),
       vaultWrite: vi.fn().mockResolvedValue(undefined),
       vaultDelete: vi.fn().mockResolvedValue(undefined),
@@ -247,6 +258,20 @@ describe('callToolDirectWithTier - read_file', () => {
     })
     const result = await callToolDirectWithTier('read_file', { path: '/test.txt' })
     expect(result).toContain('[文件: /test.txt')
+  })
+})
+
+// 2026-09-24：R23 实测模型会**主动拒绝**把 mtime 当拍摄日期（回复原文
+// 「显示的修改日期均为 2026-09-24，但这不是可靠的"拍摄日期"」），于是不执行重命名。
+// 用户已裁定「无 EXIF 时以文件系统时间为拍摄日期」（三选一选 ②），但该裁定原先
+// 只存在于产品侧——list_directory 的输出仅写「修改日期=」，模型把它与"拍摄日期"区分开。
+describe('callToolDirectWithTier - list_directory 的日期语义（2026-09-24）', () => {
+  it('输出把文件系统时间明确标注为拍摄日期（含来源限定），供命名类任务直接使用', async () => {
+    const result = await callToolDirectWithTier('list_directory', { path: 'C:\\Users\\Test\\Desktop\\photos' })
+
+    expect(result).toContain('img0.jpg')
+    expect(result).toContain('拍摄日期=20260315')
+    expect(result).toContain('取自文件系统时间')
   })
 })
 

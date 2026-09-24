@@ -482,8 +482,13 @@ export async function callToolDirectWithTier(
     if (api?.fileList) {
       const r = await api.fileList(dirPath)
       if (!r?.success) throw new Error(`list_directory failed: ${r?.error || 'unknown'}`)
-      // 2026-09-24：优先输出"文件名 + 修改日期"。Q15「按拍摄日期重命名」此前因拿不到日期而无法完成
+      // 2026-09-24：优先输出"文件名 + 拍摄日期"。Q15「按拍摄日期重命名」此前因拿不到日期而无法完成
       // （file:read 对图片只返回"[二进制文件…]"）；带上 mtime 后模型可直接据此推导 日期-序号.jpg。
+      // 2026-09-24 追加：标签由「修改日期」改为「拍摄日期（取自文件系统时间）」——R23 实测模型会
+      // **主动拒绝**（回复原文「显示的修改日期均为 2026-09-24，但这不是可靠的"拍摄日期"」）从而不执行
+      // 重命名，而 R21/R22/R24 同一 prompt 却执行（时通时不通）。用户已裁定「本机无 EXIF 时以文件
+      // 系统时间为拍摄日期」（三选一选 ②），但该裁定原先只存在于产品侧、未传达给模型 —— 这里把它
+      // 写进数据本身，而不是再加提示词约束（提示词层在本项目已被多轮证明无效）。括号保留来源，表述诚实。
       if (Array.isArray(r.entriesWithMeta) && r.entriesWithMeta.length > 0) {
         return r.entriesWithMeta
           .map(e => {
@@ -491,7 +496,7 @@ export async function callToolDirectWithTier(
             const stamp = d && !Number.isNaN(d.getTime())
               ? `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
               : '未知日期'
-            return `${e.name}\t修改日期=${stamp}${e.mtimeIso ? ` (${e.mtimeIso})` : ''}`
+            return `${e.name}\t拍摄日期=${stamp}（取自文件系统时间）${e.mtimeIso ? ` [${e.mtimeIso}]` : ''}`
           })
           .join('\n')
       }
