@@ -106,6 +106,8 @@ interface ElectronAPI {
   knowledgeIngest: (opts: { filename: string; content: string; fileType?: string }) => Promise<{ success: boolean; entry?: unknown; error?: string }>
   knowledgeSearch: (opts: { query: string; topK?: number }) => Promise<{ success: boolean; results?: { text: string; score: number }[]; error?: string }>
   knowledgeListEntries: () => Promise<{ success: boolean; entries?: unknown[]; error?: string }>
+  // K-1：文档文本提取（PDF/DOCX/XLSX）——知识摄取不再用占位符假入库
+  docExtractText: (opts: { name: string; data: Uint8Array }) => Promise<{ success: boolean; text?: string; error?: string }>
   resolvePath: (template: string) => Promise<string>
   openFilePath: (filePath: string) => Promise<{ success: boolean; error?: string }>
   dataExportZip: (opts: { data: string; defaultName: string }) => Promise<{ success: boolean; filePath?: string; error?: string }>

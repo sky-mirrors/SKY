@@ -204,22 +204,34 @@ function rrfMerge(rankings: SearchResult[][], k: number = 60): SearchResult[] {
 }
 
 async function extractText(file: File): Promise<string> {
-  if (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+  const lower = file.name.toLowerCase()
+  if (file.type === 'text/plain' || lower.endsWith('.txt') || lower.endsWith('.md')) {
     return file.text()
   }
-  if (file.type === 'application/json' || file.name.endsWith('.json')) {
+  if (file.type === 'application/json' || lower.endsWith('.json')) {
     return file.text()
   }
-  if (file.name.endsWith('.csv')) {
+  if (lower.endsWith('.csv')) {
     return file.text()
   }
-  if (file.name.endsWith('.pdf')) {
-    return `[PDF文件: ${file.name}, 大小: ${file.size}字节] - PDF解析需要pdf.js支持，当前提取元数据`
+  if (/\.(pdf|docx?|xlsx?|pptx?)$/.test(lower)) {
+    // K-1：PDF/Office 必须真正提取文本——原实现返回占位符字符串并照常切块入库，
+    // 用户看到「已入库 N 个分块」，实际入库的是一行占位符（RAG 永远命中不了内容）。
+    // 提取能力在主进程（pdf-parse / mammoth / xlsx）；能力缺失或解析失败一律抛错，
+    // 由调用方如实告知用户，绝不假装入库成功。
+    const api = window.electronAPI?.docExtractText
+    if (!api) {
+      throw new Error(`无法解析 ${file.name}：当前环境不支持文档文本提取（仅支持纯文本 / JSON / CSV）`)
+    }
+    const data = new Uint8Array(await file.arrayBuffer())
+    const res = await api({ name: file.name, data })
+    if (!res?.success || typeof res.text !== 'string') {
+      throw new Error(`解析 ${file.name} 失败：${res?.error || '未知错误'}`)
+    }
+    return res.text
   }
-  if (file.name.match(/\.(docx?|xlsx?|pptx?)$/)) {
-    return `[Office文件: ${file.name}, 大小: ${file.size}字节] - Office解析需要后端支持`
-  }
-  return `[文件: ${file.name}, 类型: ${file.type}, 大小: ${file.size}字节]`
+  // 其余类型按文本读取——较原实现返回元数据占位符更诚实（入库的是真内容而非假数据）
+  return file.text()
 }
 
 export interface IngestTarget {

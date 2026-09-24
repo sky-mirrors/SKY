@@ -7,6 +7,7 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
 import { convertDocumentToPdf } from './docConvert'
+import { extractDocumentText } from './docExtract'
 import { renderHtmlToPdf } from './pdfRenderer'
 import { processImages, type ImageOp } from './imageOps'
 import { processMedia, createFfmpegRunner, resolveFfmpegPath, type MediaOp } from './mediaOps'
@@ -467,6 +468,23 @@ export function setupIpc(_win: BrowserWindow | null) {
   // 走应用内转换（mammoth 出 HTML + Electron printToPDF 出 PDF），不依赖任何外部渲染器——
   // 本机实测无 Word / LibreOffice / pandoc，而 Chromium 是本应用的运行时，零新增依赖。
   // 源走读取校验、目标走写入校验，两侧都过 pathValidator；转换失败不落任何半成品文件。
+  // K-1：文档文本提取（PDF/DOCX/XLSX）。原实现让渲染层对 PDF/Office 摄取占位符字符串，
+  // 「已入库 N 个分块」实际入库的是假数据——经主进程用已有依赖真正提取文本后回传。
+  ipcMain.handle('doc:extractText', async (_event, opts: { name: string; data: Uint8Array }) => {
+    try {
+      if (!opts || typeof opts.name !== 'string' || !opts.data) {
+        return { success: false, error: '参数无效' }
+      }
+      const buf = opts.data instanceof Uint8Array ? opts.data : new Uint8Array(opts.data as ArrayBuffer)
+      if (buf.byteLength === 0) return { success: false, error: '文件内容为空' }
+      if (buf.byteLength > 50 * 1024 * 1024) return { success: false, error: '文件过大（上限 50MB）' }
+      const text = await extractDocumentText(opts.name, buf)
+      return { success: true, text }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
   ipcMain.handle('doc:convertToPdf', async (_event, opts: { source: string; target: string }) => {
     try {
       const src = String(opts?.source || '')

@@ -257,6 +257,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   knowledgeListEntries: () =>
     ipcRenderer.invoke('knowledge:listEntries'),
 
+  // K-1：文档文本提取（PDF/DOCX/XLSX）——知识摄取不再用占位符假入库
+  docExtractText: (opts: { name: string; data: Uint8Array }) =>
+    ipcRenderer.invoke('doc:extractText', opts),
+
   resolvePath: (template: string) =>
     ipcRenderer.invoke('env:resolvePath', template),
 
