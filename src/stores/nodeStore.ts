@@ -419,10 +419,18 @@ export const useNodeStore = defineStore('nodes', () => {
 
   const l2Manifests = ref<Record<string, L2ToolManifest>>({})
 
+  // H-2：manifest id 带版本后缀（l2-xxx-v1），拓扑节点 id 不带——统一归一化，
+  // 否则 getL2Manifest(拓扑节点 id) 恒 null，星图 L2 双击直达整条死路径
+  // （useThreeScene 双击传入的是 hitId=拓扑节点 id，domains/node 的 get-l2-manifest 同病）。
+  function normalizeL2Id(id: string): string {
+    return id.replace(/-v\d+$/i, '')
+  }
+
   function loadL2Manifests(manifests: L2ToolManifest[]) {
     for (const m of manifests) {
-      l2Manifests.value[m.identity.id] = m
-      const node = nodes.value.find(n => n.id === m.identity.id || n.name === m.identity.name)
+      const key = normalizeL2Id(m.identity.id)
+      l2Manifests.value[key] = m
+      const node = nodes.value.find(n => n.id === key || n.id === m.identity.id || n.name === m.identity.name)
       if (node) {
         node.description = m.routing.retrievalSummary
         node.gravityWeight = m.cacheMeta.estimatedTokenSaving / 1000
@@ -431,7 +439,7 @@ export const useNodeStore = defineStore('nodes', () => {
   }
 
   function getL2Manifest(nodeId: string): L2ToolManifest | null {
-    return l2Manifests.value[nodeId] || null
+    return l2Manifests.value[nodeId] || l2Manifests.value[normalizeL2Id(nodeId)] || null
   }
 
   function getL2ManifestByName(name: string): L2ToolManifest | null {
