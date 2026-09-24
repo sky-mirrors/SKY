@@ -44,10 +44,43 @@ function comparePercentages(a: string, b: string): { match: boolean; diff: numbe
 
 export { extractEntities }
 
+/** G-3：分段抽取的窗口长度（原实现硬编码的 5000 即此值，作为全文第一段） */
+export const ENTITY_EXTRACT_CHUNK = 5000
+/** 分段重叠长度——避免实体正好被切在块边界上 */
+const ENTITY_EXTRACT_OVERLAP = 500
+
+/**
+ * G-3（2026-09-24）：把实体抽取的保护窗口从「文本前 5000 字」扩到**全文分段**。
+ *
+ * 原实现三处都用 `text.substring(0, 5000)`（ground truth / output 比对 / shouldTrigger）：
+ * 财报后半段的金额、日期既不进 ground truth，也不参与输出比对 —— 与 G-1（消费者只吃得到
+ * 800 字）叠加成最坏组合：模型看不全（可能编数字）、FactGuard 也看不全（编了不拦）。
+ * 分段抽取让保护覆盖全文而单段成本不变；重叠 500 字避免实体被切在块边界；
+ * 按 `type|normalized` 去重；`linePos` 还原为**全文偏移**以保持定位语义。
+ */
+export function extractEntitiesAll(text: string): ExtractedEntity[] {
+  if (!text) return []
+  if (text.length <= ENTITY_EXTRACT_CHUNK) return extractEntities(text)
+  const out: ExtractedEntity[] = []
+  const seen = new Set<string>()
+  const stride = ENTITY_EXTRACT_CHUNK - ENTITY_EXTRACT_OVERLAP
+  for (let i = 0; i < text.length; i += stride) {
+    const chunk = text.slice(i, i + ENTITY_EXTRACT_CHUNK)
+    for (const e of extractEntities(chunk)) {
+      const key = `${e.type}|${e.normalized}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ ...e, linePos: e.linePos + i })
+    }
+  }
+  return out
+}
+
 export function shouldTrigger(manifestRoles: string[], contextText: string): boolean {
   const hasTriggerRole = manifestRoles.some(r => TRIGGER_ROLES.has(r))
   if (!hasTriggerRole) return false
-  const entities = extractEntities(contextText.substring(0, 5000))
+  // G-3：原为 contextText.substring(0, 5000)——实体全在文档后半时会误判「无需 FactGuard」
+  const entities = extractEntitiesAll(contextText)
   return entities.length > 0
 }
 

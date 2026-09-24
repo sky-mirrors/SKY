@@ -1,6 +1,6 @@
 import { L2ToolManifest, L2DagStep, ProbeSnapshot, ProbeSource, DagCheckpoint } from '@/models'
 import { globalBus } from '@/kernel/bus'
-import { extractEntities, shouldTrigger, runFactGuardV2, type FactGuardV2Result } from './factGuard'
+import { extractEntities, extractEntitiesAll, shouldTrigger, runFactGuardV2, type FactGuardV2Result } from './factGuard'
 import { route as smartRoute, getHistoricalTokenAvg } from '@/services/smartRouter'
 import {
   compilePrompt,
@@ -763,7 +763,9 @@ export async function executeStep(
     const contextText = Object.values(stepResults).join('\n') + '\n' + (userInput.inputText || '') + '\n' + (userInput.context || '')
     let groundTruthEntities: ReturnType<typeof extractEntities> = []
     if (step.tool === 'llm_generate' && shouldTrigger(manifest.routing.targetRoles, contextText)) {
-      groundTruthEntities = extractEntities(contextText.substring(0, 5000))
+      // G-3（2026-09-24）：原为 extractEntities(contextText.substring(0, 5000))——
+      // 财报后半段的金额/日期进不了 ground truth，模型编了也不拦。改全文分段抽取。
+      groundTruthEntities = extractEntitiesAll(contextText)
     }
 
     if (needsDualEngineValidation(step.tool)) {
@@ -834,7 +836,9 @@ export async function executeStep(
     }
 
     if (step.tool === 'llm_generate' && groundTruthEntities.length > 0) {
-      const outputEntities = extractEntities(result.substring(0, 5000))
+      // G-3（2026-09-24）：输出侧同样改为全文分段——否则模型后半段编的数字
+      // 因不在这 5000 字里而被判「无冲突」。
+      const outputEntities = extractEntitiesAll(result)
       const factResult = runFactGuardV2(groundTruthEntities, outputEntities, result)
       debugLog(`[FactGuardV2] step${step.step}: ${factResult.summary}`)
 
