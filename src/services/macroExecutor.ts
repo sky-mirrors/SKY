@@ -490,7 +490,7 @@ export async function callToolDirectWithTier(
     const { isPathUnsafe } = await import('./dualEngineValidator')
     if (isPathUnsafe(dirPath)) throw new Error(`list_directory: 拒绝敏感路径 ${dirPath}`)
     const api = window.electronAPI as unknown as {
-      fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; entriesWithMeta?: Array<{ name: string; isDir: boolean; mtimeMs: number; mtimeIso: string | null }>; error?: string }>
+      fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; entriesWithMeta?: Array<{ name: string; isDir: boolean; mtimeMs: number; mtimeIso: string | null; shootDateIso?: string | null; shootDateTag?: string | null }>; error?: string }>
     }
     if (api?.fileList) {
       const r = await api.fileList(dirPath)
@@ -505,11 +505,16 @@ export async function callToolDirectWithTier(
       if (Array.isArray(r.entriesWithMeta) && r.entriesWithMeta.length > 0) {
         return r.entriesWithMeta
           .map(e => {
-            const d = e.mtimeIso ? new Date(e.mtimeIso) : null
+            // EXIF 批：优先用图片自带的 EXIF 拍摄时间；没有才退回文件系统时间。
+            // 来源在文案里如实区分（EXIF 标签名 / 取自文件系统时间），模型与判卷都不必猜。
+            const exifIso = typeof e.shootDateIso === 'string' && e.shootDateIso ? e.shootDateIso : null
+            const rawIso = exifIso ?? (e.mtimeIso || null)
+            const d = rawIso ? new Date(rawIso) : null
             const stamp = d && !Number.isNaN(d.getTime())
               ? `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
               : '未知日期'
-            return `${e.name}\t拍摄日期=${stamp}（取自文件系统时间）${e.mtimeIso ? ` [${e.mtimeIso}]` : ''}`
+            const source = exifIso ? `EXIF ${e.shootDateTag || 'DateTimeOriginal'}` : '取自文件系统时间'
+            return `${e.name}\t拍摄日期=${stamp}（${source}）${rawIso ? ` [${rawIso}]` : ''}`
           })
           .join('\n')
       }

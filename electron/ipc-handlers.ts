@@ -5,6 +5,7 @@ import { request as httpsRequest } from 'https'
 import { Readable } from 'stream'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
+import { listDirectoryWithMeta } from './fileListing'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
@@ -467,25 +468,14 @@ export function setupIpc(_win: BrowserWindow | null) {
       const validatedPath = pathCheck.resolved
       if (!validatedPath || !existsSync(validatedPath)) return { success: false, error: '目录不存在' }
       if (!statSync(validatedPath).isDirectory()) return { success: false, error: '不是目录' }
-      const entries = readdirSync(validatedPath, { withFileTypes: true })
-        .map(e => (e.isDirectory() ? `${e.name}/` : e.name))
-        .sort()
       // 2026-09-24：附带修改时间。Q15「按拍摄日期重命名」需要日期信息，而 file:read 对二进制图片
       // 只能返回 "[二进制文件…]"，文件名（img0.jpg）也不含日期 ⇒ 在列举时就带上 mtime，
       // 让模型可以直接用文件时间推导目标名。（isDir 一并给出，便于模型区分目录。）
-      const entriesWithMeta = readdirSync(validatedPath, { withFileTypes: true })
-        .map(e => {
-          const full = join(validatedPath, e.name)
-          let mtimeMs = 0
-          try { mtimeMs = statSync(full).mtimeMs } catch { mtimeMs = 0 }
-          return {
-            name: e.isDirectory() ? `${e.name}/` : e.name,
-            isDir: e.isDirectory(),
-            mtimeMs,
-            mtimeIso: mtimeMs ? new Date(mtimeMs).toISOString() : null
-          }
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))
+      // 2026-09-24 追加（EXIF 批）：图片先读自身 EXIF 拍摄时间，读不到才回退文件系统时间；
+      // 两种来源分字段返回（shootDateIso/shootDateTag 与 mtimeIso），渲染侧如实标注来源——
+      // 「按拍摄时间整理照片」是高频诉求，有 EXIF 就必须用真的，文件时间只作兜底。
+      // 数据路径在 ./fileListing（纯读盘 + 解析，可单测），此处只做路径校验与错误包装。
+      const { entries, entriesWithMeta } = listDirectoryWithMeta(validatedPath)
       return { success: true, entries, entriesWithMeta }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }

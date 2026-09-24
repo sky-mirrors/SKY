@@ -117,8 +117,8 @@ beforeEach(() => {
     success: true,
     entries: ['img0.jpg', 'img1.jpg'],
     entriesWithMeta: [
-      { name: 'img0.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:00.000Z' },
-      { name: 'img1.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:01.000Z' }
+      { name: 'img0.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:00.000Z', shootDateIso: null, shootDateTag: null },
+      { name: 'img1.jpg', isDir: false, mtimeMs: 1773568800000, mtimeIso: '2026-03-15T10:00:01.000Z', shootDateIso: '2019-07-04T15:30:22', shootDateTag: 'DateTimeOriginal' }
     ]
   })
 
@@ -280,6 +280,16 @@ describe('callToolDirectWithTier - list_directory 的日期语义（2026-09-24�
     expect(result).toContain('img0.jpg')
     expect(result).toContain('拍摄日期=20260315')
     expect(result).toContain('取自文件系统时间')
+  })
+
+  // EXIF 批：图片自带拍摄时间时必须用它，不能继续拿文件系统时间顶着"拍摄日期"的名义——
+  // 「按拍摄时间整理照片」是高频诉求，判卷也按"必须是拍摄日期"的口径看这条输出。
+  it('图片带 EXIF 拍摄时间时优先输出 EXIF 值，并标注来源标签', async () => {
+    const result = await callToolDirectWithTier('list_directory', { path: 'C:\\Users\\Test\\Desktop\\photos' })
+
+    expect(result).toContain('img1.jpg\t拍摄日期=20190704（EXIF DateTimeOriginal）')
+    // 未被 EXIF 覆盖的条目仍按文件系统时间标注（同一目录内两种来源并存、互不冒充）
+    expect(result).toContain('img0.jpg\t拍摄日期=20260315（取自文件系统时间）')
   })
 })
 
