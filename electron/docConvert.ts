@@ -10,7 +10,6 @@
 // 本模块只决定「读什么 → 生成什么 HTML → 写到哪」，三个 I/O 与 PDF 渲染全部注入，
 // 因此除渲染器外全链可在 vitest 里直测（渲染器见 ./pdfRenderer）。
 
-import { marked } from 'marked'
 import mammoth from 'mammoth'
 
 /** 可作为转换源的扩展名（无扩展名或其它类型一律拒绝，不猜） */
@@ -71,7 +70,15 @@ export async function sourceToBodyHtml(filePath: string, buf: Buffer): Promise<s
     return result.value || ''
   }
   const text = buf.toString('utf8')
-  if (ext === 'md' || ext === 'markdown') return await marked.parse(text)
+  if (ext === 'md' || ext === 'markdown') {
+    // marked v18 是纯 ESM（package.json type=module，exports 只有 marked.esm.js）。
+    // 主进程 bundle 是 CJS 且依赖被 externalizeDepsPlugin 外部化，顶层 `import { marked }`
+    // 会被编译成 require("marked")，在 Electron 内嵌的 Node（v20，无 require(esm) 支持）里
+    // 抛 ERR_REQUIRE_ESM —— 应用 load 即崩、主进程完全无法启动。
+    // 改为运行时动态 import()：CJS 中的 import() 由 Node 原生支持，可直接加载 ESM。
+    const { marked } = await import('marked')
+    return await marked.parse(text)
+  }
   if (ext === 'html' || ext === 'htm') return text
   return textToHtmlParagraphs(text)
 }
