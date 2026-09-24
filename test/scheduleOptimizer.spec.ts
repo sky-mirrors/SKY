@@ -111,6 +111,37 @@ describe('scheduleOptimizer', () => {
       const fp = computeInputFingerprint({})
       expect(typeof fp).toBe('string')
     })
+
+    // G-14（2026-09-24）：原实现是裸 join 后哈希——输入差一个空格/标点即整体 miss，
+    // 缓存复用率被格式噪声吃掉。改为先规范化（空白/中英标点/大小写）再哈希。
+    it('G-14：空白差异不再导致 miss', () => {
+      const a = computeInputFingerprint({ inputText: '帮我写周报' })
+      const b = computeInputFingerprint({ inputText: ' 帮我写 周报 ' })
+      expect(a).toBe(b)
+    })
+
+    it('G-14：标点差异不再导致 miss（中英文标点等价）', () => {
+      const a = computeInputFingerprint({ inputText: '帮我写周报' })
+      expect(computeInputFingerprint({ inputText: '帮我写周报。' })).toBe(a)
+      expect(computeInputFingerprint({ inputText: '帮我写周报.' })).toBe(a)
+    })
+
+    it('G-14：大小写差异不再导致 miss', () => {
+      expect(computeInputFingerprint({ inputText: 'Q3 Report' }))
+        .toBe(computeInputFingerprint({ inputText: 'q3 report' }))
+    })
+
+    it('G-14：语义变体仍不命中（不引入误命中风险）', () => {
+      // 规范化只容格式差异；"Q3" vs "三季度" 是语义差异，需要 embedding 相似度才可比，
+      // 误命中会复用语义不同的结果——代价高，故刻意不做。
+      expect(computeInputFingerprint({ inputText: 'Q3' }))
+        .not.toBe(computeInputFingerprint({ inputText: '三季度' }))
+    })
+
+    it('G-14：不同文件路径仍不命中（路径不参与标点归一）', () => {
+      expect(computeInputFingerprint({ filePath: '/a.txt' }))
+        .not.toBe(computeInputFingerprint({ filePath: '/b.txt' }))
+    })
   })
 
   describe('computeStepPlan - shell_exec 永不缓存复用', () => {

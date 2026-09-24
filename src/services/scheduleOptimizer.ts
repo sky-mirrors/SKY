@@ -136,8 +136,33 @@ function structHash(data: string): string {
   return contentHash(data)
 }
 
+/**
+ * G-14（2026-09-24）：指纹输入的规范化——容忍**格式差异**（空白、中英标点、大小写）。
+ *
+ * 原实现是裸 `join('|')` 后哈希：输入差一个空格或句号即整体 miss，
+ * 缓存复用率被格式噪声吃掉（LIFECYCLE-GAPS G-14「零容错」）。
+ *
+ * ⚠️ 刻意**不做语义级容错**（如 "Q3" ↔ "三季度"）：那需要 embedding 相似度匹配，
+ * 而误命中会复用语义不同的结果，代价高于收益 —— 需单独裁定后再上。
+ * 路径与正文分别归一：路径只做大小写/空白（斜杠与连接符是路径语义的一部分），
+ * 正文额外剔除标点（顺带消除 "|" 与 join 分隔符的碰撞）。
+ */
+const FINGERPRINT_PUNCT_RE = /[，。！？；：、（）【】《》「」『』“”‘’·…,.;:!?()[\]{}<>"'`~@#$%^&*+=_\\/|-]/g
+
+function normalizeFingerprintText(s: string): string {
+  return s.toLowerCase().replace(FINGERPRINT_PUNCT_RE, '').replace(/\s+/g, '')
+}
+
+function normalizeFingerprintPath(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, '')
+}
+
 export function computeInputFingerprint(input: { filePath?: string; inputText?: string; context?: string }): string {
-  const parts = [input.filePath || '', input.inputText || '', input.context || '']
+  const parts = [
+    normalizeFingerprintPath(input.filePath || ''),
+    normalizeFingerprintText(input.inputText || ''),
+    normalizeFingerprintText(input.context || '')
+  ]
   return structHash(parts.join('|'))
 }
 
