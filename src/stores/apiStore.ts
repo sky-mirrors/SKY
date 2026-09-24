@@ -1091,10 +1091,25 @@ export const useApiStore = defineStore('api', () => {
     // EXAM-1：同非流式路径——exam 隔离学习回路、保留记账
     const isExamTraffic = routingOptions?.taskType === 'exam' || isExamTraceId(routingOptions?.traceId)
     const isLearningIsolated = isBenchmarkTraffic || isExamTraffic
-    if (!budgetResult.allowed && !isLearningIsolated) {
+    // S-5（2026-09-24）：与非流式同口径（见 623 行的 `!isLearningIsolated && !degradeState`）
+    // ——降级目标是本地 Ollama、零费用，不应被预算 block 拦在门外；原实现缺 `!degradeState`，
+    // 于是"远程不可达 + 预算超限"时非流式可透明降级、流式却直接 onError。
+    if (!budgetResult.allowed && !isLearningIsolated && !degradeState) {
       callbacks.onError(new Error(`Budget exceeded: ${budgetResult.reason}`))
       return { cancel: () => {} }
     }
+
+    // S-1（流式同型，2026-09-24）：非流式的直连分支已按 tierTarget 解析目标（见 759 行的
+    // resolveDirectTarget），但流式分支此前一律用 activeProvider/activeModel ⇒ 角色绑定与
+    // 「大模型兜底」在流式主路径 100% 落空（即快照 §426 所批评的"单侧修复模式"）。
+    // 此处与非流式同口径解析；未绑定角色时 tierTarget 即 active，行为与旧实现等价。
+    const streamRole = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+    const streamTierTarget = resolveRoleTarget(config.value, streamRole)
+    const direct = resolveDirectTarget(
+      config.value,
+      streamTierTarget,
+      degradeState ? { baseUrl: degradeState.target.baseUrl, model: degradeState.model } : null
+    )
 
     const controller = new AbortController()
     const combinedSignal = externalSignal
@@ -1125,13 +1140,15 @@ export const useApiStore = defineStore('api', () => {
     }
 
     // M17：Ollama 走渲染进程直连 NDJSON，禁走 IPC；M20：降级态同样直连
-    if (!degradeState && window.electronAPI?.llmChatCompletionStream && config.value.activeProviderId
-      && activeProvider.value?.chatFormat !== 'ollama') {
+    // S-1（流式同型，2026-09-24）：条件与载荷同非流式 IPC 分支（见 638-648 行）——按
+    // tierTarget 解析出的 direct 取目标，而不是 activeProvider/activeModel
+    if (!degradeState && window.electronAPI?.llmChatCompletionStream && direct.providerId
+      && direct.chatFormat !== 'ollama') {
       try {
         const cleanup = window.electronAPI.llmChatCompletionStream(
           {
-            providerId: config.value.activeProviderId,
-            model: config.value.activeModel,
+            providerId: direct.providerId,
+            model: direct.model,
             messages: messages.map(m => ({
               role: m.role,
               content: m.content,
@@ -1201,16 +1218,20 @@ export const useApiStore = defineStore('api', () => {
     }
 
     const provider = activeProvider.value
-    const baseUrl = (provider?.baseUrl || config.value.baseUrl).replace(/\/+$/, '')
+    // S-1（流式同型，2026-09-24）：目标 provider 取解析结果（降级态即 active——降级目标是本地 Ollama）
+    const targetProvider = degradeState
+      ? provider
+      : (config.value.providers.find(p => p.id === direct.providerId) ?? provider)
+    const baseUrl = direct.baseUrl
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (provider?.authType === 'bearer' && provider.apiKey) {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`
-    } else if (provider?.authType === 'api-key' && provider.apiKey) {
-      headers['x-api-key'] = provider.apiKey
+    if (targetProvider?.authType === 'bearer' && targetProvider.apiKey) {
+      headers['Authorization'] = `Bearer ${targetProvider.apiKey}`
+    } else if (targetProvider?.authType === 'api-key' && targetProvider.apiKey) {
+      headers['x-api-key'] = targetProvider.apiKey
     }
 
     // M20：降级态强制走 Ollama NDJSON 分支（目标是本地 Ollama）
-    const chatFormat = degradeState ? 'ollama' : (provider?.chatFormat || 'openai')
+    const chatFormat = direct.chatFormat
     let body: Record<string, unknown>
     let endpoint = '/v1/chat/completions'
 
@@ -1218,7 +1239,7 @@ export const useApiStore = defineStore('api', () => {
       endpoint = '/v1/messages'
       headers['anthropic-version'] = '2023-06-01'
       body = {
-        model: config.value.activeModel,
+        model: direct.model,
         messages: messages.filter(m => m.role !== 'system'),
         system: messages.find(m => m.role === 'system')?.content,
         max_tokens: maxTokens || 4096,
@@ -1226,7 +1247,7 @@ export const useApiStore = defineStore('api', () => {
       }
     } else {
       body = {
-        model: config.value.activeModel,
+        model: direct.model,
         messages,
         stream: true,
         stream_options: { include_usage: true },
@@ -1321,10 +1342,9 @@ export const useApiStore = defineStore('api', () => {
       try {
       // M17：Ollama 原生 /api/chat NDJSON 流式；M20：降级态使用降级目标端点/模型
       if (chatFormat === 'ollama') {
-        const ollamaBase = degradeState ? degradeState.target.baseUrl : baseUrl
-        const ollamaModel = degradeState
-          ? degradeState.model
-          : (config.value.activeModel || provider?.models?.[0]?.id || '')
+        // S-1（流式同型）：降级目标与角色绑定目标统一由 direct 解析（baseUrl/model 均已含降级态）
+        const ollamaBase = baseUrl
+        const ollamaModel = direct.model || targetProvider?.models?.[0]?.id || ''
         if (!ollamaModel) {
           throw new Error('Ollama: 无可用模型（请先 pingProvider 拉取模型清单）')
         }
