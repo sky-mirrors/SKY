@@ -734,7 +734,10 @@ export const useApiStore = defineStore('api', () => {
         if (retryOnFailure && circuitBreaker.value.retryCount < circuitBreaker.value.maxRetries) {
           circuitBreaker.value.retryCount++
           await new Promise(r => setTimeout(r, 1000 * circuitBreaker.value.retryCount))
-          return chatCompletion(messages, false, tools, maxTokens, externalSignal, routingOptions)
+          // G-9（2026-09-24）：原为 `retryOnFailure = false`——递归里把自己关掉，
+          // 于是「maxRetries = 3」形同虚设：任何可重试失败**最多只重试 1 次**。
+          // 循环保护本已由 `retryCount < maxRetries` 提供，无需再关开关。
+          return chatCompletion(messages, true, tools, maxTokens, externalSignal, routingOptions)
         }
         // M20：重试预算耗尽且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链
         if (!degradeState && isRetryableProviderError(err)) {
@@ -768,7 +771,9 @@ export const useApiStore = defineStore('api', () => {
         model: config.value.activeModel,
         messages: messages.filter(m => m.role !== 'system'),
         system: messages.find(m => m.role === 'system')?.content,
-        max_tokens: 4096
+        // G-9（2026-09-24）：原为硬编码 4096——无视调用方传入的 maxTokens，
+        // 与 openai 分支的 `maxTokens || 16384` 不一致（推理模型的正文会被截在 4096）。
+        max_tokens: maxTokens || 16384
       }
     } else {
       body = {
@@ -984,7 +989,9 @@ export const useApiStore = defineStore('api', () => {
       if (retryOnFailure && !isTimeout && circuitBreaker.value.retryCount < circuitBreaker.value.maxRetries) {
         circuitBreaker.value.retryCount++
         await new Promise(r => setTimeout(r, 1000 * circuitBreaker.value.retryCount))
-        return chatCompletion(messages, false, tools, maxTokens, externalSignal, routingOptions)
+        // G-9（2026-09-24）：同 IPC 路径——原先递归传 false，使 maxRetries=3 形同虚设
+        // （任何可重试失败最多只重试 1 次）。循环保护由 retryCount 计数提供。
+        return chatCompletion(messages, true, tools, maxTokens, externalSignal, routingOptions)
       }
       // M20：重试预算耗尽且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链
       if (!degradeState && isRetryableProviderError(err)) {
