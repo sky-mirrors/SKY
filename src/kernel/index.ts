@@ -162,6 +162,8 @@ export function createKernel(options?: {
               domain: context?.domain,
               traceId: context?.traceId,
               stream: true,
+              // S-6（2026-09-24）：取消信号随契约下传（原实现此处无从传递）
+              signal: options.signal,
             })
           } else {
             const response = await llm.chatCompletion(options.messages, {
@@ -170,6 +172,8 @@ export function createKernel(options?: {
               callerId: context?.callerId,
               domain: context?.domain,
               traceId: context?.traceId,
+              // S-6（2026-09-24）：同上
+              signal: options.signal,
             })
             responseText = response.content
             promptTokens = response.promptTokens

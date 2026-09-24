@@ -1029,9 +1029,16 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         if (outcome.source === 'L2') {
           addSystemNotice(`🎯 自动匹配工具：**${matched.name.replace(/.*___/, '')}**`)
         }
+        // S-6（2026-09-24）：主对话工具回路的 LLM 调用可取消——建控制器并注册到
+        // debugStore 的全局终止注册表（同 macroExecutor 的 register/unregister 模式）。
+        // 此前这些 requestAsync 不带 signal，「终止执行」（DebugWindowPage.vue:120 /
+        // DebugProbePanel.vue:21 → debugStore.terminateExecution）无法打断在飞的请求。
+        // 声明在 try 之外：finally 需要能访问它（try 内的 const 不可见于 finally）。
+        const toolCtl = new AbortController()
+        globalBus.emit('debug:register-abort', toolCtl)
         try {
           const directTools = withAlwaysAvailableTools(matched, allMcpTools)
-          let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: directTools }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: directTools, signal: toolCtl.signal }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           // 2026-09-24：原为**单轮**（执行一次 toolCalls 即呈现）。实测（HANDOFF 追加五十）
           // 路由落到本分支时，模型调一次 list_directory 就再无续跑——多步任务（先列目录再改名）
           // 必然停在第一步且不报任何错。改为有限轮次回路（同 macro 的收口模式）：
@@ -1048,7 +1055,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                 content: `【原始请求】${content}\n\n【工具真实执行结果】\n${toolOutput}\n\n如任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如已全部完成，用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
               }],
               stream: true,
-              tools: directTools
+              tools: directTools,
+              signal: toolCtl.signal
             }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           }
           if (lastOutput == null) {
@@ -1065,7 +1073,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
                   role: 'user',
                   content: `【原始请求】${content}\n\n【全部工具执行结果】\n${lastOutput}\n\n【收口】任务已执行完毕，请**不要再调用任何工具**，直接用中文汇报：做了什么、涉及多少文件、每个文件的新名字（或新位置）、是否有失败项。`
                 }],
-                stream: true
+                stream: true,
+                signal: toolCtl.signal
               }) as { content?: string }
               await presentExecutionOutput((wrap?.content || '').trim() || lastOutput)
             } catch {
@@ -1076,6 +1085,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           const errStr = e instanceof Error ? e.message : String(e)
           addAssistantMessage(`❌ 工具调用失败（${classifyError(errStr)}）`)
           globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具调用失败: ${errStr}`, detail: errStr })
+        } finally {
+          // S-6：本轮工具回路结束（成功/失败）即注销控制器，避免全局注册表滞留僵尸条目
+          globalBus.emit('debug:clear-abort', toolCtl)
         }
       } else {
         // B-15：工具名未命中 allMcpTools 时不能静默——用户消息被消费却无任何回复

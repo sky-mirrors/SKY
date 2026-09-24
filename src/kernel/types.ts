@@ -198,6 +198,10 @@ export interface LLMCallOptions {
   maxTokens?: number
   domain?: string
   stream?: boolean
+  // S-6（2026-09-24）：取消信号进契约。此前 LLMPort 的调用方（kernel dispatch、
+  // App.vue 的 LLMPort 适配器）没有任何位置把 AbortSignal 传下来，UI 取消链
+  // （cancel → AbortController → fetch → 读取循环）在这一层就断了。
+  signal?: AbortSignal
 }
 
 export interface LLMCallResult {
@@ -260,6 +264,8 @@ export interface DispatchOptions {
   skipFactCheck?: boolean
   manifestRoles?: string[]
   documents?: Array<{ docId: string; text: string }>
+  // S-6（2026-09-24）：取消信号入口——dispatch 执行入口把它带到 LLMCallOptions.signal
+  signal?: AbortSignal
 }
 
 export interface L0DirectPlan {

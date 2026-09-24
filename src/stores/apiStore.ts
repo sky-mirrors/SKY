@@ -806,6 +806,10 @@ export const useApiStore = defineStore('api', () => {
       body.temperature = routingOptions.temperature
     }
 
+    // S-7（2026-09-24）：计时器在 try 外声明，收尾用 finally 统一释放——原实现从不调
+    // dispose()，每次调用都把一个最长 300s 的挂起 setTimeout 留给运行时（llmTimeouts.ts
+    // 的 timeoutSignalWithReason 自述"dispose 在请求完成后调用可清理挂起的计时器"）。
+    let tierTimer: ReturnType<typeof timeoutSignalWithReason> | undefined
     try {
       const hasTools = !!body.tools
       const toolCount = hasTools ? (body.tools as unknown[]).length : 0
@@ -814,7 +818,7 @@ export const useApiStore = defineStore('api', () => {
       // P0-B1：统一超时阶梯（CPU 校准值，llmTimeouts.ts 唯一定义点）+ llmTimeoutScale 缩放；
       // abort 带 TimeoutError 理由（B3 errorClassifier 确定性归类，不再触发 unknown→额外 LLM 分类调用）
       const effectiveTimeout = tierTimeoutFor(maxTok, getLlmTimeoutScale())
-      const tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM non-stream (maxTok=${maxTok})`)
+      tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM non-stream (maxTok=${maxTok})`)
       const tierSignal = tierTimer.signal
       const capSignal = AbortSignal.timeout(LLM_TIMEOUT_ABSOLUTE_CAP_MS)
       let fetchSignal: AbortSignal
@@ -1013,6 +1017,9 @@ export const useApiStore = defineStore('api', () => {
       }
       recordFailure()
       throw err
+    } finally {
+      // S-7：请求收尾（成功 / 失败 / 抛出）一律释放超时计时器
+      tierTimer?.dispose()
     }
   }
 
@@ -1185,6 +1192,8 @@ export const useApiStore = defineStore('api', () => {
               }
             },
             onDone: (final) => {
+              // S-7：流结束（含截断/正常）即释放超时计时器
+              tierTimer.dispose()
               if (!combinedSignal.aborted) {
                 // S-4：主进程在未见终止标记时以 truncated 收尾——内容不完整，
                 // 不得记成功、不得入语义缓存（原实现无条件 recordSuccess）
@@ -1218,6 +1227,8 @@ export const useApiStore = defineStore('api', () => {
               }
             },
             onError: (err: string) => {
+              // S-7：失败路径同样释放——降级链的 streamFromOllama 不用本计时器（无 signal 参数）
+              tierTimer.dispose()
               if (combinedSignal.aborted) return
               // S-2：IPC 主路径失败同样接降级链（与非流式/直连同构）——原实现直接
               // recordFailure + onError，M20 透明降级在桌面流式主路径上缺席
@@ -1230,12 +1241,12 @@ export const useApiStore = defineStore('api', () => {
           }
         )
         const origCancel = cancel
-        return { cancel: () => { origCancel(); ipcCleanup?.() } }
+        return { cancel: () => { origCancel(); ipcCleanup?.(); tierTimer.dispose() } }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         if (errMsg.includes('IPC') || errMsg.includes('not found') || errMsg.includes('decrypt')) {
           callbacks.onError(err instanceof Error ? err : new Error(errMsg))
-          return { cancel }
+          return { cancel: () => { cancel(); tierTimer.dispose() } }
         }
         debugLog('[chatCompletionStream:ipc] falling back to direct fetch')
       }
@@ -1522,6 +1533,9 @@ export const useApiStore = defineStore('api', () => {
           recordFailure()
           callbacks.onError(err instanceof Error ? err : new Error(String(err)))
         }
+      } finally {
+        // S-7：直连流结束（含异常）即释放超时计时器
+        tierTimer.dispose()
       }
     })()
 

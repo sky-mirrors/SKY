@@ -576,7 +576,9 @@ onMounted(async () => {
   kernel.registerLLM({
     chatCompletion: async (messages, options) => {
       const chatMessages: ChatMessage[] = messages.map(m => ({ role: m.role as ChatMessage['role'], content: m.content, timestamp: Date.now() }))
-      const result = await apiStore.chatCompletion(chatMessages, true, undefined, options?.maxTokens, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
+      // S-6（2026-09-24）：取消信号进适配器——原第 5 参（externalSignal）写死 undefined，
+      // 内核取消链到此断开；现按 LLMCallOptions.signal 透传。
+      const result = await apiStore.chatCompletion(chatMessages, true, undefined, options?.maxTokens, options?.signal, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
       return {
         content: result.content,
         tier: options?.tier ?? 'standard',
@@ -606,7 +608,7 @@ onMounted(async () => {
           finished = true
           resolveNext?.()
         }
-      }, undefined, undefined, undefined, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
+      }, undefined, undefined, options?.signal, { taskType: options?.taskType, domain: options?.domain, callerId: options?.callerId, traceId: options?.traceId })
       async function* stream(): AsyncGenerator<string> {
         while (true) {
           if (chunks.length > 0) {
