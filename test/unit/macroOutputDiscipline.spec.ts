@@ -1,0 +1,77 @@
+import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { MACRO_OUTPUT_DISCIPLINE, buildMacroLlmMessages } from '@/services/macroOutputDiscipline'
+
+/**
+ * 宏路径输出纪律（2026-09-24 第三批之二）
+ *
+ * 取证（`exam-report.json`，startedAt 2026-09-24T23:15:39+08:00，可交付 66.7%）：
+ *   失败 6 题里 **5 题的 routeKind 是 `plan`**（funnel 走宏执行）：
+ *     Q1 会议纪要 → l2-meeting-minutes-gen-v1（routing.keywords 命中「会议/纪要/记录/会议记录」）
+ *     Q2 周报     → l2-weekly-report-draft-v1（keywords 命中「周报/本周」）
+ *     Q4 商务邮件 → l2-client-email-compose-v1（mode:direct）
+ *     Q12/Q15 亦同。只有 Q14 是 mcp-direct。
+ *   判词三题指向占位符：Q1「记录人：待补充」、Q2「汇报人：___／__月__日」、Q4「×××」。
+ *
+ * 根因：宏路径（`callToolDirectWithTier` 的 llm_generate 与 `executeMacro` 的 direct 分支）
+ * 发往 `api:chat-completion` 的 messages **只有一条 user 消息，没有 system 消息**——
+ * 主对话 `dialogStore.FIXED_SYSTEM_PROMPT` 的第 14 条「不留占位符」在此路径上根本不存在。
+ * 且既有那条第 14 条本身是**穷举式 denylist**（只列 [姓名]/[您的姓名]/[日期范围]/[公司]/待补充/____），
+ * 实测被 `___`、`×××`、`__月__日` 这些未列出的形态绕过——本纪律改按**开放类**表述。
+ */
+
+describe('宏路径输出纪律：常量内容', () => {
+  it('按开放类禁止占位符，并覆盖实测绕过的三种形态', () => {
+    // 开放类表述（不是穷举清单）
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('任何形式')
+    // 实测绕过既有 denylist 的三种形态必须出现在示例里
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('___')
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('×××')
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('待补充')
+  })
+
+  it('禁止臆造用户未要求的抬头字段（Q1 记录人 / Q2 汇报人·周期）', () => {
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('记录人')
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('汇报人')
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('周期')
+  })
+
+  it('声明「用户明确要求优先于模板建议结构」（Q2 三块 vs 宏模板四块）', () => {
+    expect(MACRO_OUTPUT_DISCIPLINE).toMatch(/用户.*优先/)
+  })
+
+  it('要求成稿而非草稿（Q2 开头写了「本周周报（草稿）」）', () => {
+    expect(MACRO_OUTPUT_DISCIPLINE).toContain('草稿')
+  })
+})
+
+describe('宏路径输出纪律：消息装配', () => {
+  it('buildMacroLlmMessages 把纪律作为 system 消息前置', () => {
+    const msgs = buildMacroLlmMessages('用户内容')
+    expect(msgs).toHaveLength(2)
+    expect(msgs[0].role).toBe('system')
+    expect(msgs[0].content).toBe(MACRO_OUTPUT_DISCIPLINE)
+    expect(msgs[1].role).toBe('user')
+    expect(msgs[1].content).toBe('用户内容')
+  })
+
+  it('用户内容不做任何改写（原样透传）', () => {
+    const raw = '你是会议纪要专家。包含：会议主题、参会人员。\n\n会议记录：{{step_1_result}}'
+    expect(buildMacroLlmMessages(raw)[1].content).toBe(raw)
+  })
+})
+
+describe('宏路径输出纪律：全路径走查（防单侧修复）', () => {
+  const src = readFileSync(join(process.cwd(), 'src/services/macroExecutor.ts'), 'utf-8')
+
+  it('macroExecutor 中四处 api:chat-completion 调用全部经 buildMacroLlmMessages', () => {
+    // 四处 = llm_generate 首次生成 / 工具回路续跑 / 收口汇报 + executeMacro 的 direct 分支
+    const uses = src.match(/buildMacroLlmMessages\(/g) || []
+    expect(uses.length).toBe(4)
+  })
+
+  it('不再残留裸 user 消息装配（否则新调用点又会绕过纪律）', () => {
+    expect(src).not.toMatch(/messages:\s*\[\{\s*role:\s*'user'/)
+  })
+})

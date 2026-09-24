@@ -26,6 +26,9 @@ import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isM
 import { NATIVE_TOOL_DEFS } from './nativeTools'
 import { requestWriteApproval } from './writeGate'
 import { buildImageProcessArgs, buildMediaProcessArgs } from './nativeTools'
+// 2026-09-24：宏路径输出纪律（占位符/臆造字段/草稿字样）——宏的 llm_generate 与 direct 分支
+// 此前只发一条 user 消息，主对话的交付质量约束在此路径上不存在（见模块头注释的取证）。
+import { buildMacroLlmMessages } from './macroOutputDiscipline'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -417,7 +420,7 @@ export async function callToolDirectWithTier(
         // P0-10：原请求 llm:chat-completion 死频道（全仓无注册，每次必抛）；改走 api:chat-completion，
         // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
         const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-          messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+          messages: buildMacroLlmMessages(prompt),
           // 2026-09-23：宏步骤此前完全不传 tools —— 插桩实测（handlers.ts 汇聚点）
           // `chan=nonstream tools=0 caller=macro:nano`，即模型看不到 read_file/list_directory/
           // file_write/shell_exec 的存在，只能回"我无法访问你电脑上的本地路径/没有文件系统权限"
@@ -470,7 +473,7 @@ export async function callToolDirectWithTier(
             const followUp = `${convo}请继续：如果用户的任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如果已全部完成，再用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
             try {
               const resp2 = await globalBus.requestAsync<{ content: string; toolCalls?: Array<{ id?: string; name?: string; arguments?: string }> }>('api:chat-completion', {
-                messages: [{ role: 'user', content: followUp, timestamp: Date.now() }],
+                messages: buildMacroLlmMessages(followUp),
                 tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
                 maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
                 signal: controller.signal,
@@ -507,7 +510,7 @@ export async function callToolDirectWithTier(
           try {
             const wrapPrompt = `${convo}【收口】以上是全部工具执行结果，任务已执行完毕。请**不要再调用任何工具**，直接用中文汇报：一共处理了多少个文件、每个文件的新名字（或新位置）、是否有失败项。`
             const resp3 = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-              messages: [{ role: 'user', content: wrapPrompt, timestamp: Date.now() }],
+              messages: buildMacroLlmMessages(wrapPrompt),
               maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
               signal: controller.signal,
               routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
@@ -1189,7 +1192,7 @@ export async function executeMacro(
     const prompt = fillCompiledPrompt(compiled, variables)
     // P0-10：同上——死频道 llm:chat-completion 改走 api:chat-completion
     const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-      messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+      messages: buildMacroLlmMessages(prompt),
       maxTokens: execution.directCall.maxTokens,
       signal: macroController.signal,
       routingOptions: { taskType: 'raap', callerId: 'macro_directCall', ...(traceId ? { traceId } : {}) }
