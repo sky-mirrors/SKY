@@ -419,6 +419,23 @@ export async function callToolDirectWithTier(
               return lastOut
             }
           }
+          // 2026-09-24：回路耗尽（模型每轮都在调工具）时原先直接 `return lastOut` ——
+          // 即**工具原始输出**。运行时实测 Q15 的最终回复正是
+          // `list_directory: 20260924-01.jpg 修改日期=20260924 (…) …`，判卷据此判
+          // 「仅输出 list_directory 原始结果，未说明产物位置」；逐轮插桩实测 toolCalls=1、
+          // contentLen=0 —— 4 轮内没有任何一轮产出自然语言，故不是提示词能解决的问题。
+          // 收口：追加一次**不带 tools** 的调用，模型无法再调工具，只能把已完成的工作汇报成人话。
+          try {
+            const wrapPrompt = `${convo}【收口】以上是全部工具执行结果，任务已执行完毕。请**不要再调用任何工具**，直接用中文汇报：一共处理了多少个文件、每个文件的新名字（或新位置）、是否有失败项。`
+            const resp3 = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
+              messages: [{ role: 'user', content: wrapPrompt, timestamp: Date.now() }],
+              maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
+              signal: controller.signal,
+              routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
+            })
+            const wrapped = (resp3.content || '').trim()
+            if (wrapped) return wrapped
+          } catch { /* 收口失败不吞产物证据：回落到 lastOut */ }
           return lastOut
         }
         return resp.content || '(LLM无输出)'

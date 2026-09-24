@@ -342,6 +342,56 @@ describe('callToolDirectWithTier - llm_generate', () => {
   })
 })
 
+// 2026-09-24：工具回路耗尽时原先 `return lastOut`——即**工具原始输出**。运行时实测 Q15
+// 的最终回复正是 `list_directory: 20260924-01.jpg 修改日期=20260924 (…) …`，判卷据此判
+// 「仅输出 list_directory 原始结果，未说明产物位置」。原因是模型每一轮都在调工具
+// （逐轮实测 toolCalls=1、contentLen=0），4 轮内没有任何一轮产出自然语言。
+describe('callToolDirectWithTier - 工具回路耗尽的收口（2026-09-24）', () => {
+  it('模型 4 轮全在调工具 ⇒ 追加一次不带 tools 的收口调用，返回其正文而非工具原始输出', async () => {
+    llmChatCompletionFn.mockImplementation((args: any) => {
+      const hasTools = Array.isArray(args?.tools) && args.tools.length > 0
+      if (hasTools) {
+        return Promise.resolve({
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'shell_exec', arguments: '{"command":"echo hi"}' }],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+        })
+      }
+      // 收口调用（不带 tools）：模型只能产出自然语言
+      return Promise.resolve({
+        content: '共处理 4 个文件：20260315-01.jpg 等',
+        toolCalls: [],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+      })
+    })
+
+    const result = await callToolDirectWithTier('llm_generate', { prompt: '把图片按日期重命名' }, 'standard')
+
+    expect(result).toContain('共处理 4 个文件')
+    expect(result).not.toContain('shell_exec:')
+    const calls = llmChatCompletionFn.mock.calls.map((c: any[]) => c[0])
+    expect(calls.some((a: any) => !a?.tools || a.tools.length === 0)).toBe(true)
+  })
+
+  it('收口调用失败时回落到工具原始输出（不丢产物证据）', async () => {
+    llmChatCompletionFn.mockImplementation((args: any) => {
+      const hasTools = Array.isArray(args?.tools) && args.tools.length > 0
+      if (hasTools) {
+        return Promise.resolve({
+          content: '',
+          toolCalls: [{ id: 'c1', name: 'shell_exec', arguments: '{"command":"echo hi"}' }],
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }
+        })
+      }
+      return Promise.reject(new Error('wrap-up failed'))
+    })
+
+    const result = await callToolDirectWithTier('llm_generate', { prompt: 'x' }, 'standard')
+
+    expect(result).toContain('shell_exec')
+  })
+})
+
 describe('callToolDirectWithTier - knowledge_search', () => {
   it('返回检索结果', async () => {
     const result = await callToolDirectWithTier('knowledge_search', { query: '测试查询' })
