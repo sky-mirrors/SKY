@@ -6,6 +6,8 @@ import { Readable } from 'stream'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
+import { convertDocumentToPdf } from './docConvert'
+import { renderHtmlToPdf } from './pdfRenderer'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
@@ -479,6 +481,32 @@ export function setupIpc(_win: BrowserWindow | null) {
       return { success: true, entries, entriesWithMeta }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // 第一波·文档能力：文档 → PDF（docx / md / html / txt）。
+  // 走应用内转换（mammoth 出 HTML + Electron printToPDF 出 PDF），不依赖任何外部渲染器——
+  // 本机实测无 Word / LibreOffice / pandoc，而 Chromium 是本应用的运行时，零新增依赖。
+  // 源走读取校验、目标走写入校验，两侧都过 pathValidator；转换失败不落任何半成品文件。
+  ipcMain.handle('doc:convertToPdf', async (_event, opts: { source: string; target: string }) => {
+    try {
+      const src = String(opts?.source || '')
+      const dst = String(opts?.target || '')
+      if (!src || !dst) return { success: false, error: '缺少 source 或 target' }
+      const srcCheck = validateReadPath(src)
+      if (!srcCheck.safe) return { success: false, error: `源文件被安全策略拒绝: ${srcCheck.reason}` }
+      if (!srcCheck.resolved || !existsSync(srcCheck.resolved)) return { success: false, error: `源文件不存在: ${src}` }
+      const dstCheck = validateWritePath(dst)
+      if (!dstCheck.safe) return { success: false, error: `目标路径被安全策略拒绝: ${dstCheck.reason}` }
+      const targetPath = dstCheck.resolved as string
+      const result = await convertDocumentToPdf(srcCheck.resolved, targetPath, {
+        readSource: async (p) => readFileSync(p),
+        renderPdf: async ({ html }) => renderHtmlToPdf(html),
+        writeTarget: async (p, buf) => { writeFileSync(p, buf) }
+      })
+      return { success: true, path: targetPath, bytes: result.bytes, title: result.title }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 

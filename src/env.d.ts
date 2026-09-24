@@ -60,6 +60,7 @@ interface ElectronAPI {
   fileMove: (opts: { from: string; to: string }) => Promise<{ success: boolean; from?: string; to?: string; error?: string }>
   createDirectory: (dirPath: string) => Promise<{ success: boolean; path?: string; error?: string }>
   createDocx: (opts: { filePath: string; content?: string; title?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
+  docConvertToPdf: (opts: { source: string; target: string }) => Promise<{ success: boolean; path?: string; bytes?: number; title?: string; error?: string }>
   windowMinimize: () => void
   windowMaximize: () => void
   windowClose: () => void

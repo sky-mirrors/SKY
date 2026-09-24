@@ -18,7 +18,7 @@
 import { globalBus } from '@/kernel/bus'
 
 /** 受本边界约束的写类原生工具 */
-export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx'] as const
+export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx', 'file_convert'] as const
 export type WriteTool = (typeof WRITE_TOOLS)[number]
 export type WriteDecision = 'deny' | 'once' | 'always'
 
@@ -28,7 +28,8 @@ const GRANT_STORE_KEY = 'write-tool-grants'
 export const WRITE_TOOL_LABELS: Record<string, string> = {
   file_write: '写入/覆盖文件',
   file_move: '重命名/移动文件',
-  create_docx: '生成 Word 文档'
+  create_docx: '生成 Word 文档',
+  file_convert: '生成 PDF 文件'
 }
 
 export function isWriteTool(name: string): boolean {
@@ -91,9 +92,9 @@ export function resetWriteGrantCache(): void {
 
 /** 确认条上展示的「目标」——把工具参数渲染成人可读的路径描述 */
 export function describeWriteTarget(name: string, args: Record<string, unknown>): string {
-  if (name === 'file_move') {
-    const from = String(args.from || args.fromPath || '')
-    const to = String(args.to || args.toPath || '')
+  if (name === 'file_move' || name === 'file_convert') {
+    const from = String(args.from || args.fromPath || args.source || '')
+    const to = String(args.to || args.toPath || args.target || '')
     if (from && to) return `${from} → ${to}`
     return from || to || '(未提供路径)'
   }

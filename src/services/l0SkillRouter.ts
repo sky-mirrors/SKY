@@ -183,19 +183,30 @@ const skillRules: L0SkillRule[] = [
         }
       }
 
-      // 决策 A3（2026-09-23）：本机无 PDF 渲染器（Word/LibreOffice/pandoc 均不可用，已实测）。
-      // 原先 pdf 目标走 `read_file → llm_generate(「转换为pdf格式」)` —— 第 2 步是**假动作**
-      // （LLM 产不出文件），违反项目「不得假装成功」哲学。改为确定性如实说明 + 给替代做法。
+      // 决策 A3（2026-09-23）的"本机无 PDF 渲染器"结论仍然成立（Word/LibreOffice/pandoc 均无），
+      // 但 2026-09-24 起不再需要它们：应用内 mammoth（docx→HTML，已是本仓依赖）+ Electron
+      // printToPDF（HTML→PDF，Chromium 是本应用运行时）即可出 PDF，零新增依赖、离线可用。
+      // 因此这里从"诚实降级"改为**真做**；只有源格式不在支持范围内时才如实说明。
       if (effectiveTarget === 'pdf') {
+        const srcExt = (src.match(/\.(\w{1,5})$/) || [])[1]?.toLowerCase() || ''
+        if (!['docx', 'md', 'markdown', 'html', 'htm', 'txt'].includes(srcExt)) {
+          return {
+            intent: `PDF 转换不支持：${src}`,
+            steps: [{
+              step: 1,
+              description: '如实说明不支持的源格式并给替代方案',
+              tool: 'llm_generate',
+              params: { prompt: `用户要求把「${src}」转成 PDF，但当前只支持 .docx / .md / .html / .txt 作为源文件。请用中文如实说明这一点，并给出可行的替代做法（例如先用 Word 打开后另存为 PDF）。不要假装已经完成转换，也不要编造已生成的文件路径。` },
+              expectedOutput: '不支持说明与替代方案'
+            }],
+            isExploration: false
+          }
+        }
         return {
-          intent: `PDF 转换不支持：${src}`,
-          steps: [{
-            step: 1,
-            description: '如实说明本机不支持并给替代方案',
-            tool: 'llm_generate',
-            params: { prompt: `用户要求把「${src}」转成 PDF。本机未安装 PDF 渲染器（Word / LibreOffice / pandoc 均不可用），无法自动生成 PDF 文件。请用中文如实说明这一点，并给出可行的替代做法（例如用 Microsoft Word 打开后选"另存为 → PDF"）。不要假装已经完成转换，也不要编造已生成的文件路径。` },
-            expectedOutput: '不支持说明与替代方案'
-          }],
+          intent: `将 ${src} 转换为 PDF`,
+          steps: [
+            { step: 1, description: `导出 PDF（应用内渲染，无需本机安装 Office）`, tool: 'file_convert', params: { source: src, target: outputPath }, expectedOutput: outputPath }
+          ],
           isExploration: false
         }
       }
@@ -493,6 +504,29 @@ export function tryL05QuickMatch(
 
 export function checkL1Capability(input: string): L1CapabilityCheck {
   const inputLower = input.toLowerCase()
+
+  // 第一波·文档能力（2026-09-24）：文档 → PDF 是**确定性**能力（应用内渲染，见 electron/docConvert.ts），
+  // 命中即直调，不走置信度打分——「转成 PDF」这种请求不需要先问 LLM 该怎么做。
+  // 同时要求输入里给出明确路径：只提"pdf"却没有路径时交给下游层，避免抢答。
+  const wantsPdf = /(转|导出|生成|输出|保存为|另存为)[^。\n]{0,8}pdf|pdf[^。\n]{0,8}(格式|文件)/i.test(input)
+  const convertSrc = wantsPdf ? extractFilePath(input) : null
+  if (convertSrc) {
+    const target = convertSrc.replace(/\.\w{1,5}$/, '') + '.pdf'
+    debugLog(`[L1 Check] 命中：文档转PDF（确定性能力直调）`)
+    return {
+      canHandle: true,
+      nodeId: 'l1-doc-convert',
+      nodeName: '文档转PDF',
+      confidence: 0.9,
+      plan: {
+        intent: `将 ${convertSrc} 转换为 PDF`,
+        steps: [
+          { step: 1, description: '文档转 PDF（应用内渲染）', tool: 'file_convert', params: { source: convertSrc, target }, expectedOutput: target }
+        ],
+        isExploration: false
+      }
+    }
+  }
 
   const l1Rules: { nodeId: string; nodeName: string; keywords: string[]; forbidden: string[] }[] = [
     {

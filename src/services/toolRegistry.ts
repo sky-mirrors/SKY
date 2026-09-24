@@ -14,7 +14,9 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'http_request',
   'llm_generate',
   'knowledge_search',
-  'list_directory'
+  'list_directory',
+  'file_move',
+  'file_convert'
 ])
 
 // MCP 工具名形如 {serverId}___{toolName}
@@ -23,12 +25,16 @@ export function isMcpToolName(name: string): boolean {
 }
 
 // 产生外部副作用的工具：执行指纹须记录其步骤号，编译态缓存路径不得跳过重放
+// （2026-09-24 补漏：file_move / file_convert 同样改外部世界，原先漏登记 →
+//   同名步骤的结果可能被跨执行缓存复用，而文件其实没改名/没生成）
 export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'shell_exec',
   'file_write',
   'create_directory',
   'create_docx',
-  'http_request'
+  'http_request',
+  'file_move',
+  'file_convert'
 ])
 
 // 结果不可跨执行复用缓存的工具（副作用工具 + 结果取决于外部文件现状的 read_file）

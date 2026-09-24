@@ -3,6 +3,26 @@ import { L2ToolManifest } from '@/models'
 
 const l2Manifests: L2ToolManifest[] = [
   {
+    // 第一波·文档能力（2026-09-24）：文档 → PDF。
+    // 这是本仓第一个"步骤里调真实外部能力"的清单——其余清单的步骤只有 llm_generate /
+    // read_file / knowledge_search / shell_exec，即"只有这么一点功能"的根因。
+    identity: { id: 'l2-doc-to-pdf-v1', name: '文档转 PDF', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-doc-to-pdf' },
+    visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain'], hoverLabel: '读取文档→导出 PDF', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
+    routing: { keywords: ['pdf', '转pdf', '导出pdf', 'pdf格式', '转成pdf', '生成pdf'], targetRoles: ['general', 'finance', 'legal', 'hr'], requiredL1: ['l1-doc-convert'], inputType: 'file', retrievalSummary: '把 docx/md/html/txt 文档导出为 PDF；应用内渲染，无需本机安装 Word/LibreOffice/pandoc', userSummary: '文档→PDF', confidenceThreshold: 0.6 },
+    execution: {
+      mode: 'macro',
+      dagPlan: {
+        steps: [
+          { step: 1, description: '导出为 PDF（应用内渲染）', tool: 'file_convert', depends_on: [], params: { source: '{{user_file}}', target: '{{user_file_pdf}}' }, expectedOutput: 'PDF 文件路径' }
+        ],
+        fallbackStrategy: 'retry',
+        maxRetries: 1
+      },
+      paramMapping: { slots: [{ name: '{{user_file}}', source: 'file_path', description: '源文档路径（.docx/.md/.html/.txt）', required: true }, { name: '{{user_file_pdf}}', source: 'context', description: '目标 PDF 路径；未提供时与源文件同目录同名', required: false }], bindings: [{ slotName: '{{user_file}}', targetStep: 1, targetParam: 'source' }, { slotName: '{{user_file_pdf}}', targetStep: 1, targetParam: 'target' }] }
+    },
+    cacheMeta: { estimatedTokenSaving: 0, avgExecutionTime: 2500, cacheable: false, cacheTTL: 0 }
+  },
+  {
     identity: { id: 'l2-contract-risk-review-v1', name: '合同风险审查', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-contract-risk-scan' },
     visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain', 'sparkle'], hoverLabel: '上传合同→标注风险→生成报告', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
     routing: { keywords: ['合同', '风险', '审查', '合规', '条款', '法律'], targetRoles: ['legal'], requiredL1: ['l1-knowledge-feeder', 'l1-task-translator', 'l1-result-beautifier'], inputType: 'file', retrievalSummary: '上传合同PDF，自动标注风险条款并生成docx审查报告', userSummary: '上传合同→标注风险→生成报告', confidenceThreshold: 0.7 },

@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -84,6 +84,18 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' }
       },
       required: ['from', 'to']
+    }
+  },
+  {
+    name: 'file_convert',
+    description: '把本机文档导出为 PDF（支持 .docx / .md / .html / .txt）。应用内转换，无需本机安装 Word 或其它办公软件。',
+    parameters: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: '源文件绝对路径，扩展名须为 .docx/.md/.html/.txt。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        target: { type: 'string', description: '目标 PDF 绝对路径，须以 .pdf 结尾；不填则默认与源文件同目录同名。' }
+      },
+      required: ['source']
     }
   }
 ]

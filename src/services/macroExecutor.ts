@@ -180,6 +180,26 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_move failed')
   }
 
+  // 第一波·文档能力：文档 → PDF。应用内转换（mammoth 出 HTML + Electron printToPDF 出 PDF），
+  // 不依赖本机 Word/LibreOffice/pandoc（实测均无）。返回值带产物路径与字节数，便于上游如实报告。
+  if (fullName === 'file_convert') {
+    if (!window.electronAPI?.docConvertToPdf) throw new Error('file_convert not available')
+    const source = await resolveFilePath(String(args.source || args.from || args.path || ''))
+    if (!source) throw new Error('file_convert: missing source')
+    const rawTarget = String(args.target || args.to || args.outPath || '')
+    // 目标缺省（或仍是未绑定的 {{...}} 占位符）→ 默认与源同目录同名、扩展名改 .pdf。
+    // 清单里的 target 槽是可选槽，用户不会为了「转成 PDF」再报一遍目标路径。
+    const target = rawTarget && !rawTarget.includes('{{')
+      ? await resolveFilePath(rawTarget)
+      : source.replace(/\.\w{1,5}$/, '') + '.pdf'
+    if (!target) throw new Error('file_convert: missing target')
+    const result = await window.electronAPI.docConvertToPdf({ source, target })
+    if (result.success) {
+      return `已生成 PDF: ${result.path}（${result.bytes ?? 0} 字节，源文件: ${source}）`
+    }
+    throw new Error(result.error || 'file_convert failed')
+  }
+
   if (fullName === 'create_directory') {
     if (!window.electronAPI?.createDirectory) throw new Error('create_directory not available')
     const dirPath = await resolveFilePath(String(args.path || args.dirPath || ''))

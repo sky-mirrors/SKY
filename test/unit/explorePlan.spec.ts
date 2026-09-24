@@ -64,13 +64,23 @@ describe('N2：探索计划的确定性文件步骤', () => {
     expect(String(p.steps[0].params.path)).toBe('C:\\Users\\Admin\\Desktop\\HoloExam\\photos')
   })
 
-  it('PDF 目标 → 确定性「不支持」说明，不再有假转换步骤（决策 A3）', async () => {
+  // 2026-09-24（第一波·文档能力）：A3 的"本机无渲染器 → 诚实说明"已被**真转换**取代——
+  // 应用内 mammoth(docx→HTML) + Electron printToPDF(HTML→PDF) 落地后，PDF 目标产出真实的
+  // file_convert 步骤。原不变量继续成立：不得出现「把内容转换为 pdf 格式」这类 LLM 假动作。
+  it('PDF 目标 → 真实的 file_convert 步骤（含源/目标路径），不再有假转换', async () => {
     const p = await buildExplorePlan('把 C:\\x\\a.docx 转成 pdf')
     expect(p.steps).toHaveLength(1)
+    expect(p.steps[0].tool).toBe('file_convert')
+    expect(String(p.steps[0].params.source)).toBe('C:\\x\\a.docx')
+    expect(String(p.steps[0].params.target)).toBe('C:\\x\\a.pdf')
+    expect(String(p.steps[0].params.prompt ?? '')).not.toContain('将以下内容转换为')
+  })
+
+  it('源格式不支持时仍走确定性「不支持」说明，绝不假装成功', async () => {
+    const p = await buildExplorePlan('把 C:\\x\\a.xlsx 转成 pdf')
     expect(p.steps[0].tool).toBe('llm_generate')
-    expect(String(p.steps[0].params.prompt)).toContain('未安装 PDF 渲染器')
-    // 不得再出现「把内容转换为 pdf 格式」这类假动作
     expect(String(p.steps[0].params.prompt)).not.toContain('将以下内容转换为')
+    expect(String(p.steps[0].params.prompt)).toContain('只支持')
   })
 })
 

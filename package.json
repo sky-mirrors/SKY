@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "vue-tsc -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.json",
+    "verify:pdf": "esbuild test/e2e/pdfRender.e2e.ts --bundle --platform=node --format=cjs --external:electron --outfile=node_modules/.pdf-e2e.cjs --log-level=warning && electron node_modules/.pdf-e2e.cjs",
     "postinstall": "electron-vite postinstall"
   },
   "dependencies": {

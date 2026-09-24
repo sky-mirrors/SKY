@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createDocx: (opts: { filePath: string; content?: string; title?: string }) =>
     ipcRenderer.invoke('file:createDocx', opts),
 
+  // 第一波·文档能力：文档 → PDF（应用内转换，无外部渲染器依赖）
+  docConvertToPdf: (opts: { source: string; target: string }) =>
+    ipcRenderer.invoke('doc:convertToPdf', opts),
+
   httpFetch: (opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number }) =>
     ipcRenderer.invoke('http:fetch', opts),
 

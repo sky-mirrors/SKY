@@ -183,13 +183,22 @@ describe('l0SkillRouter', () => {
       expect(plan.steps[0].tool).toBe('llm_generate')
     })
 
-    it('文件操作探索模式 - 含文件路径和目标格式', async () => {
+    it('文件操作探索模式 - 含文件路径和目标格式（PDF 走真转换）', async () => {
       const plan = await buildExplorePlan('把C:\\docs\\report.md转换为pdf')
-      // 决策 A3（2026-09-23）：本机无 PDF 渲染器（实测 Word/LibreOffice/pandoc 均不可用），
-      // pdf 目标改为确定性「不支持」说明——不再是「读文件 → LLM 转成 pdf」的假动作。
+      // 2026-09-24（第一波·文档能力）：A3 的「不支持」说明已被真转换取代——
+      // 应用内 mammoth + Electron printToPDF 出 PDF，步骤是真实的 file_convert。
+      expect(plan.steps).toHaveLength(1)
+      expect(plan.steps[0].tool).toBe('file_convert')
+      expect(String(plan.steps[0].params.source)).toBe('C:\\docs\\report.md')
+      expect(String(plan.steps[0].params.target)).toBe('C:\\docs\\report.pdf')
+      expect(plan.intent.toLowerCase()).toContain('pdf')
+    })
+
+    it('PDF 源格式不支持时仍是确定性「不支持」说明（不假装成功）', async () => {
+      const plan = await buildExplorePlan('把C:\\docs\\book.xlsx转换为pdf')
       expect(plan.steps).toHaveLength(1)
       expect(plan.steps[0].tool).toBe('llm_generate')
-      expect(plan.intent.toLowerCase()).toContain('pdf')
+      expect(String(plan.steps[0].params.prompt)).toContain('只支持')
     })
 
     it('文件操作探索模式 - 含目标格式关键词', async () => {

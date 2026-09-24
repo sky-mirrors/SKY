@@ -518,7 +518,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       ['knowledge_search', 'knowledge'], ['search', 'search'],
       ['get_file_info', 'get_file_info'], ['create_directory', 'create_directory'],
       ['create_docx', 'create_docx'], ['file_write', 'file_write'],
-      ['move_file', 'move_file']
+      ['move_file', 'move_file'], ['file_move', 'file_move'],
+      ['file_convert', 'file_convert'], ['convert_document', 'file_convert'], ['to_pdf', 'file_convert']
     ]
     return pairs.some(([a, b]) => planned.includes(a) && actual.includes(b))
   }
@@ -631,6 +632,24 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
       const r = await window.electronAPI.fileWrite({ filePath, content })
       return r.success ? `已写入: ${r.path || filePath}` : `写入失败: ${r.error || ''}`
+    }
+    // 第一波·文档能力：文档 → PDF（应用内转换）。与 file_write 同路径：先经 O10 用户裁决再生产文件。
+    if (fullName === 'file_convert') {
+      const source = String(args.source || args.from || args.path || '')
+      const rawTarget = String(args.target || args.to || '')
+      // 目标缺省（或仍是未绑定的 {{...}} 占位符）→ 同目录同名改扩展名为 .pdf
+      const target = rawTarget && !rawTarget.includes('{{')
+        ? rawTarget
+        : source.replace(/\.\w{1,5}$/, '') + '.pdf'
+      if (!source) return 'file_convert: 缺少 source 参数'
+      if (!(await requestWriteApproval('file_convert', args))) {
+        return 'file_convert: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.docConvertToPdf) throw new Error('file_convert not available')
+      const r = await window.electronAPI.docConvertToPdf({ source, target })
+      return r.success
+        ? `已生成 PDF: ${r.path || target}（${r.bytes ?? 0} 字节，源文件: ${source}）`
+        : `PDF 转换失败: ${r.error || ''}`
     }
 
     const sepIdx = fullName.indexOf('___')

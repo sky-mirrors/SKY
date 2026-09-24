@@ -32,6 +32,7 @@ export interface MockElectronAPI {
   fileWrite: ReturnType<typeof vi.fn>
   createDirectory: ReturnType<typeof vi.fn>
   createDocx: ReturnType<typeof vi.fn>
+  docConvertToPdf: ReturnType<typeof vi.fn>
   httpFetch: ReturnType<typeof vi.fn>
   backupCreate: ReturnType<typeof vi.fn>
   backupRestore: ReturnType<typeof vi.fn>
@@ -126,6 +127,7 @@ export function createFullMockElectronAPI(overrides: Partial<MockElectronAPI> = 
     fileWrite: vi.fn().mockResolvedValue({ success: true }),
     createDirectory: vi.fn().mockResolvedValue({ success: true }),
     createDocx: vi.fn().mockResolvedValue({ success: true }),
+    docConvertToPdf: vi.fn().mockResolvedValue({ success: true, path: 'C:\\mock\\out.pdf', bytes: 1024, title: 'mock' }),
 
     httpFetch: vi.fn().mockResolvedValue({ success: true, status: 200, body: 'mock-http-body' }),
 
