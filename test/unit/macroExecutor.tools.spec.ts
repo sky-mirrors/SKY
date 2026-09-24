@@ -621,16 +621,33 @@ describe('extractStepResult', () => {
     { step: 2, tool: 'llm_generate', description: '总结', depends_on: [1], params: { prompt: '总结' }, expectedOutput: '总结', outputExtract: '$.summary', modelTier: 'mini' as any }
   ]
 
-  it('无outputExtract时按tier截断(nano=300)', () => {
+  // G-1（2026-09-24）契约变更：截断不再静默——正文仍按 tier 限制，但必须附截断告知。
+  it('无outputExtract时按tier截断(nano=300)且明确告知被截断', () => {
     const consumer: L2DagStep = { step: 2, tool: 'llm_generate', description: '消费', depends_on: [1], params: {}, expectedOutput: '', modelTier: 'nano' as any }
     const result = extractStepResult('很长的内容'.repeat(100), consumer, 1, allSteps)
-    expect(result.length).toBeLessThanOrEqual(300)
+    expect(result.startsWith('很长的内容')).toBe(true)
+    expect(result).toContain('【已截断】')
+    expect(result.indexOf('【已截断】')).toBeGreaterThanOrEqual(300)
   })
 
-  it('无outputExtract时standard截断800', () => {
+  it('无outputExtract时standard截断800且明确告知被截断', () => {
     const consumer: L2DagStep = { step: 2, tool: 'llm_generate', description: '消费', depends_on: [1], params: {}, expectedOutput: '', modelTier: 'standard' as any }
     const result = extractStepResult('x'.repeat(1000), consumer, 1, allSteps)
-    expect(result.length).toBeLessThanOrEqual(800)
+    expect(result).toContain('【已截断】')
+    expect(result.indexOf('【已截断】')).toBeGreaterThanOrEqual(800)
+  })
+
+  it('G-1：未超限时零漂移（不加任何标注）', () => {
+    const consumer: L2DagStep = { step: 2, tool: 'llm_generate', description: '消费', depends_on: [1], params: {}, expectedOutput: '', modelTier: 'nano' as any }
+    expect(extractStepResult('短内容', consumer, 1, allSteps)).toBe('短内容')
+  })
+
+  it('G-1：告知文本含原文长度、实际保留量与来源步骤（模型据此判断信息缺口）', () => {
+    const consumer: L2DagStep = { step: 2, tool: 'llm_generate', description: '消费', depends_on: [1], params: {}, expectedOutput: '', modelTier: 'nano' as any }
+    const result = extractStepResult('y'.repeat(1200), consumer, 7, allSteps)
+    expect(result).toContain('1200')
+    expect(result).toContain('300')
+    expect(result).toContain('步骤7')
   })
 
   it('outputExtract提取JSON路径', () => {

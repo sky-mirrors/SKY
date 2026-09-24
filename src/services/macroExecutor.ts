@@ -537,13 +537,29 @@ export async function callToolDirectWithTier(
   return result
 }
 
+/**
+ * G-1（2026-09-24）：截断必须**可观测**。
+ *
+ * 原实现是静默 `substring(0, limit)`：S1 读入 12000 字财报、S2（standard 档消费者）
+ * 只吃到 800 字（全文的 6.7%），而流水线里没有任何机制检测、告知或接管这个信息瓶颈——
+ * 模型以为自己看全了、用户以为分析了全文。结构性解法（map-reduce）属 Phase D；
+ * 短期解就是**把瓶颈说出来**，让模型知道信息被截断从而主动要求更多，
+ * 而不是基于片段臆断全文。
+ */
+function truncateWithNotice(text: string, limit: number, sourceStepNum: number): string {
+  if (text.length <= limit) return text
+  return `${text.substring(0, limit)}\n\n⚠️【已截断】步骤${sourceStepNum} 的原文共 ${text.length} 字，此处仅包含前 ${limit} 字。` +
+    `如需其余内容，请再次读取或分段处理，不要基于片段推断全文。`
+}
+
 export function extractStepResult(result: string, consumerStep: L2DagStep, sourceStepNum: number, allSteps: L2DagStep[]): string {
   const sourceStep = allSteps.find(s => s.step === sourceStepNum)
   const extract = sourceStep?.outputExtract
   if (!extract) {
     const consumerTier = consumerStep.modelTier || 'standard'
     const limit = consumerTier === 'nano' ? 300 : consumerTier === 'mini' ? 600 : consumerTier === 'pro' ? 2000 : 800
-    return result.substring(0, limit)
+    // G-1：原为静默 result.substring(0, limit)
+    return truncateWithNotice(result, limit, sourceStepNum)
   }
   try {
     const jsonMatch = result.match(/\{[\s\S]*\}/)
@@ -566,7 +582,8 @@ export function extractStepResult(result: string, consumerStep: L2DagStep, sourc
       }
     }
   } catch { /* fall through to truncation */ }
-  return result.substring(0, 500)
+  // G-1：原为静默 result.substring(0, 500)
+  return truncateWithNotice(result, 500, sourceStepNum)
 }
 
 /**
