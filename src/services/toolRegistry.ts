@@ -17,7 +17,8 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'list_directory',
   'file_move',
   'file_convert',
-  'image_process'
+  'image_process',
+  'media_process'
 ])
 
 // MCP 工具名形如 {serverId}___{toolName}
@@ -36,7 +37,8 @@ export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'http_request',
   'file_move',
   'file_convert',
-  'image_process'
+  'image_process',
+  'media_process'
 ])
 
 // 结果不可跨执行复用缓存的工具（副作用工具 + 结果取决于外部文件现状的 read_file）

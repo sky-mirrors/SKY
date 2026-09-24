@@ -15,10 +15,12 @@
     "typecheck": "vue-tsc -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.json",
     "verify:pdf": "esbuild test/e2e/pdfRender.e2e.ts --bundle --platform=node --format=cjs --external:electron --outfile=node_modules/.pdf-e2e.cjs --log-level=warning && electron node_modules/.pdf-e2e.cjs",
     "verify:image": "esbuild test/e2e/imagePipeline.e2e.ts --bundle --platform=node --format=cjs --external:electron --external:sharp --outfile=node_modules/.img-e2e.cjs --log-level=warning && electron node_modules/.img-e2e.cjs",
+    "verify:media": "esbuild test/e2e/mediaPipeline.e2e.ts --bundle --platform=node --format=cjs --external:electron --external:@ffmpeg-installer/ffmpeg --outfile=node_modules/.media-e2e.cjs --log-level=warning && electron node_modules/.media-e2e.cjs",
     "postinstall": "electron-vite postinstall"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@xenova/transformers": "^2.17.2",
     "archiver": "^7.0.0",
     "better-sqlite3": "^12.11.1",

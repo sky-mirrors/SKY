@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'image_process'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'image_process', 'media_process'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -80,6 +80,50 @@ export function buildImageProcessArgs(args: Record<string, unknown>): ImageProce
 
   const outDirRaw = args.outDir ?? args.outdir
   const result: ImageProcessArgs = { inputs, op }
+  if (outDirRaw && !isUnbound(outDirRaw)) result.outDir = String(outDirRaw)
+  if (args.suffix !== undefined && String(args.suffix) && !isUnbound(args.suffix)) result.suffix = String(args.suffix)
+  return result
+}
+
+export interface MediaProcessArgs {
+  inputs: string[]
+  op: {
+    format?: string
+    crf?: number
+    start?: number
+    duration?: number
+    thumbnailAt?: number
+    width?: number
+  }
+  outDir?: string
+  suffix?: string
+}
+
+/**
+ * 第三波·媒体能力：扁平参数 → `media:process` 请求体。
+ * 与 buildImageProcessArgs 同一约定：两条执行路径共用、未绑定的 {{...}} 视同"没给"。
+ * 同义词收编：target/targetFormat→format、thumbnail/atSecond→thumbnailAt。
+ * 刻意**不**把 quality 映射成 crf——「质量」与 CRF 是反义，宁可让模型显式说 crf，也不猜错方向。
+ */
+export function buildMediaProcessArgs(args: Record<string, unknown>): MediaProcessArgs {
+  const isUnbound = (v: unknown): boolean => typeof v === 'string' && v.includes('{{')
+  const raw = args.inputs ?? args.input ?? args.path ?? args.source
+  const inputs = Array.isArray(raw)
+    ? raw.map(v => String(v)).filter(v => !isUnbound(v))
+    : (raw && !isUnbound(raw) ? [String(raw)] : [])
+
+  const op: MediaProcessArgs['op'] = {}
+  const fmt = args.format ?? args.targetFormat ?? args.target
+  if (fmt && !isUnbound(fmt)) op.format = String(fmt).toLowerCase().replace(/^\./, '')
+  if (args.crf !== undefined && !isUnbound(args.crf)) op.crf = Number(args.crf)
+  if (args.start !== undefined && !isUnbound(args.start)) op.start = Number(args.start)
+  if (args.duration !== undefined && !isUnbound(args.duration)) op.duration = Number(args.duration)
+  const thumb = args.thumbnailAt ?? args.thumbnail ?? args.atSecond
+  if (thumb !== undefined && !isUnbound(thumb)) op.thumbnailAt = Number(thumb)
+  if (args.width !== undefined && !isUnbound(args.width)) op.width = Number(args.width)
+
+  const outDirRaw = args.outDir ?? args.outdir
+  const result: MediaProcessArgs = { inputs, op }
   if (outDirRaw && !isUnbound(outDirRaw)) result.outDir = String(outDirRaw)
   if (args.suffix !== undefined && String(args.suffix) && !isUnbound(args.suffix)) result.suffix = String(args.suffix)
   return result
@@ -158,6 +202,25 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         quality: { type: 'number', description: '有损压缩质量 1-100（默认 82）' },
         rotate: { type: 'number', description: '旋转角度：90/180/270' },
         grayscale: { type: 'boolean', description: '是否转灰度' },
+        outDir: { type: 'string', description: '输出目录；不填则与各源文件同目录' },
+        suffix: { type: 'string', description: '输出文件名后缀；不填默认 -out' }
+      },
+      required: ['inputs']
+    }
+  },
+  {
+    name: 'media_process',
+    description: '处理本机音视频：转格式（mp4/webm/gif/mp3/wav/aac）、压缩（crf）、裁剪（start/duration 秒）、出缩略图（thumbnailAt 秒）、缩放（width）。输入支持 mp4/mov/mkv/webm/avi/mp3/wav/aac/m4a/ogg/flac 等。',
+    parameters: {
+      type: 'object',
+      properties: {
+        inputs: { type: 'array', items: { type: 'string' }, description: '源文件绝对路径列表。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        format: { type: 'string', description: '目标格式：mp4/webm/gif/mp3/wav/aac；不填沿用源格式' },
+        crf: { type: 'number', description: '视频质量 CRF 0-51，越小越清晰体积越大（默认 23）' },
+        start: { type: 'number', description: '裁剪起点（秒）' },
+        duration: { type: 'number', description: '裁剪时长（秒）' },
+        thumbnailAt: { type: 'number', description: '在指定秒数出一张缩略图（只产出图片）' },
+        width: { type: 'number', description: '缩放宽度（像素，等比）' },
         outDir: { type: 'string', description: '输出目录；不填则与各源文件同目录' },
         suffix: { type: 'string', description: '输出文件名后缀；不填默认 -out' }
       },

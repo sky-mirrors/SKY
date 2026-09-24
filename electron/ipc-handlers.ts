@@ -9,6 +9,7 @@ import { listDirectoryWithMeta } from './fileListing'
 import { convertDocumentToPdf } from './docConvert'
 import { renderHtmlToPdf } from './pdfRenderer'
 import { processImages, type ImageOp } from './imageOps'
+import { processMedia, createFfmpegRunner, resolveFfmpegPath, type MediaOp } from './mediaOps'
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
@@ -541,6 +542,45 @@ export function setupIpc(_win: BrowserWindow | null) {
         success: result.outputs.length > 0,
         outputs: result.outputs,
         failures: result.failures,
+        error: result.outputs.length === 0 && result.failures.length > 0 ? result.failures[0].error : undefined
+      }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 第三波·媒体能力：音视频处理（ffmpeg；二进制来自 npm 平台包 @ffmpeg-installer/win32-x64，
+  // 不走 GitHub）。argv 固定、spawn 不经 shell；源逐个过读取校验、输出目录过写入校验。
+  // 该构建是 2018 年的 ffmpeg（N-92722），故输入走显式白名单 + 体积上限 + 每步超时强杀（见 mediaOps 头注）。
+  ipcMain.handle('media:process', async (_event, req: { inputs: string[]; op: MediaOp; outDir?: string; suffix?: string }) => {
+    try {
+      const rawInputs = Array.isArray(req?.inputs) ? req.inputs : []
+      if (rawInputs.length === 0) return { success: false, error: '未提供任何源文件' }
+      const safeInputs: string[] = []
+      for (const p of rawInputs) {
+        const chk = validateReadPath(String(p))
+        if (!chk.safe) return { success: false, error: `源文件被安全策略拒绝: ${chk.reason}` }
+        if (!chk.resolved || !existsSync(chk.resolved)) return { success: false, error: `源文件不存在: ${p}` }
+        safeInputs.push(chk.resolved)
+      }
+      let outDir: string | undefined
+      if (req?.outDir) {
+        const dchk = validateWritePath(String(req.outDir))
+        if (!dchk.safe) return { success: false, error: `输出目录被安全策略拒绝: ${dchk.reason}` }
+        outDir = dchk.resolved as string
+      }
+      const run = createFfmpegRunner(resolveFfmpegPath())
+      const result = await processMedia({
+        inputs: safeInputs,
+        op: req?.op,
+        outDir,
+        suffix: req?.suffix ? String(req.suffix) : undefined
+      }, run)
+      return {
+        success: result.outputs.length > 0,
+        outputs: result.outputs,
+        failures: result.failures,
+        probe: result.probe,
         error: result.outputs.length === 0 && result.failures.length > 0 ? result.failures[0].error : undefined
       }
     } catch (e: unknown) {

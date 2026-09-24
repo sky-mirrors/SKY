@@ -82,7 +82,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
   return []
 }
 
-import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs } from '@/services/nativeTools'
+import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs } from '@/services/nativeTools'
 import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 
@@ -520,7 +520,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       ['create_docx', 'create_docx'], ['file_write', 'file_write'],
       ['move_file', 'move_file'], ['file_move', 'file_move'],
       ['file_convert', 'file_convert'], ['convert_document', 'file_convert'], ['to_pdf', 'file_convert'],
-      ['image_process', 'image_process'], ['resize_image', 'image_process'], ['convert_image', 'image_process'], ['compress_image', 'image_process']
+      ['image_process', 'image_process'], ['resize_image', 'image_process'], ['convert_image', 'image_process'], ['compress_image', 'image_process'],
+      ['media_process', 'media_process'], ['convert_video', 'media_process'], ['transcode', 'media_process'], ['extract_audio', 'media_process'], ['thumbnail', 'media_process']
     ]
     return pairs.some(([a, b]) => planned.includes(a) && actual.includes(b))
   }
@@ -665,6 +666,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const bad = r.failures ?? []
       if (ok.length === 0) return `图片处理失败: ${bad.length > 0 ? bad.map(f => `${f.from}: ${f.error}`).join('；') : (r.error || '未知原因')}`
       const summary = ok.map(o => `${o.to}（${o.width}x${o.height}, ${o.bytes} 字节）`).join('；')
+      return bad.length > 0
+        ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}；失败：${bad.map(f => f.from).join('、')}`
+        : `已处理 ${ok.length} 个：${summary}`
+    }
+    // 第三波·媒体能力：音视频处理。与 file_convert/image_process 同路径：先经 O10 用户裁决再生产文件。
+    if (fullName === 'media_process') {
+      const req = buildMediaProcessArgs(args)
+      if (req.inputs.length === 0) return 'media_process: 缺少 inputs 参数'
+      if (!(await requestWriteApproval('media_process', args))) {
+        return 'media_process: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.mediaProcess) throw new Error('media_process not available')
+      const r = await window.electronAPI.mediaProcess(req)
+      const ok = r.outputs ?? []
+      const bad = r.failures ?? []
+      if (ok.length === 0) return `媒体处理失败: ${bad.length > 0 ? bad.map(f => `${f.from}: ${f.error}`).join('；') : (r.error || '未知原因')}`
+      const summary = ok.map(o => `${o.to}（${o.bytes} 字节）`).join('；')
       return bad.length > 0
         ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}；失败：${bad.map(f => f.from).join('、')}`
         : `已处理 ${ok.length} 个：${summary}`

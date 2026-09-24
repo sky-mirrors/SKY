@@ -3,6 +3,25 @@ import { L2ToolManifest } from '@/models'
 
 const l2Manifests: L2ToolManifest[] = [
   {
+    // 第三波·媒体能力（2026-09-24）：音视频处理。步骤调 media_process（应用内 ffmpeg，
+    // 二进制来自 npm 平台包）。可选槽未绑定时在参数整理阶段被丢弃（见 buildMediaProcessArgs）。
+    identity: { id: 'l2-media-process-v1', name: '音视频处理', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-media-process' },
+    visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['lightning', 'chain'], hoverLabel: '转码/压缩/裁剪/出缩略图', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
+    routing: { keywords: ['视频', '音频', '转码', '压缩视频', '裁剪', '缩略图', '音轨', 'mp4', 'webm', 'mp3'], targetRoles: ['general'], requiredL1: ['l1-media-ops'], inputType: 'file', retrievalSummary: '音视频转格式/压缩/裁剪/抽音轨/出缩略图，应用内处理，无需外部播放器或转换软件', userSummary: '音视频处理', confidenceThreshold: 0.6 },
+    execution: {
+      mode: 'macro',
+      dagPlan: {
+        steps: [
+          { step: 1, description: '音视频处理（应用内 ffmpeg）', tool: 'media_process', depends_on: [], params: { inputs: '{{media_files}}', format: '{{target_format}}', crf: '{{target_crf}}', width: '{{target_width}}', thumbnailAt: '{{thumbnail_at}}' }, expectedOutput: '处理后的媒体文件路径' }
+        ],
+        fallbackStrategy: 'retry',
+        maxRetries: 1
+      },
+      paramMapping: { slots: [{ name: '{{media_files}}', source: 'file_path', description: '源音视频路径', required: true }, { name: '{{target_format}}', source: 'context', description: '目标格式 mp4/webm/gif/mp3/wav/aac（可选）', required: false }, { name: '{{target_crf}}', source: 'context', description: '视频 CRF 0-51（可选）', required: false }, { name: '{{target_width}}', source: 'context', description: '缩放宽度（可选）', required: false }, { name: '{{thumbnail_at}}', source: 'context', description: '出缩略图的秒数（可选）', required: false }], bindings: [{ slotName: '{{media_files}}', targetStep: 1, targetParam: 'inputs' }, { slotName: '{{target_format}}', targetStep: 1, targetParam: 'format' }, { slotName: '{{target_crf}}', targetStep: 1, targetParam: 'crf' }, { slotName: '{{target_width}}', targetStep: 1, targetParam: 'width' }, { slotName: '{{thumbnail_at}}', targetStep: 1, targetParam: 'thumbnailAt' }] }
+    },
+    cacheMeta: { estimatedTokenSaving: 0, avgExecutionTime: 15000, cacheable: false, cacheTTL: 0 }
+  },
+  {
     // 第二波·图像能力（2026-09-24）：批量图片处理。步骤调 image_process（应用内 sharp/libvips）。
     // 可选槽（目标宽度/格式/质量）未绑定时会在参数整理阶段被丢弃（见 buildImageProcessArgs），
     // 所以清单只强制要求「源文件」这一个槽。

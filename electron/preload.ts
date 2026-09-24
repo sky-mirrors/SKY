@@ -89,6 +89,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   imageProcess: (opts: { inputs: string[]; op: Record<string, unknown>; outDir?: string; suffix?: string }) =>
     ipcRenderer.invoke('image:process', opts),
 
+  // 第三波·媒体能力：音视频处理（ffmpeg，二进制来自 npm 平台包）
+  mediaProcess: (opts: { inputs: string[]; op: Record<string, unknown>; outDir?: string; suffix?: string }) =>
+    ipcRenderer.invoke('media:process', opts),
+
   httpFetch: (opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number }) =>
     ipcRenderer.invoke('http:fetch', opts),
 

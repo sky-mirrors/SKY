@@ -18,7 +18,7 @@
 import { globalBus } from '@/kernel/bus'
 
 /** 受本边界约束的写类原生工具 */
-export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx', 'file_convert', 'image_process'] as const
+export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx', 'file_convert', 'image_process', 'media_process'] as const
 export type WriteTool = (typeof WRITE_TOOLS)[number]
 export type WriteDecision = 'deny' | 'once' | 'always'
 
@@ -30,7 +30,8 @@ export const WRITE_TOOL_LABELS: Record<string, string> = {
   file_move: '重命名/移动文件',
   create_docx: '生成 Word 文档',
   file_convert: '生成 PDF 文件',
-  image_process: '批量生成图片文件'
+  image_process: '批量生成图片文件',
+  media_process: '批量生成媒体文件'
 }
 
 export function isWriteTool(name: string): boolean {
@@ -99,7 +100,7 @@ export function describeWriteTarget(name: string, args: Record<string, unknown>)
     if (from && to) return `${from} → ${to}`
     return from || to || '(未提供路径)'
   }
-  if (name === 'image_process') {
+  if (name === 'image_process' || name === 'media_process') {
     const raw = args.inputs ?? args.input ?? args.path ?? args.source
     const list = Array.isArray(raw) ? raw.map(String) : (raw ? [String(raw)] : [])
     if (list.length === 0) return '(未提供路径)'

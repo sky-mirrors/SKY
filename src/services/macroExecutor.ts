@@ -25,7 +25,7 @@ import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 import { NATIVE_TOOL_DEFS } from './nativeTools'
 import { requestWriteApproval } from './writeGate'
-import { buildImageProcessArgs } from './nativeTools'
+import { buildImageProcessArgs, buildMediaProcessArgs } from './nativeTools'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -220,6 +220,30 @@ export async function callToolDirectWithTier(
     return bad.length > 0
       ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}；失败：${bad.map(f => `${f.from}（${f.error}）`).join('、')}`
       : `已处理 ${ok.length} 个：${summary}`
+  }
+
+  // 第三波·媒体能力：音视频处理（ffmpeg；二进制来自 npm 平台包）。参数整理共用 buildMediaProcessArgs。
+  // 回传里带上探到的源信息（分辨率/时长/编码），便于上游如实描述产物而不是空口断言。
+  if (fullName === 'media_process') {
+    if (!window.electronAPI?.mediaProcess) throw new Error('media_process not available')
+    const req = buildMediaProcessArgs(args)
+    if (req.inputs.length === 0) throw new Error('media_process: missing inputs')
+    const result = await window.electronAPI.mediaProcess(req)
+    const ok = result.outputs ?? []
+    const bad = result.failures ?? []
+    if (ok.length === 0) {
+      throw new Error(bad.length > 0
+        ? `全部失败：${bad.map(f => `${f.from}: ${f.error}`).join('；')}`
+        : (result.error || 'media_process failed'))
+    }
+    const p = result.probe
+    const probeNote = p
+      ? `（源: ${p.width ?? '?'}x${p.height ?? '?'}, ${p.durationSec !== undefined ? p.durationSec.toFixed(2) + 's' : '时长未知'}, ${p.videoCodec ?? '-'}/${p.audioCodec ?? '-'}）`
+      : ''
+    const summary = ok.map(o => `${o.to}（${o.bytes} 字节）`).join('；')
+    return bad.length > 0
+      ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}${probeNote}；失败：${bad.map(f => `${f.from}（${f.error}）`).join('、')}`
+      : `已处理 ${ok.length} 个：${summary}${probeNote}`
   }
 
   if (fullName === 'create_directory') {
