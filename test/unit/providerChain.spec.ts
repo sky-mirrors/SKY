@@ -9,7 +9,9 @@ import {
   clearProbeCache,
   IMPLICIT_OLLAMA_PROVIDER_ID,
   PROBE_TTL_FAIL_MS,
+  PROBE_TTL_FAIL_BASE_MS,
   PROBE_TTL_OK_MS,
+  failTtlFor,
   DegradeBus,
   DegradeTarget
 } from '@/services/providerChain'
@@ -115,16 +117,60 @@ describe('M20 探测缓存 TTL', () => {
     expect(mock).toHaveBeenCalledTimes(2)
   })
 
-  it('失败缓存 60s 短路', async () => {
+  // G-9 第三处：失败 TTL 由定值 60s 改为「连续失败退避」——首档短，
+  // 让抖动一下的端点在下一次请求就重新参与降级链；连续失败才升到 60s 上限
+  it('失败分级退避：首档 5s，一次闪断不再把端点封 60s', async () => {
     const mock = globalThis.fetch as ReturnType<typeof vi.fn>
     mock.mockRejectedValue(new TypeError('fetch failed'))
     const t0 = 1_000_000
     const r1 = await probeChainTarget(target, t0)
     expect(r1.ok).toBe(false)
-    await probeChainTarget(target, t0 + PROBE_TTL_FAIL_MS - 1)
+    await probeChainTarget(target, t0 + PROBE_TTL_FAIL_BASE_MS - 1)
     expect(mock).toHaveBeenCalledTimes(1)
-    await probeChainTarget(target, t0 + PROBE_TTL_FAIL_MS + 1)
+    await probeChainTarget(target, t0 + PROBE_TTL_FAIL_BASE_MS + 1)
     expect(mock).toHaveBeenCalledTimes(2)
+  })
+
+  it('连续失败逐档退避至 60s 上限后不再增长', async () => {
+    const mock = globalThis.fetch as ReturnType<typeof vi.fn>
+    mock.mockRejectedValue(new TypeError('fetch failed'))
+    // 每档起点 = 上一档过期时刻 + 1ms，逐档验证「档内命中负缓存 / 档末才重探」
+    const schedule = [
+      { at: 1_000_000, ttl: 5_000 },
+      { at: 1_005_001, ttl: 10_000 },
+      { at: 1_015_002, ttl: 20_000 },
+      { at: 1_035_003, ttl: 40_000 },
+      { at: 1_075_004, ttl: 60_000 },
+      { at: 1_135_005, ttl: 60_000 }
+    ]
+    for (let i = 0; i < schedule.length; i++) {
+      const { at, ttl } = schedule[i]
+      expect(failTtlFor(i + 1)).toBe(ttl)
+      await probeChainTarget(target, at)
+      expect(mock).toHaveBeenCalledTimes(i + 1)
+      await probeChainTarget(target, at + ttl - 1)
+      expect(mock).toHaveBeenCalledTimes(i + 1)
+    }
+    expect(failTtlFor(1)).toBe(PROBE_TTL_FAIL_BASE_MS)
+    expect(failTtlFor(999)).toBe(PROBE_TTL_FAIL_MS)
+  })
+
+  it('成功一次即清零失败计数——再次失败退回首档', async () => {
+    const mock = globalThis.fetch as ReturnType<typeof vi.fn>
+    mock.mockRejectedValue(new TypeError('fetch failed'))
+    const t0 = 1_000_000
+    await probeChainTarget(target, t0)
+    await probeChainTarget(target, t0 + PROBE_TTL_FAIL_BASE_MS + 1)
+    mock.mockResolvedValue(new Response(JSON.stringify({ models: [] }), { status: 200 }))
+    const tOk = t0 + PROBE_TTL_FAIL_BASE_MS * 3 + 2
+    expect((await probeChainTarget(target, tOk)).ok).toBe(true)
+    mock.mockRejectedValue(new TypeError('fetch failed'))
+    const tFail = tOk + PROBE_TTL_OK_MS + 1
+    await probeChainTarget(target, tFail)
+    await probeChainTarget(target, tFail + PROBE_TTL_FAIL_BASE_MS - 1)
+    expect(mock).toHaveBeenCalledTimes(4)
+    await probeChainTarget(target, tFail + PROBE_TTL_FAIL_BASE_MS + 1)
+    expect(mock).toHaveBeenCalledTimes(5)
   })
 
   it('markChainResult 回写缓存（成功延寿/失败短路）', async () => {

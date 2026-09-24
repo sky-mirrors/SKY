@@ -63,9 +63,10 @@ S1 一个本地 `read_file` 要付一次 **maxTokens 5000** 的审核调用（du
 C-11 声称 traceId 贯穿数据层，但主对话调用 `api:chat-completion` 仅传 `{messages, stream, tools}`（dialogStore.ts:2036），无 routingOptions/traceId——**最常用路径的 record-cost 不带归因**；带 traceId 的记账只覆盖 pipeline/macro/funnel 路径。已二次复核坐实。
 **修复**（H-1）：主路径及补充/总结调用点（dialogStore :2037/:2278/:2320）经 routingOptions 携带 traceId；apiStore 非流式/流式路径均透传至 record-cost。测试：apiStore.spec H-1 批。
 
-### G-9 熔断/重试细节暗坑 ❌
+### G-9 熔断/重试细节暗坑 ✅（三处已修）
 
-每请求实际最多 1 次自动重试（递归关闭 retryOnFailure，apiStore.ts:644-648/845-849）；探测失败 TTL 60s（providerChain.ts:11）——短暂掉线的 Ollama 被标记 60s 不可用；anthropic 非流式硬编码 `max_tokens: 4096` 无视传入参数（apiStore.ts:675-682）。
+原三处：每请求实际最多 1 次自动重试（递归关闭 retryOnFailure，apiStore.ts:644-648/845-849）；探测失败 TTL 定值 60s（providerChain.ts:11）——短暂掉线的 Ollama 被标记 60s 不可用；anthropic 非流式硬编码 `max_tokens: 4096` 无视传入参数（apiStore.ts:675-682）。
+**修复**：前两处于 2026-09-24 修复（`ac27ff4`，替代验证为静态核实——`chatCompletion(messages, false` 零出现、`max_tokens: 4096` 零出现）；第三处（探测失败 TTL）改为**连续失败退避**：首档 5s → 10s → 20s → 40s → 60s 上限，成功即清零、计数跨过期条目累计（`providerChain.ts` 的 `PROBE_TTL_FAIL_BASE_MS` / `failTtlFor`，单测 `test/unit/providerChain.spec.ts` 三条：首档短路、逐档升到上限、成功后清零）。
 
 ## 第四批：结构脆弱性
 
@@ -132,7 +133,7 @@ EXAM 批设计侦查（2026-09-20）发现：非流式路径的 4 处 `recordOut
 | G-8 | 主路径 traceId 断链 | ✅ H-1 已修 | ~~P1~~ 关闭 |
 | G-17 | 流式路径 ZOL 隔离缺失 | ✅ EXAM 批已修 | ~~P2~~ 关闭 |
 | G-7 | 降档安慰剂/盲选/无归因 | ✅ Phase A+B（审阅关卡中） | 已排期 |
-| G-9 | 熔断/重试暗坑 | ❌ | P2 |
+| G-9 | 熔断/重试暗坑 | ✅ 三处已修（ac27ff4 重试预算/max_tokens + 探测失败 TTL 分级退避） | ~~P2~~ 关闭 |
 | G-13 | 指纹重启失忆 | ❌ | P2 |
 | G-14 | 指纹零容错 | ❌ | P2 |
 | G-10/11/12/15 | 设计取舍代价未明文化 | ⚠️ | P3（文档承认即可） |

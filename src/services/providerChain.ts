@@ -1,15 +1,29 @@
 // M20：provider 降级链（规格 10.2 / M20）——远程 API 请求失败时按序回退：
 // active provider → 其余 ollama 格式 providers → 隐式 Ollama 默认端点（按 baseUrl 去重）。
 // per-request 透明降级：不改 activeProvider，请求结束后配置原样。
-// 探测结果 TTL 缓存为模块级基础设施状态（失败 60s / 成功 300s），
-// 非 #2 所指"请求态放模块全局"——请求态一律走函数参数传递。
+// 探测结果 TTL 缓存为模块级基础设施状态（成功 300s；失败按连续失败次数
+// 5s→10s→20s→40s→60s 递增退避），非 #2 所指"请求态放模块全局"——请求态一律走函数参数传递。
 import { ModelInfo, ProviderConfig } from '@/models'
 import { probeOllama, OllamaProbeResult, OLLAMA_DEFAULT_BASE } from './ollamaProvider'
 
 export const IMPLICIT_OLLAMA_PROVIDER_ID = 'implicit-ollama'
 
+/** 持续失败时的负缓存上限：连续失败退避到该档后不再增长 */
 export const PROBE_TTL_FAIL_MS = 60_000
+/** 首次失败的负缓存时长——一次闪断只封 5s，不把本地端点按 60s 处置 */
+export const PROBE_TTL_FAIL_BASE_MS = 5_000
 export const PROBE_TTL_OK_MS = 300_000
+
+/**
+ * 失败退避档位：5s → 10s → 20s → 40s → 60s(上限)。
+ * 为什么分级：探测自身 3s 超时、端点拒绝连接时多为毫秒级返回，首档短能让
+ * 「抖一下的 Ollama」在下一个请求就重新参与降级链；连续失败则迅速升到上限，
+ * 不对真正宕掉的端点按请求反复付探测成本。
+ */
+export function failTtlFor(streak: number): number {
+  const n = Math.max(1, Math.floor(streak))
+  return Math.min(PROBE_TTL_FAIL_BASE_MS * 2 ** (n - 1), PROBE_TTL_FAIL_MS)
+}
 
 export interface DegradeTarget {
   providerId: string
@@ -40,6 +54,8 @@ interface ProbeCacheEntry {
   models: ModelInfo[]
   error?: string
   expiresAt: number
+  /** 连续失败次数（成功即清零）——决定失败 TTL 档位 */
+  failStreak: number
 }
 
 const probeCache = new Map<string, ProbeCacheEntry>()
@@ -115,9 +131,18 @@ export function isRetryableProviderError(err: unknown): boolean {
   return false
 }
 
-function cacheEntry(result: OllamaProbeResult, now: number): ProbeCacheEntry {
-  const ttl = result.ok ? PROBE_TTL_OK_MS : PROBE_TTL_FAIL_MS
-  return { ok: result.ok, models: result.models, error: result.error, expiresAt: now + ttl }
+function cacheEntry(result: OllamaProbeResult, now: number, prevStreak: number): ProbeCacheEntry {
+  if (result.ok) {
+    return { ok: true, models: result.models, expiresAt: now + PROBE_TTL_OK_MS, failStreak: 0 }
+  }
+  const failStreak = prevStreak + 1
+  return {
+    ok: false,
+    models: result.models,
+    error: result.error,
+    expiresAt: now + failTtlFor(failStreak),
+    failStreak
+  }
 }
 
 /** 探测降级目标可达性（带 TTL 缓存）——ollamaProvider.probeOllama 自身不抛 */
@@ -128,19 +153,31 @@ export async function probeChainTarget(target: DegradeTarget, now: number = Date
     return { ok: cached.ok, models: cached.models, error: cached.error }
   }
   const result = await probeOllama(target.baseUrl)
-  probeCache.set(key, cacheEntry(result, now))
+  // 已过期条目的连续失败计数继续累计——退避计的是「连续失败」，不是「本次探测」
+  probeCache.set(key, cacheEntry(result, now, cached?.failStreak ?? 0))
   return result
 }
 
-/** 实际调用结果回写缓存（成功延寿 300s / 失败短路 60s），供后续请求复用 */
+/** 实际调用结果回写缓存（成功延寿 300s 并清零失败计数 / 失败按连续次数递增退避），供后续请求复用 */
 export function markChainResult(target: DegradeTarget, ok: boolean, now: number = Date.now()): void {
   const key = normalizeBase(target.baseUrl)
   const prev = probeCache.get(key)
+  if (ok) {
+    probeCache.set(key, {
+      ok: true,
+      models: prev?.models || [],
+      expiresAt: now + PROBE_TTL_OK_MS,
+      failStreak: 0
+    })
+    return
+  }
+  const failStreak = (prev?.failStreak ?? 0) + 1
   probeCache.set(key, {
-    ok,
-    models: ok ? (prev?.models || []) : [],
-    error: ok ? undefined : (prev?.error || 'request failed'),
-    expiresAt: now + (ok ? PROBE_TTL_OK_MS : PROBE_TTL_FAIL_MS)
+    ok: false,
+    models: [],
+    error: prev?.error || 'request failed',
+    expiresAt: now + failTtlFor(failStreak),
+    failStreak
   })
 }
 
