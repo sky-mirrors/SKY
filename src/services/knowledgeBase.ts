@@ -5,6 +5,7 @@ import { debugLog } from '@/services/debugLog'
 import { estimateTokens } from '@/services/tokenEstimate'
 import { globalBus } from '@/kernel/bus'
 import { vault } from '@/vault'
+import { parseJsonSafe } from './jsonSafe'
 
 const STORAGE_KEY = 'holo-knowledge-entries'
 const VECTOR_KEY = 'holo-kb-vectors'
@@ -26,17 +27,40 @@ export function isEmbedderReady(): boolean {
   return embedderReady || _isEmbReady()
 }
 
+type EntriesRead = { ok: true; entries: KnowledgeEntry[] } | { ok: false }
+
+// K-3：读索引必须区分「真的空」与「解析失败」。原实现是裸 JSON.parse + 空 catch，
+// 把损坏静默降级成 []，随后任意一次摄取都会用 [新条目] 覆盖全库索引——单点解析故障
+// 被放大为永久数据丢失（与 2026-09-23 api-config BOM 事故同型）。改走 parseJsonSafe
+// （剥 BOM + 失败可见告警），并把「能否安全写回」的判断暴露给写入路径。
+function readEntriesStrict(): EntriesRead {
+  const raw = vault.readCache('knowledge', STORAGE_KEY)
+  if (raw == null) return { ok: true, entries: [] }
+  const parsed = parseJsonSafe<KnowledgeEntry[]>(raw, 'vault:holo-knowledge-entries')
+  if (parsed == null || !Array.isArray(parsed)) return { ok: false }
+  return { ok: true, entries: parsed }
+}
+
 export function getKnowledgeEntries(): KnowledgeEntry[] {
-  try {
-    const raw = vault.readCache('knowledge', STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
+  const r = readEntriesStrict()
+  return r.ok ? r.entries : []
 }
 
 function saveEntries(entries: KnowledgeEntry[]) {
   vault.writeThrough('knowledge', STORAGE_KEY, JSON.stringify(entries))
+}
+
+/**
+ * K-3：持锁追加条目；索引损坏时抛错而非覆盖（fail-closed）。
+ * 错误由 withEntriesLock 原样上抛给调用方/用户，不再静默吞掉。
+ */
+function appendEntryLocked(entry: KnowledgeEntry): void {
+  const r = readEntriesStrict()
+  if (!r.ok) {
+    throw new Error('知识库索引已损坏（holo-knowledge-entries 无法解析），已拒绝写入以免覆盖全库；请从备份恢复或清空索引后重试')
+  }
+  r.entries.push(entry)
+  saveEntries(r.entries)
 }
 
 // C-15：条目索引读-改-写互斥锁（promise 链实现）——摄取窗口秒级，
@@ -254,9 +278,7 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
 
   // C-15：追加必须持锁读-改-写，防并发覆盖
   await withEntriesLock(async () => {
-    const entries = getKnowledgeEntries()
-    entries.push(entry)
-    saveEntries(entries)
+    appendEntryLocked(entry) // K-3：索引损坏时抛错，绝不用单条覆盖全库
   })
 
   return entry
@@ -318,9 +340,7 @@ async function ingestTextCore(
 
   // C-15：追加必须持锁读-改-写，防并发覆盖
   await withEntriesLock(async () => {
-    const entries = getKnowledgeEntries()
-    entries.push(entry)
-    saveEntries(entries)
+    appendEntryLocked(entry) // K-3：索引损坏时抛错，绝不用单条覆盖全库
   })
 
   return entry
@@ -448,7 +468,12 @@ export function getEntry(id: string): KnowledgeEntry | null {
 export async function deleteKnowledgeEntry(entryId: string): Promise<boolean> {
   // C-15/C-16：删除与并发摄取同样需要持锁，否则旧快照回写可"复活"已删条目
   return withEntriesLock(async () => {
-    const entries = getKnowledgeEntries()
+    // K-3：损坏索引上执行删除会回写「删掉一条后的集合」——等同清空，同样 fail-closed
+    const read = readEntriesStrict()
+    if (!read.ok) {
+      throw new Error('知识库索引已损坏（holo-knowledge-entries 无法解析），已拒绝删除操作以免覆盖全库')
+    }
+    const entries = read.entries
     const idx = entries.findIndex(e => e.id === entryId)
     if (idx < 0) return false
 

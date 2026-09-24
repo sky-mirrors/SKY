@@ -33,6 +33,20 @@ export function closeVault(): void {
   }
 }
 
+/**
+ * E-4：备份 SQLite 主库前把 WAL 落盘（TRUNCATE）。否则 archiver 对 default.db 与其
+ * -wal 的读取非原子，并发写入期间备份可能得到事务不一致的快照。
+ * 失败不阻断备份（WAL 数据仍在，只是未并入主库）。
+ */
+export function checkpointVault(): void {
+  if (!db) return
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)')
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getDb(): Database.Database {
   if (!db) throw new Error('[vault] Database not opened')
   return db

@@ -1,5 +1,6 @@
 import type { ImportPreview, ImportPreviewItem } from '@/models'
 import { vault } from '@/vault'
+import { validateImportedApiConfig, validateImportedKnowledge, validateImportedVectors } from './importValidation'
 
 export interface ExportData {
   manifest: {
@@ -207,6 +208,25 @@ export async function applyImport(fileContent: string, preview: ImportPreview): 
     data = JSON.parse(fileContent) as ExportData
   } catch (err) {
     throw new Error(`导入文件解析失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // D-1：导入文件是不可信输入——先对全部待导入段做 schema 校验（任一失败即整体拒绝），
+  // 再开始写入，避免「写了一半才发现文件畸形」的半成品状态。
+  for (const item of preview.items) {
+    const section = data[item.category]
+    if (!section) continue
+    if (item.category === 'api-config') {
+      const r = validateImportedApiConfig(section)
+      if (!r.ok) throw new Error(`导入校验失败（api-config）：${r.reason}`)
+    } else if (item.category === 'knowledge') {
+      const r = validateImportedKnowledge(section)
+      if (!r.ok) throw new Error(`导入校验失败（knowledge）：${r.reason}`)
+    } else if (item.category === 'vectors') {
+      const r = validateImportedVectors(section)
+      if (r.rejected.length > 0) {
+        throw new Error(`导入校验失败（vectors）：${r.rejected.length} 个条目结构非法（首个：${r.rejected[0]}）`)
+      }
+    }
   }
 
   for (const item of preview.items) {

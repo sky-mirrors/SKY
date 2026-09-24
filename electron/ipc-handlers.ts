@@ -26,7 +26,8 @@ import * as iconv from 'iconv-lite'
 // 运行时 out/main 仅有单文件 bundle 导致 MODULE_NOT_FOUND；改为静态 ESM import 由 rollup 打入
 // B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
 // A-19：closeVault 移至 main.ts 的 before-quit 调用，此处不再导入
-import { openVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+import { openVault, closeVault, checkpointVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+import { planRestoreTargets, applyRestore, validateBackupDir, BACKUP_EXTS } from './backupRestore'
 import { decodeShellOutput } from './shellOutput'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
@@ -95,33 +96,9 @@ async function readBodyCapped(resp: Response, maxBytes: number = HTTP_MAX_RESPON
   return out
 }
 
-// P1-1 修复：恢复前对解压产物做条目校验（仅 store 数据、拒符号链接、限数量/大小）
-function validateExtractedBackup(rootDir: string): { files: number } {
-  const MAX_FILES = 5000
-  const MAX_FILE_BYTES = 20 * 1024 * 1024
-  const MAX_TOTAL_BYTES = 200 * 1024 * 1024
-  let files = 0
-  let total = 0
-  const walk = (dir: string): void => {
-    const entries = readdirSync(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const full = join(dir, entry.name)
-      if (entry.isSymbolicLink()) throw new Error(`备份包含符号链接，拒绝恢复: ${entry.name}`)
-      if (entry.isDirectory()) { walk(full); continue }
-      if (!entry.isFile()) throw new Error(`备份包含非常规文件，拒绝恢复: ${entry.name}`)
-      const ext = entry.name.toLowerCase().split('.').pop() || ''
-      if (!['json', 'bin'].includes(ext)) throw new Error(`备份包含不支持的文件类型(.${ext})，拒绝恢复: ${entry.name}`)
-      const size = statSync(full).size
-      if (size > MAX_FILE_BYTES) throw new Error(`备份条目过大，拒绝恢复: ${entry.name}`)
-      files++
-      total += size
-      if (files > MAX_FILES) throw new Error('备份条目数超过上限(5000)，拒绝恢复')
-      if (total > MAX_TOTAL_BYTES) throw new Error('备份总量超过上限(200MB)，拒绝恢复')
-    }
-  }
-  walk(rootDir)
-  return { files }
-}
+// P1-1/E-4 修复：备份目录校验（拒符号链接/非常规文件/未列出扩展名，限数量与体积）
+// 已抽到 ./backupRestore（无 Electron 依赖、可单测），并按 kind 区分扩展名白名单——
+// store 只认 .json/.bin，vaults 另需接受 default.db 及其 -wal/-shm。
 
 function chunkText(text: string, chunkSize: number): string[] {
   const chunks: string[] = []
@@ -1026,6 +1003,9 @@ export function setupIpc(_win: BrowserWindow | null) {
       const output = createWriteStream(join(backupDir, `holo-backup-${ts}.zip`))
       const archive = archiver('zip', { zlib: { level: 6 } })
       archive.pipe(output)
+      // E-4：备份 SQLite 主库前先把 WAL 落盘——否则 default.db 与其 -wal 的读取非原子，
+      // 并发写入期间备份可能得到事务不一致的快照
+      checkpointVault()
       archive.directory(storeDir, 'store')
       // P1-5：只备 store 目录会漏掉 vault SQLite（全部 store 持久化数据）与
       // knowledge 知识库——"备份成功"却丢最核心数据；vectorDir 已含于 store 内
@@ -1047,10 +1027,11 @@ export function setupIpc(_win: BrowserWindow | null) {
   })
 
   ipcMain.handle('backup:restore', async () => {
-    // P1-1 修复：解压到临时目录 → 条目校验 → 快照现网 → 原子交换，失败可回滚
+    // P1-1/E-4 修复：解压到临时目录 → 全量校验 → 快照现网 → 原子交换（store + vaults + knowledge）
     const mw = getMainWindow()
     if (!mw) return { success: false, error: 'No window' }
     let tmpDir = ''
+    let vaultsClosed = false
     try {
       const result = await dialog.showOpenDialog(mw, {
         properties: ['openFile'],
@@ -1063,24 +1044,34 @@ export function setupIpc(_win: BrowserWindow | null) {
       mkdirSync(tmpDir, { recursive: true })
       await extract(result.filePaths[0], { dir: tmpDir })
 
-      const extractedStore = join(tmpDir, 'store')
-      if (!existsSync(extractedStore)) {
-        throw new Error('备份内不含 store 目录，不是有效的 HoloStarmap 备份')
-      }
-      const validated = validateExtractedBackup(extractedStore)
+      const targets = planRestoreTargets(tmpDir, {
+        storeDir,
+        vaultsDir: join(userDataDir, 'vaults'),
+        knowledgeDir,
+      })
+      const storeFiles = validateBackupDir(targets[0].staged, BACKUP_EXTS.store).files
 
-      const snapshotDir = join(userDataDir, `store-pre-restore-${Date.now()}`)
-      renameSync(storeDir, snapshotDir)
-      try {
-        renameSync(extractedStore, storeDir)
-      } catch (e: unknown) {
-        renameSync(snapshotDir, storeDir)
-        throw e
+      // E-4：vault 是唯一真相源，恢复必须同步交换 vaults/knowledge——旧实现只换 store，
+      // 「恢复成功」却保留旧 vault，灾难迁移场景静默丢最核心数据。
+      // vaults 交换前必须释放 SQLite 文件锁（Windows 下被打开的文件不可 rename）。
+      const snapshots = applyRestore(targets, Date.now(), (kind) => {
+        if (kind === 'vaults' && !vaultsClosed) {
+          closeVault()
+          vaultsClosed = true
+        }
+      })
+      const swapped = targets.map(t => t.kind).join(' / ')
+      return {
+        success: true,
+        message: `备份已恢复（store ${storeFiles} 个文件，已交换 ${swapped}）。恢复前数据已快照至 ${snapshots.join('、')}，请重启应用生效`,
       }
-      return { success: true, message: `备份已恢复（${validated.files} 个文件）。恢复前数据已快照至 ${snapshotDir}，请重启应用生效` }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     } finally {
+      // 交换完成后重新打开 vault（指向恢复后的新库）；失败路径下同样把旧库重新打开
+      if (vaultsClosed) {
+        try { openVault() } catch { /* 重启后仍会打开 */ }
+      }
       if (tmpDir) {
         try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
       }
