@@ -1139,13 +1139,29 @@ export const useApiStore = defineStore('api', () => {
       } catch { /* non-critical */ }
     }
 
+    // S-2（2026-09-24）：请求构造的"信号"部分（chatFormat / 超时阶梯 / fetchSignal）与降级
+    // 所需状态必须早于 IPC 分支就绪——IPC 主路径失败时要能复用同一条流式降级链，否则 M20
+    // 透明降级在"桌面 + 流式"组合上缺席（快照 §S-2）。body/headers 仍在下方按 direct 构造。
+    const chatFormat = direct.chatFormat
+    const maxTok = maxTokens || (chatFormat === 'anthropic' ? 4096 : 16384)
+    // P0-B1：统一超时阶梯（同非流式路径）
+    const effectiveTimeout = tierTimeoutFor(maxTok, getLlmTimeoutScale())
+    const tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM stream (maxTok=${maxTok})`)
+    const tierSignal = tierTimer.signal
+    const capSignal = AbortSignal.timeout(LLM_TIMEOUT_ABSOLUTE_CAP_MS)
+    const fetchSignal = AbortSignal.any([combinedSignal, tierSignal, capSignal])
+
+    // M20：是否已向调用方发射过 chunk——流式仅允许首 chunk 前降级切换
+    let deliveredAnyChunk = false
+
     // M17：Ollama 走渲染进程直连 NDJSON，禁走 IPC；M20：降级态同样直连
     // S-1（流式同型，2026-09-24）：条件与载荷同非流式 IPC 分支（见 638-648 行）——按
     // tierTarget 解析出的 direct 取目标，而不是 activeProvider/activeModel
     if (!degradeState && window.electronAPI?.llmChatCompletionStream && direct.providerId
       && direct.chatFormat !== 'ollama') {
       try {
-        const cleanup = window.electronAPI.llmChatCompletionStream(
+        let ipcCleanup: (() => void) | undefined
+        ipcCleanup = window.electronAPI.llmChatCompletionStream(
           {
             providerId: direct.providerId,
             model: direct.model,
@@ -1162,7 +1178,11 @@ export const useApiStore = defineStore('api', () => {
           },
           {
             onChunk: (chunk: StreamChunk) => {
-              if (!combinedSignal.aborted) callbacks.onChunk(chunk)
+              if (!combinedSignal.aborted) {
+                // S-2：记录"已向调用方发射过内容"——决定失败时能否切换到降级目标
+                if (chunk.content) deliveredAnyChunk = true
+                callbacks.onChunk(chunk)
+              }
             },
             onDone: (final) => {
               if (!combinedSignal.aborted) {
@@ -1198,15 +1218,19 @@ export const useApiStore = defineStore('api', () => {
               }
             },
             onError: (err: string) => {
-              if (!combinedSignal.aborted) {
+              if (combinedSignal.aborted) return
+              // S-2：IPC 主路径失败同样接降级链（与非流式/直连同构）——原实现直接
+              // recordFailure + onError，M20 透明降级在桌面流式主路径上缺席
+              void tryStreamDegrade(new Error(err)).then((degraded) => {
+                if (degraded) { ipcCleanup?.(); return }
                 recordFailure()
                 callbacks.onError(new Error(err))
-              }
+              })
             }
           }
         )
         const origCancel = cancel
-        return { cancel: () => { origCancel(); cleanup() } }
+        return { cancel: () => { origCancel(); ipcCleanup?.() } }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         if (errMsg.includes('IPC') || errMsg.includes('not found') || errMsg.includes('decrypt')) {
@@ -1230,8 +1254,7 @@ export const useApiStore = defineStore('api', () => {
       headers['x-api-key'] = targetProvider.apiKey
     }
 
-    // M20：降级态强制走 Ollama NDJSON 分支（目标是本地 Ollama）
-    const chatFormat = direct.chatFormat
+    // M20：降级态强制走 Ollama NDJSON 分支（目标是本地 Ollama）；chatFormat 已在 IPC 分支前解析
     let body: Record<string, unknown>
     let endpoint = '/v1/chat/completions'
 
@@ -1265,19 +1288,10 @@ export const useApiStore = defineStore('api', () => {
       body.temperature = routingOptions.temperature
     }
 
-    const maxTok = maxTokens || (body.max_tokens as number) || 16384
-    // P0-B1：统一超时阶梯（同非流式路径）
-    const effectiveTimeout = tierTimeoutFor(maxTok, getLlmTimeoutScale())
-    const tierTimer = timeoutSignalWithReason(effectiveTimeout, `LLM stream (maxTok=${maxTok})`)
-    const tierSignal = tierTimer.signal
-    const capSignal = AbortSignal.timeout(LLM_TIMEOUT_ABSOLUTE_CAP_MS)
-    const fetchSignal = AbortSignal.any([combinedSignal, tierSignal, capSignal])
-
-    // M20：是否已向调用方发射过 chunk——流式仅允许首 chunk 前降级切换
-    let deliveredAnyChunk = false
-
     // M17/M20：Ollama NDJSON 流式主体——直连，供 active-ollama 与降级路径复用
-    const streamFromOllama = async (ollamaBase: string, ollamaModel: string): Promise<void> => {
+    // S-2：必须用函数声明（提升）——IPC 分支 return 后，本函数体后半的 const 声明不会执行，
+    // 而 IPC onError 的降级回调仍要能调到这里（异步触发时箭头函数 const 仍处 TDZ）。
+    async function streamFromOllama(ollamaBase: string, ollamaModel: string): Promise<void> {
       const ollamaMessages = messages.map(m => ({ role: m.role, content: m.content || '' }))
       let accumulated = ''
       let usageInfo: StreamChunk['usage'] | undefined
@@ -1336,6 +1350,36 @@ export const useApiStore = defineStore('api', () => {
       }
         }
       }, maxTokens, fetchSignal, routingOptions?.temperature)
+    }
+
+    // S-2（2026-09-24）：流式降级链——IPC 主路径与直连分支共用同一条实现。
+    // 原实现只有直连分支的 catch 里有降级循环，桌面最常用的 IPC 流遇 503/超时/429 直接
+    // 报错终止（快照 §S-2：M20 承诺在四种组合中行为不一致，用户最常踩到的恰是未覆盖的
+    // "桌面 + 流式"）。已发射过 chunk 则不切换——内容已到调用方，切换会造成重复/错乱。
+    async function tryStreamDegrade(err: unknown): Promise<boolean> {
+      if (degradeState || deliveredAnyChunk || !isRetryableProviderError(err)) return false
+      const reason = (err instanceof Error ? err.message : String(err)).slice(0, 120)
+      const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
+      for (const target of chain) {
+        if (!target.implicit && target.providerId === config.value.activeProviderId) continue
+        if (target.chatFormat !== 'ollama') continue
+        const probe = await probeChainTarget(target)
+        if (!probe.ok) continue
+        const model = pickOllamaModel(target, probe)
+        if (!model) continue
+        emitDegraded(globalBus, degradeFromInfo(), target, reason)
+        try {
+          await streamFromOllama(target.baseUrl, model)
+          markChainResult(target, true)
+          return true
+        } catch (err2) {
+          if (combinedSignal.aborted) return false
+          markChainResult(target, false)
+          debugLog(`[chatCompletionStream:degrade] ${target.name} 也失败，继续链上下一级`)
+          if (deliveredAnyChunk) break
+        }
+      }
+      return false
     }
 
     ;(async () => {
@@ -1466,32 +1510,11 @@ export const useApiStore = defineStore('api', () => {
       } catch (err) {
         if (!combinedSignal.aborted) {
           // M20：首 chunk 前失败且可降级（网络/5xx/超时/429）→ 透明回退本地 Ollama 链；
-          // 已发射过 chunk 则不切换（避免调用方收到重复内容）
+          // 已发射过 chunk 则不切换（避免调用方收到重复内容）。
+          // S-2：降级循环抽为 tryStreamDegrade，与 IPC 主路径共用同一条实现。
           if (!degradeState && !deliveredAnyChunk && isRetryableProviderError(err)) {
             const reason = (err instanceof Error ? err.message : String(err)).slice(0, 120)
-            const chain = buildProviderChain(config.value.activeProviderId, config.value.providers)
-            let degraded = false
-            for (const target of chain) {
-              if (!target.implicit && target.providerId === config.value.activeProviderId) continue
-              if (target.chatFormat !== 'ollama') continue
-              const probe = await probeChainTarget(target)
-              if (!probe.ok) continue
-              const model = pickOllamaModel(target, probe)
-              if (!model) continue
-              emitDegraded(globalBus, degradeFromInfo(), target, reason)
-              try {
-                await streamFromOllama(target.baseUrl, model)
-                markChainResult(target, true)
-                degraded = true
-                break
-              } catch (err2) {
-                if (combinedSignal.aborted) return
-                markChainResult(target, false)
-                debugLog(`[chatCompletionStream:degrade] ${target.name} 也失败，继续链上下一级`)
-                if (deliveredAnyChunk) break
-              }
-            }
-            if (degraded) return
+            if (await tryStreamDegrade(err)) return
             recordFailure()
             callbacks.onError(new Error(`${ALL_CHANNELS_DOWN}｜${reason}`))
             return

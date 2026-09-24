@@ -219,4 +219,89 @@ describe('M20 apiStore 降级链', () => {
       toProviderId: 'implicit-ollama'
     }))
   })
+
+  // ── S-2（快照 §S-2，P1）：桌面流式主路径（IPC）失败不接降级链 ──
+  // 原实现 IPC 流 onError 只有 recordFailure + callbacks.onError，无 isRetryableProviderError
+  // /tryDegradeChain；同一时刻非流式与直连分支都会正常降级。M20 承诺在
+  // 流式/非流式 × IPC/直连四种组合中行为不一致，用户最常踩到的恰是"桌面 + 流式"组合
+  // （主对话路径）。
+
+  it('S-2：IPC 流式主路径遇 503 → 降级本地 Ollama NDJSON 流（与直连/非流式同构）', async () => {
+    const fetchMock = mockFetch({ ollamaUp: true, remoteStatus: 503, streamMode: true })
+    vi.stubGlobal('fetch', fetchMock)
+    electronApi.llmChatCompletionStream = vi.fn((_payload: unknown, cbs: { onError: (e: string) => void }) => {
+      Promise.resolve().then(() => cbs.onError('API error 503: upstream unavailable'))
+      return () => {}
+    })
+    const store = setupRemoteStore()
+
+    const chunks: string[] = []
+    let donePayload: { content?: string } | undefined
+    let errorPayload: unknown
+    await new Promise<void>((resolve) => {
+      store.chatCompletionStream(
+        sixMessages() as never,
+        {
+          onChunk: (c: { content: string }) => { chunks.push(c.content) },
+          onDone: (f: { content: string }) => { donePayload = f; resolve() },
+          onError: (e: unknown) => { errorPayload = e; resolve() }
+        }
+      )
+    })
+
+    expect(errorPayload).toBeUndefined()
+    expect(chunks).toEqual(['本地', '本地流式回答'])
+    expect(donePayload?.content).toBe('本地流式回答')
+    expect(emitSpy).toHaveBeenCalledWith('llm-degraded', expect.objectContaining({
+      toProviderId: 'implicit-ollama',
+      reason: expect.stringContaining('503')
+    }))
+  })
+
+  it('S-2 守卫：IPC 已发射 chunk 后出错，不切换降级（避免调用方收到重复内容）', async () => {
+    const fetchMock = mockFetch({ ollamaUp: true, remoteStatus: 503, streamMode: true })
+    vi.stubGlobal('fetch', fetchMock)
+    electronApi.llmChatCompletionStream = vi.fn((_payload: unknown, cbs: { onChunk: (c: { content: string; delta: string; done: boolean }) => void; onError: (e: string) => void }) => {
+      Promise.resolve().then(() => {
+        cbs.onChunk({ content: '半截', delta: '半截', done: false })
+        cbs.onError('API error 503: mid-stream')
+      })
+      return () => {}
+    })
+    const store = setupRemoteStore()
+
+    let errorPayload: unknown
+    await new Promise<void>((resolve) => {
+      store.chatCompletionStream(
+        sixMessages() as never,
+        { onChunk: () => {}, onDone: () => resolve(), onError: (e: unknown) => { errorPayload = e; resolve() } }
+      )
+    })
+
+    expect(String(errorPayload)).toContain('503')
+    expect(emitSpy).not.toHaveBeenCalledWith('llm-degraded', expect.anything())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('S-2 守卫：IPC 401 认证失败不降级（换本地模型救不了配置错误）', async () => {
+    const fetchMock = mockFetch({ ollamaUp: true, remoteStatus: 401, streamMode: true })
+    vi.stubGlobal('fetch', fetchMock)
+    electronApi.llmChatCompletionStream = vi.fn((_payload: unknown, cbs: { onError: (e: string) => void }) => {
+      Promise.resolve().then(() => cbs.onError('API error 401: unauthorized'))
+      return () => {}
+    })
+    const store = setupRemoteStore()
+
+    let errorPayload: unknown
+    await new Promise<void>((resolve) => {
+      store.chatCompletionStream(
+        sixMessages() as never,
+        { onChunk: () => {}, onDone: () => resolve(), onError: (e: unknown) => { errorPayload = e; resolve() } }
+      )
+    })
+
+    expect(String(errorPayload)).toContain('401')
+    expect(emitSpy).not.toHaveBeenCalledWith('llm-degraded', expect.anything())
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
