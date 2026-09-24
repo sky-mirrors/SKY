@@ -32,7 +32,6 @@ npm-debug.log*
 benchmark-result.json
 benchmark-result-v2.json
 benchmark-result-professional.json
-benchmark.html
 quality-report.json
 test-edge-results.json
 test-multi-model-results.json
