@@ -22,6 +22,7 @@ import * as iconv from 'iconv-lite'
 // B-6：vault vector/migrate/stats 六通道渲染层零调用，端到端删除
 // A-19：closeVault 移至 main.ts 的 before-quit 调用，此处不再导入
 import { openVault, vaultRead, vaultWrite, vaultDelete, vaultList } from './vault'
+import { decodeShellOutput } from './shellOutput'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
@@ -785,7 +786,11 @@ export function setupIpc(_win: BrowserWindow | null) {
         const MAX_STREAM_OUTPUT = 1024 * 1024
         const appendCapped = (current: string, data: Buffer): string => {
           if (current.length >= MAX_STREAM_OUTPUT) return current
-          const appended = current + data.toString()
+          // F-3（2026-09-24）：原为 data.toString()（一律 UTF-8）——Windows cmd 内建命令按
+          // GBK/CP936 输出，「系统找不到指定的文件。」上屏即乱码、失败原因对用户不可读。
+          // 改走代码页解码（UTF-8 严格 → GBK）。此处与 file:read 的 jschardet 检测不同：
+          // shell 输出常常很短（十几个字节），统计式检测不可靠，确定性策略更稳。
+          const appended = current + decodeShellOutput(data)
           return appended.length > MAX_STREAM_OUTPUT
             ? appended.slice(0, MAX_STREAM_OUTPUT) + '\n... (输出超限，已截断)'
             : appended
