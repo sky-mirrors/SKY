@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { vault } from '@/vault'
 import { globalBus } from '@/kernel/bus'
 import type { FunnelOutcome } from '@/kernel/funnel'
+import { resetWriteGrantCache } from '@/services/writeGate'
 
 // ===== 可控 mock：kernelRegistry.route / getActive 与 funnel 主路径 flag =====
 const { routeMock, getActiveMock } = vi.hoisted(() => ({ routeMock: vi.fn(), getActiveMock: vi.fn() }))
@@ -150,6 +151,8 @@ vi.stubGlobal('window', {
     shellExec: vi.fn().mockResolvedValue({ success: true, code: 0, stdout: 'mock', stderr: '' }),
     fileRead: vi.fn().mockResolvedValue({ success: true, content: 'mock' }),
     httpFetch: vi.fn().mockResolvedValue({ success: true, status: 200, body: 'mock' }),
+    // O10：写类工具授权边界——写盘面（用于断言"拒绝时不写盘"）
+    fileWrite: vi.fn().mockResolvedValue({ success: true, path: 'C:\\mock\\out.txt' }),
     storeWrite: vi.fn().mockResolvedValue(undefined),
     storeRead: vi.fn().mockResolvedValue(null),
     safeStorageEncrypt: vi.fn().mockResolvedValue('enc'),
@@ -196,13 +199,19 @@ function makePlan(overrides?: Partial<{ intent: string; tool: string }>): {
 /** api:chat-completion 收到的 payload 留档——用于断言实际交给模型的工具集 */
 let chatPayloads: Array<Record<string, unknown>> = []
 
+/** O10 用：让 chat-completion 返回可配置的 toolCalls（默认空） */
+let chatToolCalls: Array<{ id: string; name: string; arguments: string }> = []
+
 function setupBus(connections: unknown[] = []) {
   chatPayloads = []
+  chatToolCalls = []
+  // O10：清授权缓存，避免跨用例污染（授权是模块级内存缓存）
+  resetWriteGrantCache()
   globalBus.registerHandler('api:is-ready', () => true)
   globalBus.registerHandler('api:get-config', () => ({ activeModel: 'test-model', activeProviderId: 'p1' }))
   globalBus.registerHandler('api:chat-completion', async (payload) => {
     chatPayloads.push(payload as Record<string, unknown>)
-    return { content: '工具直调结果', toolCalls: [] }
+    return { content: '工具直调结果', toolCalls: chatToolCalls }
   })
   globalBus.registerHandler('node:get-selected-node', () => null)
   globalBus.registerHandler('node:get-all-l2-manifests', () => [])
@@ -456,6 +465,46 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(names).toContain('list_directory')
     expect(names).toContain('file_write')
     expect(names).toContain('file_move')
+  })
+
+  // O10（2026-09-22 用户裁决 B）：写类工具的授权边界。
+  // 本用例走的是 mcp-direct → executeMcpToolCalls → dialogStore.executeToolCall，
+  // **不经** callToolDirectWithTier —— 即首轮端到端验证暴露出的漏网路径。
+  it('O10：工具执行路径的 file_write 须经用户裁决——拒绝时不写盘', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+    chatToolCalls = [{
+      id: 'c1', name: 'file_write',
+      arguments: JSON.stringify({ path: 'C:\\Users\\Test\\Desktop\\x.txt', content: 'hi' })
+    }]
+    globalBus.registerHandler('dialog:confirm-write', () => 'deny')
+
+    await store.sendMessage('写个文件')
+
+    expect((globalThis as any).window.electronAPI.fileWrite).not.toHaveBeenCalled()
+    expect(noticeTexts(store)).toContain('用户拒绝执行')
+  })
+
+  it('O10：用户本次允许 → 写盘执行', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+    chatToolCalls = [{
+      id: 'c1', name: 'file_write',
+      arguments: JSON.stringify({ path: 'C:\\Users\\Test\\Desktop\\x.txt', content: 'hi' })
+    }]
+    globalBus.registerHandler('dialog:confirm-write', () => 'once')
+
+    await store.sendMessage('写个文件')
+
+    expect((globalThis as any).window.electronAPI.fileWrite).toHaveBeenCalled()
   })
 
   it('error outcome → 回退旧六层内联路径', async () => {

@@ -17,6 +17,21 @@ export function registerDialogHandlers(bus: HoloEventBus) {
     }
   })
 
+  // O10（2026-09-22 用户裁决 B）：写类原生工具的授权裁决三态。
+  // 返回 'deny' | 'once' | 'always'；任何链路异常一律 'deny'（fail-closed）。
+  bus.registerHandler('dialog:confirm-write', async (payload) => {
+    const store = useDialogStore()
+    try {
+      return await store.requestWriteConfirm({
+        toolName: String(payload?.toolName || ''),
+        operation: String(payload?.operation || '写操作'),
+        target: String(payload?.target || '')
+      })
+    } catch {
+      return 'deny'
+    }
+  })
+
   bus.registerHandler('dialog:set-mode', (payload) => {
     const store = useDialogStore()
     store.setMode(payload.mode)

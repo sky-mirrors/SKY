@@ -95,6 +95,7 @@ import {
 } from '@/services/macroExecutor'
 
 import { L2ToolManifest, L2DagStep } from '@/models'
+import { resetWriteGrantCache, grantWriteTool } from '@/services/writeGate'
 
 const originalWindow = globalThis.window
 
@@ -129,6 +130,9 @@ beforeEach(() => {
       fileWrite: fileWriteFn,
       createDocx: createDocxFn,
       fileList: fileListFn,
+      // O10：写类工具授权边界的持久化面
+      storeRead: vi.fn().mockResolvedValue(null),
+      storeWrite: vi.fn().mockResolvedValue(true),
       vaultRead: vi.fn().mockResolvedValue(null),
       vaultWrite: vi.fn().mockResolvedValue(undefined),
       vaultDelete: vi.fn().mockResolvedValue(undefined),
@@ -145,6 +149,10 @@ beforeEach(() => {
   globalBus.registerHandler('mcp:get-connections', () => [{ id: 'test-server', name: 'Test Server', isConnected: true, tools: [{ name: 'read_file', description: 'Read a file', inputSchema: { type: 'object', properties: {} } }], config: {}, status: 'connected' }])
   globalBus.registerHandler('mcp:call-tool', () => 'mcp-tool-result')
   globalBus.registerHandler('dialog:confirm-risk', () => true)
+  // O10（2026-09-22 裁决 B）：写类工具的授权边界——默认放行（'once'），
+  // 使既有写类用例保持原语义；拒绝/始终允许的路径由专门用例覆盖
+  globalBus.registerHandler('dialog:confirm-write', () => 'once')
+  resetWriteGrantCache()
 })
 
 afterEach(() => {
@@ -453,6 +461,79 @@ describe('callToolDirectWithTier - MCP tool', () => {
   it('MCP连接未找到抛出异常', async () => {
     await expect(callToolDirectWithTier('missing-server___tool', {}))
       .rejects.toThrow('MCP连接未找到')
+  })
+})
+
+// O10（2026-09-22 用户裁决 B）：写类走确认条、读保持恒可用。
+// 落点在 callToolDirectWithTier——所有原生工具执行的唯一汇聚点（宏步骤 5 处 + dialogStore 直调 1 处）。
+// 此前确认只在 executeStep 内、且仅当 LLM 审核判 risk_level === 'high' 时才触发，
+// 工具回路里的 file_move 因此绕过确认直接执行（Q15 运行时实测，HANDOFF 卡点 3）。
+describe('O10：写类工具的授权边界（callToolDirectWithTier 汇聚点）', () => {
+  it('未授权 + 用户拒绝 ⇒ 不执行写操作，返回拒绝说明（fail-closed）', async () => {
+    globalBus.registerHandler('dialog:confirm-write', () => 'deny')
+
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: 'x' })
+
+    expect(result).toContain('用户拒绝')
+    expect((globalThis as any).window.electronAPI.fileWrite).not.toHaveBeenCalled()
+  })
+
+  it('file_move 同样受约束（工具回路执行的就是这条）', async () => {
+    globalBus.registerHandler('dialog:confirm-write', () => 'deny')
+
+    const result = await callToolDirectWithTier('file_move', {
+      from: 'C:\\Users\\Test\\Desktop\\a.jpg',
+      to: 'C:\\Users\\Test\\Desktop\\b.jpg'
+    })
+
+    expect(result).toContain('用户拒绝')
+  })
+
+  it('未授权 + 用户「本次允许」⇒ 正常执行', async () => {
+    globalBus.registerHandler('dialog:confirm-write', () => 'once')
+
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: 'x' })
+
+    expect(result).toContain('文件已写入')
+    expect((globalThis as any).window.electronAPI.fileWrite).toHaveBeenCalled()
+  })
+
+  it('用户选择「始终允许」⇒ 执行 + 持久化，同工具后续不再弹确认', async () => {
+    let asks = 0
+    globalBus.registerHandler('dialog:confirm-write', () => { asks++; return 'always' })
+
+    await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\a.txt', content: 'x' })
+    await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\b.txt', content: 'y' })
+
+    expect(asks).toBe(1)
+    expect((globalThis as any).window.electronAPI.storeWrite).toHaveBeenCalled()
+  })
+
+  it('已持久化授权 ⇒ 直接执行，确认频道根本不被调用', async () => {
+    await grantWriteTool('file_write')
+    globalBus.registerHandler('dialog:confirm-write', () => { throw new Error('已授权不应再问') })
+
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: 'x' })
+
+    expect(result).toContain('文件已写入')
+  })
+
+  it('读类工具（read_file / list_directory）不受约束，恒不需确认', async () => {
+    globalBus.registerHandler('dialog:confirm-write', () => { throw new Error('读类不应弹确认') })
+
+    expect(await callToolDirectWithTier('read_file', { path: '/tmp/test.txt' })).toContain('file-content')
+    expect(await callToolDirectWithTier('list_directory', { path: 'C:\\Users\\Test\\Desktop\\photos' })).toContain('img0.jpg')
+  })
+
+  it('确认链断裂（频道未注册）⇒ 按拒绝处理，绝不放行', async () => {
+    globalBus.clear()
+    globalBus.registerHandler('debug:get-step-cost', () => undefined)
+    globalBus.registerHandler('api:chat-completion', (data: any) => llmChatCompletionFn(data))
+
+    const result = await callToolDirectWithTier('file_write', { filePath: 'C:\\Users\\Test\\Desktop\\out.txt', content: 'x' })
+
+    expect(result).toContain('用户拒绝')
+    expect((globalThis as any).window.electronAPI.fileWrite).not.toHaveBeenCalled()
   })
 })
 

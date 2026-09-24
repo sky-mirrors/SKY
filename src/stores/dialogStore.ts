@@ -83,6 +83,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
 }
 
 import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools } from '@/services/nativeTools'
+import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 
 const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
@@ -162,6 +163,11 @@ export const useDialogStore = defineStore('dialog', () => {
   const riskAction = ref<import('@/models').ActionManifest | null>(null)
   const awaitingRiskConfirm = ref(false)
   let _riskResolve: ((approved: boolean) => void) | null = null
+
+  // O10（2026-09-22 用户裁决 B）：写类原生工具的授权确认——与 riskAction 共用同一确认条 UI，
+  // 但走三态裁决（拒绝 / 本次允许 / 该类操作始终允许）；默认 fail-closed
+  const writeConfirmRequest = ref<{ toolName: string; operation: string; target: string } | null>(null)
+  let _writeConfirmResolve: ((decision: 'deny' | 'once' | 'always') => void) | null = null
 
   const dagPaused = ref(false)
   const dagPausedStep = ref<number | null>(null)
@@ -616,6 +622,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const filePath = String(args.path || args.file_path || '')
       const content = String(args.content ?? '')
       if (!filePath) return 'file_write: 缺少 path 参数'
+      // O10（2026-09-22 用户裁决 B）：写类工具须经用户裁决。
+      // 本条是 MCP 直达快速路径（executeMcpToolCalls → executeToolCall），
+      // 不经 callToolDirectWithTier —— 首轮端到端验证即发现它是绕过授权边界的漏网路径。
+      if (!(await requestWriteApproval('file_write', args))) {
+        return 'file_write: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
       if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
       const r = await window.electronAPI.fileWrite({ filePath, content })
       return r.success ? `已写入: ${r.path || filePath}` : `写入失败: ${r.error || ''}`
@@ -1115,6 +1127,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           manifestCount: Object.keys(globalBus.request('node:get-all-l2-manifests', {}) || {}).length
         } })
         addSystemNotice('🔍 调试模式已开启 — 输入 /debug 关闭')
+      }
+      isProcessing.value = false
+      return ''
+    }
+    // O10（2026-09-22 用户裁决 B）：写类工具授权的可见性与撤销入口。
+    // 「始终允许」是用户对「模型改我本机文件」的长期许可——必须可见、可撤回，
+    // 否则等于隐性放弃了控制权。
+    if (content.trim() === '/grants' || content.trim() === '/revoke-grants') {
+      if (content.trim() === '/revoke-grants') {
+        await revokeWriteGrant()
+        addSystemNotice('🔓 已撤销全部写操作授权（下次写文件将重新询问）')
+      } else {
+        const grants = await loadWriteGrants()
+        const names = Object.keys(grants)
+        addSystemNotice(names.length === 0
+          ? '🔓 当前没有已授权的写操作'
+          : `🔓 已授权的写操作：\n${names.map(n => `- ${n}（${WRITE_TOOL_LABELS[n] || n}）`).join('\n')}\n\n输入 /revoke-grants 撤销全部`)
       }
       isProcessing.value = false
       return ''
@@ -2936,6 +2965,56 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     flushRiskQueuedInputs()
   }
 
+  /**
+   * O10（2026-09-22 用户裁决 B）：写类原生工具的授权裁决。
+   * 与 requestRiskConfirm 共用确认条 UI 与暂停点登记，但返回三态：
+   *   'deny' → 调用方必须放弃执行（fail-closed）；'once' 仅本次放行；
+   *   'always' 该类操作始终放行（调用方负责持久化授权）。
+   * 5 分钟无人裁决 ⇒ 'deny'（与 riskConfirm 同口径）。
+   */
+  function requestWriteConfirm(
+    req: { toolName: string; operation: string; target: string }
+  ): Promise<'deny' | 'once' | 'always'> {
+    // 确认条是单例 UI：被新请求顶替时先按 fail-closed 结算旧 Promise，
+    // 否则首个调用方的 await 永久悬挂（同 A5-4 对 _riskResolve 的处置）
+    if (_writeConfirmResolve) {
+      const superseded = _writeConfirmResolve
+      _writeConfirmResolve = null
+      superseded('deny')
+    }
+    if (_riskResolve) {
+      const supersededRisk = _riskResolve
+      _riskResolve = null
+      supersededRisk(false)
+    }
+    writeConfirmRequest.value = req
+    acquirePausePoint('riskConfirm')
+    return new Promise<'deny' | 'once' | 'always'>((resolve) => {
+      _writeConfirmResolve = resolve
+      setTimeout(() => {
+        if (_writeConfirmResolve === resolve) {
+          _writeConfirmResolve = null
+          awaitingRiskConfirm.value = false
+          writeConfirmRequest.value = null
+          resolve('deny')
+          flushRiskQueuedInputs()
+        }
+      }, 5 * 60 * 1000)
+    })
+  }
+
+  function resolveWriteConfirm(decision: 'deny' | 'once' | 'always'): void {
+    awaitingRiskConfirm.value = false
+    writeConfirmRequest.value = null
+    if (_writeConfirmResolve) {
+      const r = _writeConfirmResolve
+      _writeConfirmResolve = null
+      r(decision)
+    }
+    // B-02：同 riskConfirm——裁决后重发期间排队的输入
+    flushRiskQueuedInputs()
+  }
+
   function pauseDagAtStep(stepNum: number, manifestId: string): void {
     acquirePausePoint('dagPaused')
     dagPausedStep.value = stepNum
@@ -3177,6 +3256,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     awaitingRiskConfirm,
     requestRiskConfirm,
     resolveRiskConfirm,
+    writeConfirmRequest,
+    requestWriteConfirm,
+    resolveWriteConfirm,
     dagPaused,
     dagPausedStep,
     dagPausedManifestId,

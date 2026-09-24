@@ -174,22 +174,42 @@
           </div>
         </div>
 
-        <div class="confirm-bar risk-confirm-bar" v-if="dialogStore.awaitingRiskConfirm && dialogStore.riskAction">
-          <div class="risk-title">⚠️ 高风险操作确认</div>
-          <div class="risk-detail">
-            <div class="risk-row"><span>技能</span><span>{{ dialogStore.riskAction.skill_id }}</span></div>
-            <div class="risk-row"><span>操作</span><span>{{ dialogStore.riskAction.operation }}</span></div>
-            <div class="risk-row"><span>目标</span><span>{{ dialogStore.riskAction.target_file }}</span></div>
-            <div class="risk-row"><span>意图</span><span>{{ dialogStore.riskAction.intent }}</span></div>
-          </div>
-          <div class="risk-input-area">
-            <div class="risk-hint">请输入"确认执行高风险操作"以继续</div>
-            <input class="risk-input" v-model="riskConfirmText" placeholder="确认执行高风险操作" />
-          </div>
-          <div class="risk-actions">
-            <button class="confirm-btn danger" :disabled="riskConfirmText !== '确认执行高风险操作'" @click="onRiskConfirm">⚠️ 确认执行</button>
-            <button class="confirm-btn cancel" @click="onRiskCancel">❌ 取消</button>
-          </div>
+        <div class="confirm-bar risk-confirm-bar" v-if="dialogStore.awaitingRiskConfirm && (dialogStore.writeConfirmRequest || dialogStore.riskAction)">
+          <!-- O10（2026-09-22 用户裁决 B）：写类原生工具的授权三态。
+               与下方高风险动作确认共用确认条，但不需要输入强确认文本——
+               用户对「模型改我本机文件」的裁决应当是低摩擦的。 -->
+          <template v-if="dialogStore.writeConfirmRequest">
+            <div class="risk-title">⚠️ 文件写操作确认</div>
+            <div class="risk-detail">
+              <div class="risk-row"><span>操作</span><span>{{ dialogStore.writeConfirmRequest.operation }}</span></div>
+              <div class="risk-row"><span>目标</span><span>{{ dialogStore.writeConfirmRequest.target }}</span></div>
+            </div>
+            <div class="risk-input-area">
+              <div class="risk-hint">模型请求修改你本机的文件。选择「始终允许」后同类操作不再询问（输入 /grants 查看、/revoke-grants 撤销）。</div>
+            </div>
+            <div class="risk-actions">
+              <button class="confirm-btn yes" @click="onWriteConfirm('once')">✅ 本次允许</button>
+              <button class="confirm-btn warn" @click="onWriteConfirm('always')">🔓 始终允许此类操作</button>
+              <button class="confirm-btn cancel" @click="onWriteConfirm('deny')">❌ 拒绝</button>
+            </div>
+          </template>
+          <template v-else-if="dialogStore.riskAction">
+            <div class="risk-title">⚠️ 高风险操作确认</div>
+            <div class="risk-detail">
+              <div class="risk-row"><span>技能</span><span>{{ dialogStore.riskAction.skill_id }}</span></div>
+              <div class="risk-row"><span>操作</span><span>{{ dialogStore.riskAction.operation }}</span></div>
+              <div class="risk-row"><span>目标</span><span>{{ dialogStore.riskAction.target_file }}</span></div>
+              <div class="risk-row"><span>意图</span><span>{{ dialogStore.riskAction.intent }}</span></div>
+            </div>
+            <div class="risk-input-area">
+              <div class="risk-hint">请输入"确认执行高风险操作"以继续</div>
+              <input class="risk-input" v-model="riskConfirmText" placeholder="确认执行高风险操作" />
+            </div>
+            <div class="risk-actions">
+              <button class="confirm-btn danger" :disabled="riskConfirmText !== '确认执行高风险操作'" @click="onRiskConfirm">⚠️ 确认执行</button>
+              <button class="confirm-btn cancel" @click="onRiskCancel">❌ 取消</button>
+            </div>
+          </template>
         </div>
 
         <div class="confirm-bar dag-pause-bar" v-if="dialogStore.dagPaused && dialogStore.dagPausedStep != null">
@@ -1113,6 +1133,12 @@ function onRiskConfirm() {
 function onRiskCancel() {
   dialogStore.resolveRiskConfirm(false)
   riskConfirmText.value = ''
+}
+
+// O10（2026-09-22 用户裁决 B）：写类工具授权的三态裁决入口。
+// 'always' 的持久化由调用方（macroExecutor 侧）按裁决结果落盘，UI 只表达意图。
+function onWriteConfirm(decision: 'deny' | 'once' | 'always') {
+  dialogStore.resolveWriteConfirm(decision)
 }
 
 function onTakeoverRequest() {

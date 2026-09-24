@@ -24,6 +24,7 @@ import { debugLog } from '@/services/debugLog'
 import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 import { NATIVE_TOOL_DEFS } from './nativeTools'
+import { requestWriteApproval } from './writeGate'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -132,6 +133,18 @@ export async function callToolDirectWithTier(
       p = p.replace('%HOME%', resolved)
     }
     return p
+  }
+
+  // ===== O10（2026-09-22 用户裁决 B）：写类原生工具的权限边界 =====
+  // 裁决原文「写类走风险确认条、读保持恒可用」：模型的**写**能力（file_write /
+  // file_move / create_docx）须经用户在确认条上裁决，read_file / list_directory 恒可用。
+  // 裁决逻辑抽在 writeGate.requestWriteApproval（唯一入口）——因为工具执行有两条路径：
+  // 本函数（宏步骤 + 工具回路 + dialogStore 直调）与 dialogStore.executeToolCall
+  // （MCP 直达快速路径，经 executeMcpToolCalls）。两处各写一份判定必然漂移，
+  // 而后者正是首轮端到端验证暴露出的漏网路径。
+  // fail-closed：确认链断裂 / 抛错 / 用户未表态，一律按拒绝处理，绝不放行写操作。
+  if (!(await requestWriteApproval(fullName, args))) {
+    return `${fullName}: ⚠️ 用户拒绝执行（未做任何改动）`
   }
 
   if (fullName === 'file_write') {
