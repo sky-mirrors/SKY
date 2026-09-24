@@ -3,6 +3,26 @@ import { L2ToolManifest } from '@/models'
 
 const l2Manifests: L2ToolManifest[] = [
   {
+    // 第二波·图像能力（2026-09-24）：批量图片处理。步骤调 image_process（应用内 sharp/libvips）。
+    // 可选槽（目标宽度/格式/质量）未绑定时会在参数整理阶段被丢弃（见 buildImageProcessArgs），
+    // 所以清单只强制要求「源文件」这一个槽。
+    identity: { id: 'l2-image-batch-v1', name: '图片批量处理', version: '1.0.0', author: 'official', createdAt: 1700000000000, updatedAt: 1700000000000, templateId: 'official-image-batch' },
+    visual: { baseColor: '#00e5ff', ringStyle: 'solid', badges: ['chain', 'sparkle'], hoverLabel: '选图→缩放/转格式/压缩', anchorGlow: '#00ffcc', upgradeGlow: '#ffd700' },
+    routing: { keywords: ['图片', '照片', '图像', '压缩', '缩放', '改尺寸', 'webp', '批量'], targetRoles: ['general', 'finance', 'legal', 'hr'], requiredL1: ['l1-image-ops'], inputType: 'file', retrievalSummary: '批量缩放/压缩/转格式（jpg/png/webp/avif/tiff），应用内处理，无需外部图像软件', userSummary: '图片批量处理', confidenceThreshold: 0.6 },
+    execution: {
+      mode: 'macro',
+      dagPlan: {
+        steps: [
+          { step: 1, description: '批量处理图片（应用内 sharp）', tool: 'image_process', depends_on: [], params: { inputs: '{{image_files}}', width: '{{target_width}}', format: '{{target_format}}', quality: '{{target_quality}}' }, expectedOutput: '处理后的图片路径与尺寸' }
+        ],
+        fallbackStrategy: 'retry',
+        maxRetries: 1
+      },
+      paramMapping: { slots: [{ name: '{{image_files}}', source: 'file_path', description: '源图片路径（可多个，逗号分隔）', required: true }, { name: '{{target_width}}', source: 'context', description: '目标宽度（像素，可选）', required: false }, { name: '{{target_format}}', source: 'context', description: '目标格式 jpeg/png/webp/avif/tiff（可选）', required: false }, { name: '{{target_quality}}', source: 'context', description: '有损压缩质量 1-100（可选）', required: false }], bindings: [{ slotName: '{{image_files}}', targetStep: 1, targetParam: 'inputs' }, { slotName: '{{target_width}}', targetStep: 1, targetParam: 'width' }, { slotName: '{{target_format}}', targetStep: 1, targetParam: 'format' }, { slotName: '{{target_quality}}', targetStep: 1, targetParam: 'quality' }] }
+    },
+    cacheMeta: { estimatedTokenSaving: 0, avgExecutionTime: 4000, cacheable: false, cacheTTL: 0 }
+  },
+  {
     // 第一波·文档能力（2026-09-24）：文档 → PDF。
     // 这是本仓第一个"步骤里调真实外部能力"的清单——其余清单的步骤只有 llm_generate /
     // read_file / knowledge_search / shell_exec，即"只有这么一点功能"的根因。

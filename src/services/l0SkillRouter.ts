@@ -45,8 +45,41 @@ function extractFilePath(input: string): string | null {
   return m2 ? m2[1] : null
 }
 
-function extractTargetFormat(input: string): string | null {
-  const m = input.match(/(?:转|到|为|成|输出|导出|保存|转换)\s*[.】]?\s*(docx|pdf|txt|md|xlsx|html|json|csv)/i)
+/**
+ * 第二波·图像能力：从自然语言里抽出**可确定执行**的图像操作。
+ * 抽不到任何一项就返回空对象——由调用方决定是"直调"还是交给下游层（不猜用户意图）。
+ */
+export function extractImageOp(input: string): {
+  resize?: { width?: number; height?: number; percent?: number }
+  format?: string
+  quality?: number
+  grayscale?: boolean
+} {
+  const op: ReturnType<typeof extractImageOp> = {}
+  const resize: { width?: number; height?: number; percent?: number } = {}
+  const w = input.match(/(?:宽(?:度)?|width)\s*(?:到|为|至|设为|改成)?\s*(\d{2,5})/i) ||
+    input.match(/(\d{2,5})\s*(?:px|像素)?\s*宽/i)
+  if (w) resize.width = Number(w[1])
+  const h = input.match(/(?:高(?:度)?|height)\s*(?:到|为|至|设为|改成)?\s*(\d{2,5})/i)
+  if (h) resize.height = Number(h[1])
+  const pct = input.match(/(?:缩小|放大|缩放|缩)\s*(?:到|为)?\s*(\d{1,3})\s*%/)
+  if (pct) resize.percent = Number(pct[1])
+  else if (/一半|二分之一/.test(input)) resize.percent = 50
+  if (Object.keys(resize).length > 0) op.resize = resize
+
+  const fmt = input.match(/(?:转(?:成|为|换为)?|导出(?:成|为)?|保存(?:成|为)?)\s*(jpe?g|png|webp|avif|tiff)\b/i)
+  if (fmt) {
+    const f = fmt[1].toLowerCase()
+    op.format = f === 'jpg' ? 'jpeg' : f
+  }
+  const q = input.match(/(?:质量|quality)\s*(?:为|到|设为)?\s*(\d{1,3})/i) ||
+    input.match(/压缩\s*(?:到|为)?\s*(\d{1,3})\s*%/)
+  if (q) op.quality = Number(q[1])
+  if (/灰度|黑白|grayscale/i.test(input)) op.grayscale = true
+  return op
+}
+
+function extractTargetFormat(input: string): string | null {  const m = input.match(/(?:转|到|为|成|输出|导出|保存|转换)\s*[.】]?\s*(docx|pdf|txt|md|xlsx|html|json|csv)/i)
   return m ? m[1].toLowerCase() : null
 }
 
@@ -524,6 +557,39 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
           { step: 1, description: '文档转 PDF（应用内渲染）', tool: 'file_convert', params: { source: convertSrc, target }, expectedOutput: target }
         ],
         isExploration: false
+      }
+    }
+  }
+
+  // 第二波·图像能力（2026-09-24）：图片缩放/转格式/压缩是**确定性**能力（应用内 sharp 直调），
+  // 命中即直调。准入要求两个条件同时成立：① 提到图片；② 抽得到明确操作参数。
+  // 只提到图、没说怎么处理（"帮我看看这张图"）→ 交给下游层，不抢答。
+  const mentionsImage = /(图片|照片|图像|截图|\.jpe?g|\.png|\.webp|\.tiff?)/i.test(input)
+  if (mentionsImage) {
+    const imgSrc = extractFilePath(input)
+    const imgOp = extractImageOp(input)
+    const hasOp = !!(imgOp.resize || imgOp.format || imgOp.quality !== undefined || imgOp.grayscale)
+    if (imgSrc && hasOp) {
+      debugLog('[L1 Check] 命中：图片处理（确定性能力直调）')
+      const flat: Record<string, string> = { inputs: imgSrc }
+      if (imgOp.resize?.width !== undefined) flat.width = String(imgOp.resize.width)
+      if (imgOp.resize?.height !== undefined) flat.height = String(imgOp.resize.height)
+      if (imgOp.resize?.percent !== undefined) flat.percent = String(imgOp.resize.percent)
+      if (imgOp.format) flat.format = imgOp.format
+      if (imgOp.quality !== undefined) flat.quality = String(imgOp.quality)
+      if (imgOp.grayscale) flat.grayscale = 'true'
+      return {
+        canHandle: true,
+        nodeId: 'l1-image-ops',
+        nodeName: '图片处理',
+        confidence: 0.9,
+        plan: {
+          intent: `处理图片 ${imgSrc}`,
+          steps: [
+            { step: 1, description: '图片处理（应用内 sharp）', tool: 'image_process', params: flat, expectedOutput: '处理后的图片路径' }
+          ],
+          isExploration: false
+        }
       }
     }
   }

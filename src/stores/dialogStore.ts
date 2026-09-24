@@ -82,7 +82,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
   return []
 }
 
-import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools } from '@/services/nativeTools'
+import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs } from '@/services/nativeTools'
 import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 
@@ -519,7 +519,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       ['get_file_info', 'get_file_info'], ['create_directory', 'create_directory'],
       ['create_docx', 'create_docx'], ['file_write', 'file_write'],
       ['move_file', 'move_file'], ['file_move', 'file_move'],
-      ['file_convert', 'file_convert'], ['convert_document', 'file_convert'], ['to_pdf', 'file_convert']
+      ['file_convert', 'file_convert'], ['convert_document', 'file_convert'], ['to_pdf', 'file_convert'],
+      ['image_process', 'image_process'], ['resize_image', 'image_process'], ['convert_image', 'image_process'], ['compress_image', 'image_process']
     ]
     return pairs.some(([a, b]) => planned.includes(a) && actual.includes(b))
   }
@@ -650,6 +651,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       return r.success
         ? `已生成 PDF: ${r.path || target}（${r.bytes ?? 0} 字节，源文件: ${source}）`
         : `PDF 转换失败: ${r.error || ''}`
+    }
+    // 第二波·图像能力：批量图像处理。与 file_convert 同路径：先经 O10 用户裁决再生产文件。
+    if (fullName === 'image_process') {
+      const req = buildImageProcessArgs(args)
+      if (req.inputs.length === 0) return 'image_process: 缺少 inputs 参数'
+      if (!(await requestWriteApproval('image_process', args))) {
+        return 'image_process: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.imageProcess) throw new Error('image_process not available')
+      const r = await window.electronAPI.imageProcess(req)
+      const ok = r.outputs ?? []
+      const bad = r.failures ?? []
+      if (ok.length === 0) return `图片处理失败: ${bad.length > 0 ? bad.map(f => `${f.from}: ${f.error}`).join('；') : (r.error || '未知原因')}`
+      const summary = ok.map(o => `${o.to}（${o.width}x${o.height}, ${o.bytes} 字节）`).join('；')
+      return bad.length > 0
+        ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}；失败：${bad.map(f => f.from).join('、')}`
+        : `已处理 ${ok.length} 个：${summary}`
     }
 
     const sepIdx = fullName.indexOf('___')

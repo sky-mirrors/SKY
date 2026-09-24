@@ -25,6 +25,7 @@ import { useWorkflowLogStore } from '@/stores/workflowLogStore'
 import { SIDE_EFFECT_TOOLS, NO_CACHE_REUSE_TOOLS, needsDualEngineValidation, isMcpToolName, normalizeToolName } from './toolRegistry'
 import { NATIVE_TOOL_DEFS } from './nativeTools'
 import { requestWriteApproval } from './writeGate'
+import { buildImageProcessArgs } from './nativeTools'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -198,6 +199,27 @@ export async function callToolDirectWithTier(
       return `已生成 PDF: ${result.path}（${result.bytes ?? 0} 字节，源文件: ${source}）`
     }
     throw new Error(result.error || 'file_convert failed')
+  }
+
+  // 第二波·图像能力：批量图像处理（sharp/libvips；二进制来自 npm 平台包，不走 GitHub）。
+  // 参数整理走 buildImageProcessArgs —— 与 dialogStore 那条执行路径共用，避免两处漂移。
+  if (fullName === 'image_process') {
+    if (!window.electronAPI?.imageProcess) throw new Error('image_process not available')
+    const req = buildImageProcessArgs(args)
+    if (req.inputs.length === 0) throw new Error('image_process: missing inputs')
+    const result = await window.electronAPI.imageProcess(req)
+    const ok = result.outputs ?? []
+    const bad = result.failures ?? []
+    if (ok.length === 0) {
+      throw new Error(bad.length > 0
+        ? `全部失败：${bad.map(f => `${f.from}: ${f.error}`).join('；')}`
+        : (result.error || 'image_process failed'))
+    }
+    const summary = ok.map(o => `${o.to}（${o.width}x${o.height}, ${o.bytes} 字节, ${o.format}）`).join('；')
+    // 部分失败必须如实说是"部分"——不得让上游把部分成功转述成全部成功
+    return bad.length > 0
+      ? `已处理 ${ok.length} 个，${bad.length} 个失败：${summary}；失败：${bad.map(f => `${f.from}（${f.error}）`).join('、')}`
+      : `已处理 ${ok.length} 个：${summary}`
   }
 
   if (fullName === 'create_directory') {

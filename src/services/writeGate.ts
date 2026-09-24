@@ -18,7 +18,7 @@
 import { globalBus } from '@/kernel/bus'
 
 /** 受本边界约束的写类原生工具 */
-export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx', 'file_convert'] as const
+export const WRITE_TOOLS = ['file_write', 'file_move', 'create_docx', 'file_convert', 'image_process'] as const
 export type WriteTool = (typeof WRITE_TOOLS)[number]
 export type WriteDecision = 'deny' | 'once' | 'always'
 
@@ -29,7 +29,8 @@ export const WRITE_TOOL_LABELS: Record<string, string> = {
   file_write: '写入/覆盖文件',
   file_move: '重命名/移动文件',
   create_docx: '生成 Word 文档',
-  file_convert: '生成 PDF 文件'
+  file_convert: '生成 PDF 文件',
+  image_process: '批量生成图片文件'
 }
 
 export function isWriteTool(name: string): boolean {
@@ -97,6 +98,14 @@ export function describeWriteTarget(name: string, args: Record<string, unknown>)
     const to = String(args.to || args.toPath || args.target || '')
     if (from && to) return `${from} → ${to}`
     return from || to || '(未提供路径)'
+  }
+  if (name === 'image_process') {
+    const raw = args.inputs ?? args.input ?? args.path ?? args.source
+    const list = Array.isArray(raw) ? raw.map(String) : (raw ? [String(raw)] : [])
+    if (list.length === 0) return '(未提供路径)'
+    const head = list.slice(0, 3).join('、')
+    const more = list.length > 3 ? ` 等 ${list.length} 个文件` : ''
+    return `${head}${more}${args.outDir ? `（输出到 ${String(args.outDir)}）` : ''}`
   }
   return String(args.filePath || args.path || args.to || '(未提供路径)')
 }

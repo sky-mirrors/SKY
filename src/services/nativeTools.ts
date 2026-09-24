@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'image_process'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -39,6 +39,52 @@ export function withAlwaysAvailableTools(
 }
 
 /** 常驻原生工具定义（不含 shell_exec——其定义保留在 dialogStore.buildMcpTools） */
+export interface ImageProcessArgs {
+  inputs: string[]
+  op: {
+    resize?: { width?: number; height?: number; percent?: number }
+    format?: string
+    quality?: number
+    rotate?: number
+    grayscale?: boolean
+  }
+  outDir?: string
+  suffix?: string
+}
+
+/**
+ * 把模型给的**扁平**参数整理成 `image:process` 的请求体。
+ * 两条工具执行路径（macroExecutor.callToolDirectWithTier、dialogStore.executeToolCall）共用本函数——
+ * 各写一份整理逻辑必然漂移（O10 的教训）。扁平化的原因：小模型处理嵌套对象不稳，
+ * 宽/高/格式这些直接平铺成顶层参数命中率明显更高。
+ */
+export function buildImageProcessArgs(args: Record<string, unknown>): ImageProcessArgs {
+  // 未绑定的模板占位符（形如 {{files}}）视同"没给"——否则它们会被当成字面量传下去，
+  // 变成 Number('{{w}}')=NaN 这类噪声参数（清单里的可选槽就会踩这个坑）。
+  const isUnbound = (v: unknown): boolean => typeof v === 'string' && v.includes('{{')
+  const raw = args.inputs ?? args.input ?? args.path ?? args.source
+  const inputs = Array.isArray(raw)
+    ? raw.map(v => String(v)).filter(v => !isUnbound(v))
+    : (raw && !isUnbound(raw) ? [String(raw)] : [])
+
+  const op: ImageProcessArgs['op'] = {}
+  const resize: { width?: number; height?: number; percent?: number } = {}
+  if (args.width !== undefined && !isUnbound(args.width)) resize.width = Number(args.width)
+  if (args.height !== undefined && !isUnbound(args.height)) resize.height = Number(args.height)
+  if (args.percent !== undefined && !isUnbound(args.percent)) resize.percent = Number(args.percent)
+  if (Object.keys(resize).length > 0) op.resize = resize
+  if (args.format && !isUnbound(args.format)) op.format = String(args.format).toLowerCase()
+  if (args.quality !== undefined && !isUnbound(args.quality)) op.quality = Number(args.quality)
+  if (args.rotate !== undefined && !isUnbound(args.rotate)) op.rotate = Number(args.rotate)
+  if (args.grayscale === true || args.grayscale === 'true') op.grayscale = true
+
+  const outDirRaw = args.outDir ?? args.outdir
+  const result: ImageProcessArgs = { inputs, op }
+  if (outDirRaw && !isUnbound(outDirRaw)) result.outDir = String(outDirRaw)
+  if (args.suffix !== undefined && String(args.suffix) && !isUnbound(args.suffix)) result.suffix = String(args.suffix)
+  return result
+}
+
 export const NATIVE_TOOL_DEFS: ToolDef[] = [
   {
     name: 'read_file',
@@ -96,6 +142,26 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         target: { type: 'string', description: '目标 PDF 绝对路径，须以 .pdf 结尾；不填则默认与源文件同目录同名。' }
       },
       required: ['source']
+    }
+  },
+  {
+    name: 'image_process',
+    description: '批量处理本机图片：缩放（width/height/percent）、转格式（jpeg/png/webp/avif/tiff）、压缩（quality）、旋转（90/180/270）、转灰度。用于「把这批图压一下 / 转成 webp / 缩到 800 宽」这类请求。输入支持 jpg/jpeg/png/webp/tiff/bmp/gif/svg。',
+    parameters: {
+      type: 'object',
+      properties: {
+        inputs: { type: 'array', items: { type: 'string' }, description: '源图片绝对路径列表。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        width: { type: 'number', description: '目标宽度（像素，等比缩放）' },
+        height: { type: 'number', description: '目标高度（像素）' },
+        percent: { type: 'number', description: '按百分比缩放（50 表示缩小一半）' },
+        format: { type: 'string', description: '输出格式：jpeg/png/webp/avif/tiff；不填沿用源格式' },
+        quality: { type: 'number', description: '有损压缩质量 1-100（默认 82）' },
+        rotate: { type: 'number', description: '旋转角度：90/180/270' },
+        grayscale: { type: 'boolean', description: '是否转灰度' },
+        outDir: { type: 'string', description: '输出目录；不填则与各源文件同目录' },
+        suffix: { type: 'string', description: '输出文件名后缀；不填默认 -out' }
+      },
+      required: ['inputs']
     }
   }
 ]

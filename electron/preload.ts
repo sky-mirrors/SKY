@@ -85,6 +85,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   docConvertToPdf: (opts: { source: string; target: string }) =>
     ipcRenderer.invoke('doc:convertToPdf', opts),
 
+  // 第二波·图像能力：批量图像处理（sharp / libvips，二进制来自 npm 平台包）
+  imageProcess: (opts: { inputs: string[]; op: Record<string, unknown>; outDir?: string; suffix?: string }) =>
+    ipcRenderer.invoke('image:process', opts),
+
   httpFetch: (opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number }) =>
     ipcRenderer.invoke('http:fetch', opts),
 
