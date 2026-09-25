@@ -639,6 +639,25 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const r = await window.electronAPI.fileWrite({ filePath, content })
       return r.success ? `已写入: ${r.path || filePath}` : `写入失败: ${r.error || ''}`
     }
+    // 2026-09-25：file_move —— 重命名/移动（主进程 file:move）。此前 executeToolCall 的原生分支
+    // 独缺 file_move，模型在 mcp-direct 回路里调它会落到函数尾的「无效工具名」抛错
+    // （HANDOFF 卡点 3），而 Q15「图片按日期重命名」正是走这条回路 ⇒ 该题长期失败。
+    // 与 file_write/file_convert 同路径：先过 O10 写门再执行；返回值带 from→to，便于如实报告改成了什么名字。
+    // 参数键与 nativeTools 的 file_move 定义（from/to）及别名（path/source、target/newPath）对齐。
+    if (fullName === 'file_move') {
+      const from = String(args.from || args.path || args.source || args.fromPath || '')
+      const to = String(args.to || args.target || args.newPath || args.toPath || '')
+      if (!from) return 'file_move: 缺少 from 参数（源文件绝对路径）'
+      if (!to) return 'file_move: 缺少 to 参数（目标文件绝对路径）'
+      if (!(await requestWriteApproval('file_move', args))) {
+        return 'file_move: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileMove) throw new Error('file_move not available')
+      const r = await window.electronAPI.fileMove({ from, to })
+      return r.success
+        ? `已重命名/移动: ${r.from || from} → ${r.to || to}`
+        : `重命名/移动失败: ${r.error || ''}`
+    }
     // 第一波·文档能力：文档 → PDF（应用内转换）。与 file_write 同路径：先经 O10 用户裁决再生产文件。
     if (fullName === 'file_convert') {
       const source = String(args.source || args.from || args.path || '')
