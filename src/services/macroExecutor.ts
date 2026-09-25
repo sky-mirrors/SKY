@@ -572,12 +572,25 @@ export async function callToolDirectWithTier(
     if (!dirPath) throw new Error('list_directory: missing path')
     const { isPathUnsafe } = await import('./dualEngineValidator')
     if (isPathUnsafe(dirPath)) throw new Error(`list_directory: 拒绝敏感路径 ${dirPath}`)
+    // 2026-09-25（HANDOFF「下一步 1」）：可选 ext —— 只列该扩展名的文件并渲染成确定性清单。
+    // 供 buildExplorePlan 的「列某类文件」单步计划使用（全原生工具 ⇒ native 快路径直接呈现，不经模型）。
+    const ext = String(args.ext || '').trim().replace(/^\./, '').toLowerCase()
     const api = window.electronAPI as unknown as {
       fileList?: (p: string) => Promise<{ success: boolean; entries?: string[]; entriesWithMeta?: Array<{ name: string; isDir: boolean; mtimeMs: number; mtimeIso: string | null; shootDateIso?: string | null; shootDateTag?: string | null }>; error?: string }>
     }
     if (api?.fileList) {
       const r = await api.fileList(dirPath)
       if (!r?.success) throw new Error(`list_directory failed: ${r?.error || 'unknown'}`)
+      // 2026-09-25（HANDOFF「下一步 1」做法②）：带 ext → 确定性清单收口。
+      // 只列该扩展名的文件、每行一个文件名；计划为单步原生工具 ⇒ confirmPlan 的
+      // isAllNative 快路径直接 presentExecutionOutput，**不经模型综合**（消除文件名粘连）。
+      if (ext) {
+        const { filterByExt, formatExtListing } = await import('./fileListing')
+        const entries = Array.isArray(r.entriesWithMeta) && r.entriesWithMeta.length > 0
+          ? r.entriesWithMeta.map(e => ({ name: e.name, isDir: e.isDir }))
+          : (r.entries || []).map(n => ({ name: n, isDir: false }))
+        return formatExtListing(dirPath, ext, filterByExt(entries, ext))
+      }
       // 2026-09-24：优先输出"文件名 + 拍摄日期"。Q15「按拍摄日期重命名」此前因拿不到日期而无法完成
       // （file:read 对图片只返回"[二进制文件…]"）；带上 mtime 后模型可直接据此推导 日期-序号.jpg。
       // 2026-09-24 追加：标签由「修改日期」改为「拍摄日期（取自文件系统时间）」——R23 实测模型会
@@ -607,7 +620,15 @@ export async function callToolDirectWithTier(
     const safePath = dirPath.replace(/["%&|<>^]/g, '')
     const listCmd = isWin ? `dir /b "${safePath}"` : `ls -1 "${safePath}"`
     const result = await window.electronAPI.shellExec({ command: listCmd, timeout: timeoutMs || 10000 })
-    if (result.success) return result.stdout || '(空目录)'
+    if (result.success) {
+      const out = result.stdout || ''
+      if (ext) {
+        const { filterByExt, formatExtListing } = await import('./fileListing')
+        const names = out.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+        return formatExtListing(dirPath, ext, filterByExt(names.map(n => ({ name: n })), ext))
+      }
+      return out || '(空目录)'
+    }
     throw new Error(result.stderr || result.stdout || 'list_directory failed')
   }
 

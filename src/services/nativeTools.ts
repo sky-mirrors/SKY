@@ -180,11 +180,12 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'list_directory',
-    description: '列出本机某个目录下的文件与子目录。用于盘点桌面文件、找某文件是否存在。',
+    description: '列出本机某个目录下的文件与子目录。可带 ext 只列某类文件（如只列 .docx）。用于盘点桌面文件、找某文件是否存在。',
     parameters: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '要列出的目录绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' }
+        path: { type: 'string', description: '要列出的目录绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        ext: { type: 'string', description: '可选：只列出该扩展名的文件（如 docx / pdf / txt，不带点）。用于「这个目录里有哪些 .docx 文件」这类请求——传了就只返回该类型文件的文件名清单。' }
       },
       required: ['path']
     }

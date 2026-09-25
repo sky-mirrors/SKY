@@ -18,21 +18,25 @@ const q14 = EXAM_CASES.find(c => c.id === 'Q14')!
 const q16 = EXAM_CASES.find(c => c.id === 'Q16')!
 
 describe('N2：探索计划的确定性文件步骤', () => {
-  it('Q14（列桌面 .docx 清单）→ 首步为 list_directory 且指向桌面', async () => {
+  it('Q14（列桌面 .docx 清单）→ 单步确定性 list_directory + ext（不经模型综合）', async () => {
     const p = await buildExplorePlan(q14.prompt)
+    // 2026-09-25（HANDOFF「下一步 1」做法②）：不再走 list→read→llm 三步——末步 3B 会把文件名
+    // 首尾粘连（exam-report.json Q14 恒 not-deliverable）。改为**单步 list_directory + ext**：
+    // 计划全为原生工具 ⇒ confirmPlan 的 isAllNative 快路径直接 presentExecutionOutput，不经模型。
+    expect(p.steps).toHaveLength(1)
     expect(p.steps[0].tool).toBe('list_directory')
     expect(String(p.steps[0].params.path).toLowerCase()).toContain('desktop')
-    // B1：必须含「读取最相关文件」步（{{step_1_top_files}}），末步依据真实数据回答
-    const readStep = p.steps.find(s => s.tool === 'read_file')!
-    expect(readStep).toBeDefined()
-    expect(String(readStep.params.path)).toContain('{{step_1_top_files}}')
-    expect(readStep.depends_on).toContain(1)
+    expect(p.steps[0].params.ext).toBe('docx')
+    // 不得再有 read_file / llm_generate 步——那正是文件名粘连的模型综合路径
+    expect(p.steps.some(s => s.tool === 'read_file')).toBe(false)
+    expect(p.steps.some(s => s.tool === 'llm_generate')).toBe(false)
+  })
 
-    const answerStep = p.steps.find(s => s.tool === 'llm_generate')!
-    expect(answerStep).toBeDefined()
-    expect(answerStep.depends_on).toContain(2)
-    expect(JSON.stringify(answerStep.params)).toContain('{{step_1_result}}')
-    expect(JSON.stringify(answerStep.params)).toContain('{{step_2_result}}')
+  it('Q16（找报销单读金额）→ 仍是 list→read→llm 三步（列清单收口不得劫持读内容请求）', async () => {
+    const p = await buildExplorePlan(q16.prompt)
+    expect(p.steps[0].tool).toBe('list_directory')
+    expect(p.steps.some(s => s.tool === 'read_file')).toBe(true)
+    expect(p.steps.some(s => s.tool === 'llm_generate')).toBe(true)
   })
 
   it('Q16（在 HoloExam 文件夹找张三报销单）→ 首步 list_directory 且路径含 HoloExam', async () => {

@@ -2,6 +2,7 @@ import type { L2ToolManifest } from '@/models'
 import { getLLM } from '@/kernel/plugins/llm'
 import { debugLog } from '@/services/debugLog'
 import { extractInstructionSegment } from '@/services/inputForm'
+import { extractListingExt, isListingIntent } from '@/services/fileListing'
 
 interface L0SkillRule {
   name: string
@@ -776,6 +777,21 @@ export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
   // 计划里没有任何文件步骤，框架把「调不调工具」交给 3b 小模型、而它用散文回「我无法访问你的文件」。
   const mentionedDir = extractMentionedDir(input)
   if (mentionedDir) {
+    // 2026-09-25（HANDOFF「下一步 1」做法②）：**列某类文件清单**的确定性收口。
+    // 识别到「目录 + 某扩展名 + 列清单意图（非读内容）」时，产出**单步 list_directory + ext**——
+    // 计划全为原生工具 ⇒ confirmPlan 的 isAllNative 快路径直接呈现清单、**不经模型综合**，
+    // 消除 Q14 弱模型转述时把文件名首尾粘连的失败形态。需读内容的请求（如 Q16 报销金额）仍走下面三步。
+    const listingExt = extractListingExt(input)
+    if (listingExt && isListingIntent(input)) {
+      debugLog(`[Explore] 文件清单确定性收口：list_directory ${mentionedDir}（仅 .${listingExt}）`)
+      return {
+        intent: `列出 ${mentionedDir} 下的 .${listingExt} 文件清单`,
+        steps: [
+          { step: 1, description: `列出目录 ${mentionedDir} 下的 .${listingExt} 文件（确定性清单）`, tool: 'list_directory', params: { path: mentionedDir, ext: listingExt }, expectedOutput: '文件清单' }
+        ],
+        isExploration: false
+      }
+    }
     debugLog(`[Explore] 文件检索探索模式：列目录 ${mentionedDir}`)
     return {
       intent: `列出目录并回答：${input.substring(0, 50)}`,
