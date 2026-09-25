@@ -14,6 +14,12 @@ let _disposeRecordCost: Disposer = null
 let _disposeLogEvent: Disposer = null
 let _disposeRegisterAbort: Disposer = null
 let _disposeClearAbort: Disposer = null
+let _disposeActivate: Disposer = null
+let _disposeDeactivate: Disposer = null
+let _disposeEnv: Disposer = null
+let _disposeUnfreeze: Disposer = null
+
+type DebugEnvironment = { model: string; provider: string; apiReachable: boolean; nodeCount: number; manifestCount: number }
 
 export function registerDebugHandlers(bus: HoloEventBus) {
   const probeHandler = (payload: { snapshot?: ProbeSnapshot; message?: string; level?: ConsoleLogLevel; domain?: ConsoleCategory; detail?: string; traceId?: string }) => {
@@ -86,4 +92,36 @@ export function registerDebugHandlers(bus: HoloEventBus) {
     const store = useDebugStore()
     return store.enabled
   })
+
+  // 2026-09-25（机制体检）：`/debug` 斜杠命令（dialogStore.sendMessage）emit 的 4 条广播
+  // 此前**全仓无人监听** ⇒ 命令只打印"🔍 调试模式已开启 — 输入 /debug 关闭"却什么都没发生（谎报），
+  // 真正的开关是 debugStore 的方法（App.vue / DialogPanel / DebugWindowPage 直接调）。
+  // 按本文件既定模式桥接 bus → store（emit 只达 on()；HMR 重挂载先释放旧订阅）。
+  const activateHandler = () => {
+    useDebugStore().activate()
+  }
+  bus.registerHandler('debug:activate', activateHandler)
+  _disposeActivate?.()
+  _disposeActivate = bus.on('debug:activate', activateHandler)
+
+  const deactivateHandler = () => {
+    useDebugStore().deactivate()
+  }
+  bus.registerHandler('debug:deactivate', deactivateHandler)
+  _disposeDeactivate?.()
+  _disposeDeactivate = bus.on('debug:deactivate', deactivateHandler)
+
+  const envHandler = (payload: { environment?: DebugEnvironment }) => {
+    if (payload?.environment) useDebugStore().updateEnvironment(payload.environment)
+  }
+  bus.registerHandler('debug:update-environment', envHandler)
+  _disposeEnv?.()
+  _disposeEnv = bus.on('debug:update-environment', envHandler as (payload: unknown) => unknown)
+
+  const unfreezeHandler = () => {
+    useDebugStore().unfreezeBuffer()
+  }
+  bus.registerHandler('debug:unfreeze-buffer', unfreezeHandler)
+  _disposeUnfreeze?.()
+  _disposeUnfreeze = bus.on('debug:unfreeze-buffer', unfreezeHandler)
 }
