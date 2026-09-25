@@ -85,6 +85,9 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
 import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs } from '@/services/nativeTools'
 import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
+// 2026-09-25：文件类任务（mcp-direct 路径）此前不带 system 消息 ⇒ 模型不知道用户真实目录、
+// 只能猜路径（Q14/Q16 实测猜成 C:\Users 被安全策略拒）。见模块头注释的取证。
+import { buildNativeFileTaskSystemPrompt } from '@/services/fileTaskSystemPrompt'
 
 const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
 
@@ -1036,9 +1039,18 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         // 声明在 try 之外：finally 需要能访问它（try 内的 const 不可见于 finally）。
         const toolCtl = new AbortController()
         globalBus.emit('debug:register-abort', toolCtl)
+        // 2026-09-25：把真实用户目录/桌面目录告诉模型（本路径原先没有任何 system 消息）。
+        // 取不到就退回"先用 list_directory 确认"的措辞，绝不编造路径。
+        // 注意 resolvePath 用**方法级**可选链 + try 兜底：只护住 electronAPI 不够，
+        // 测试 mock / 老版本 preload 可能没有这个方法（裸调用会抛 TypeError 整条分支崩）。
+        let userProfile = ''
+        try {
+          userProfile = (await window.electronAPI?.resolvePath?.('%USERPROFILE%')) || ''
+        } catch { userProfile = '' }
+        const fileTaskSystemPrompt = buildNativeFileTaskSystemPrompt({ userProfile })
         try {
           const directTools = withAlwaysAvailableTools(matched, allMcpTools)
-          let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: directTools, signal: toolCtl.signal }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'system', content: fileTaskSystemPrompt }, { role: 'user', content }], stream: true, tools: directTools, signal: toolCtl.signal }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           // 2026-09-24：原为**单轮**（执行一次 toolCalls 即呈现）。实测（HANDOFF 追加五十）
           // 路由落到本分支时，模型调一次 list_directory 就再无续跑——多步任务（先列目录再改名）
           // 必然停在第一步且不报任何错。改为有限轮次回路（同 macro 的收口模式）：
@@ -1051,6 +1063,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             lastOutput = toolOutput
             apiResult = await globalBus.requestAsync('api:chat-completion', {
               messages: [{
+                role: 'system',
+                content: fileTaskSystemPrompt
+              }, {
                 role: 'user',
                 content: `【原始请求】${content}\n\n【工具真实执行结果】\n${toolOutput}\n\n如任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如已全部完成，用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
               }],
@@ -1070,6 +1085,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             try {
               const wrap = await globalBus.requestAsync('api:chat-completion', {
                 messages: [{
+                  role: 'system',
+                  content: fileTaskSystemPrompt
+                }, {
                   role: 'user',
                   content: `【原始请求】${content}\n\n【全部工具执行结果】\n${lastOutput}\n\n【收口】任务已执行完毕，请**不要再调用任何工具**，直接用中文汇报：做了什么、涉及多少文件、每个文件的新名字（或新位置）、是否有失败项。`
                 }],
