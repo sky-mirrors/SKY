@@ -107,11 +107,15 @@ describe('l0SkillRouter', () => {
       expect(plan).toBeNull()
     })
 
-    it('文件格式转换 - md转docx', async () => {
+    // 2026-09-25：本条原断言「未给完整路径也必须产出转换计划」——而旧计划把源路径伪造成 `input.md`、
+    // 跑到 read_file 必报「文件不存在」。这等于把"一个必然失败的假计划"钉成了契约，且实测会让用户
+    // 收到「我先确认文件是否存在」后就没有下文。现改为如实索要完整路径（见 l0ConvertSkillPath.spec.ts）。
+    it('文件格式转换 - md转docx（未给完整路径时如实索要路径，不产出必失败的假计划）', async () => {
       const plan = await tryL0Skill('将README.md转换为docx')
       expect(plan).not.toBeNull()
-      expect(plan!.intent).toContain('docx')
       expect(plan!.isExploration).toBe(true)
+      expect(JSON.stringify(plan)).not.toMatch(/input\.[\w]{1,5}/)
+      expect(plan!.intent).toContain('未识别到源文件路径')
     })
 
     it('文件格式转换 - forbiddenPattern阻止合同审查', async () => {

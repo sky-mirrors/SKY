@@ -84,8 +84,10 @@ function extractTargetFormat(input: string): string | null {  const m = input.ma
 }
 
 function extractSourceExt(input: string): string | null {
-  const m = input.match(/\.(\w{1,5})\b/)
-  return m ? m[1].toLowerCase() : null
+  // 取**最后**一个点段当扩展名：文件名可能自带点号（如 "2026.9.24最新快照.md"），
+  // 取第一个会解析出 "9"（实测：L0 计划因此把源路径写成 `input.9`）。无匹配返回 null。
+  const all = [...String(input || '').matchAll(/\.(\w{1,5})\b/g)]
+  return all.length > 0 ? all[all.length - 1][1].toLowerCase() : null
 }
 
 function sanitizeFileName(name: string): string {
@@ -200,17 +202,45 @@ const skillRules: L0SkillRule[] = [
       const effectiveTarget = targetFormat || FILE_EXT_MAP[sourceExt || '']
       if (!effectiveTarget) return null
 
-      const src = filePath || `input.${sourceExt || 'md'}`
+      // 2026-09-25 修复：拿不到真实路径时**不再伪造** `input.<ext>` 占位符。
+      // 实测（用户报告 + 运行中 app 的消息流）：发「把桌面上 HoloStarmap\docs 文件夹下的
+      // 2026.9.24最新快照.md 文件转为 docx…」时 extractFilePath 抽不到绝对路径，旧实现伪造 `input.9`
+      // ⇒ 计划跑到 step2 报「文件不存在（路径：input.9）」⇒ 计划失败 → 回退直答 → 只回一句
+      // 「我先确认文件是否存在」就没了下文。把"没识别出路径"伪装成"计划执行失败"，对用户既无信息也无出路。
+      // 此处改为如实索要完整路径（与本规则 PDF 分支的"如实说明"同款），不再产出必失败的假计划。
+      if (!filePath) {
+        return {
+          intent: '文件格式转换：未识别到源文件路径',
+          steps: [{
+            step: 1,
+            description: '如实说明未识别到路径，并请用户给出完整路径',
+            tool: 'llm_generate',
+            params: {
+              prompt: `用户要求做文件格式转换，但没能从请求里识别出**真实存在**的源文件路径。请按顺序处理：① 如果用户给了位置线索（例如「桌面上 HoloStarmap\\docs 文件夹下」），就用 list_directory 去那个目录找目标文件；② 找到后，用它的**完整绝对路径**继续（或直接告知用户已找到的完整路径并请他确认）；③ 确实找不到时，请用户提供完整路径。全程不得编造路径、不得假装已经完成转换。支持 docx / pdf / txt / md / xlsx / html 互转。用户原话：${input}`
+            },
+            expectedOutput: '澄清与路径请求'
+          }],
+          isExploration: true
+        }
+      }
+      const src = filePath
       const baseName = src.replace(/\.\w{1,5}$/, '')
       const outputPath = `${baseName}.${effectiveTarget}`
 
       if (effectiveTarget === 'docx') {
+        // 2026-09-25 修复：原三步里有两处**必被安全闸拒**，使 md→docx 永不成功：
+        //   ① step1 原为 `npm list docx || npm install docx` —— `||` 是 shell 元字符（findShellMetacharacter 黑名单），必被拒；
+        //   ② step3 原脚本写 `process.env.OUTPUT_PATH`（裸环境变量）—— node -e 受限模式只允许
+        //      「字符串字面量」或「process.env.USERPROFILE|HOME + 字面量」作为写目标，裸变量必被拒。
+        // 现改为把**桌面绝对路径烘焙成字面量**（`process.env.USERPROFILE+'\\Desktop\\x.docx'` 属允许形态，
+        // 已用真实 shellExec 打靶验证：code:0、产出真 docx、ZIP/PK 魔数）。
+        const outLiteral = (`${baseName}.docx`).replace(/['\\]/g, '') || 'output.docx'
         return {
-          intent: `将 ${src} 转换为 .docx`,
+          intent: `将 ${src} 转换为 .docx（输出到桌面）`,
           steps: [
-            { step: 1, description: `安装docx转换工具`, tool: 'shell_exec', params: { command: 'npm list docx || npm install docx' }, expectedOutput: 'docx库就绪' },
+            { step: 1, description: `安装docx转换工具`, tool: 'shell_exec', params: { command: 'npm install docx' }, expectedOutput: 'docx库就绪' },
             { step: 2, description: `读取源文件内容`, tool: 'read_file', params: { path: src }, expectedOutput: '文件内容' },
-            { step: 3, description: `生成docx文件`, tool: 'shell_exec', params: { command: `node -e "const {Document,Packer,Paragraph,TextRun}=require('docx');const fs=require('fs');const content=process.env.CONTENT||'';const outPath=process.env.OUTPUT_PATH||'output.docx';const doc=new Document({sections:[{children:content.split('\\n').map(line=>new Paragraph({children:[new TextRun(line)]}))]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(outPath,buf))"`, env_content: '{{step_2_result}}', env_output_path: outputPath }, expectedOutput: `${outputPath}` }
+            { step: 3, description: `生成docx文件`, tool: 'shell_exec', params: { command: `node -e "const {Document,Packer,Paragraph,TextRun}=require('docx');const fs=require('fs');const content=process.env.CONTENT||'';const doc=new Document({sections:[{children:content.split('\\n').map(line=>new Paragraph({children:[new TextRun(line)]}))]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\${outLiteral}',buf))"`, env_content: '{{step_2_result}}' }, expectedOutput: `桌面\\${outLiteral}` }
           ],
           isExploration: true
         }
