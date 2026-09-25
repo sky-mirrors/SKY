@@ -50,8 +50,11 @@ export function search(
 ): CommandPaletteResult[] {
   if (!query.trim()) return []
 
-  const config = globalBus.request<{ currentJobRole: string; recentSkills?: { id: string; lastUsed: number }[] }>('config:get', {})
-  const currentRole = config.currentJobRole
+  // config:get 空载荷返回的是整份 UserConfig 快照，其字段名是 `jobRole`（configStore.ts:8）；
+  // `currentJobRole` 只是 store 的 computed getter、并不在快照里——原先读错字段名 ⇒ currentRole 恒
+  // undefined ⇒ 技能的角色加权在生产恒失效（测试曾用自建 config:get mock 返回 currentJobRole 掩盖了它）。
+  const config = globalBus.request<{ jobRole: string; recentSkills?: { id: string; lastUsed: number }[] }>('config:get', {})
+  const currentRole = config.jobRole
   const recentSkillIds = (config.recentSkills ?? []).map(s => s.id)
   const now = Date.now()
   const skills = globalBus.request<{ id: string; name: string; description: string; catalogId?: string; jobRoles?: string[] }[]>('skill:list', {})
