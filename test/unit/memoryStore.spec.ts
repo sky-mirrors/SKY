@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useMemoryStore } from '@/stores/memoryStore'
+import { useConfigStore } from '@/stores/configStore'
 import { vault } from '@/vault'
 
 function mockLocalStorage() {
@@ -218,5 +219,19 @@ describe('memoryStore', () => {
     // 旧会话不丢——归档到 holo-session-archive
     const archive = JSON.parse(vault.readCache('memory', 'holo-session-archive') || '[]') as { messages?: { content?: string }[] }[]
     expect(archive.some(s => (s.messages || []).some(m => m.content === '陈旧消息20260924'))).toBe(true)
+  })
+
+  // HANDOFF 下一步 4 续：跨重启记住上一段对话——用户可在「设置 → 记忆」开启。
+  it('loadFromStorage 开启「跨重启记住会话」时恢复上一次运行的会话记忆', () => {
+    vault.clearCache()
+    const configStore = useConfigStore()
+    configStore.setRestoreSessionMemoryOnStartup(true)
+    const store = useMemoryStore()
+    store.addDialogMessage({ role: 'user', type: 'text', content: '跨重启保留的消息' })
+
+    // 模拟进程重启
+    store.loadFromStorage()
+
+    expect((store.sessionMemory.messages || []).some(m => m.content === '跨重启保留的消息')).toBe(true)
   })
 })

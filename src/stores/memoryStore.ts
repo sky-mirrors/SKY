@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { SessionMemory, ProjectMemory, GlobalMemory, PromptTemplate, DialogMessage, ChatMessage, MemoryAdapter } from '@/models'
 import { estimateTokens } from '@/services/tokenEstimate'
+import { useConfigStore } from '@/stores/configStore'
 import { vault } from '@/vault'
 
 const CONV_KEY = 'holo-conversations'
@@ -377,20 +378,28 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function loadFromStorage() {
+    // 会话记忆的跨重启策略由用户配置决定（设置 → 记忆）：默认隔离（重启归档重置）；
+    // 开启后恢复上一段对话。configStore 在 App.vue 中先于 memoryStore 载入，故此处置信其值。
+    let restoreSessionMemory = false
+    try { restoreSessionMemory = useConfigStore().config.restoreSessionMemoryOnStartup === true } catch { /* 无 config 时按默认隔离 */ }
     const s = vault.readCache('memory', 'holo-session')
     if (s) {
-      // HANDOFF 下一步 4：会话记忆按「会话」隔离——进程重启即新会话。上一次运行残留的会话记忆
-      // （正常关窗不经过会话边界）**不恢复进本次运行**（否则会经 apiStore 的 buildSessionMemoryPrefix
-      // 作为「会话记忆」注入新会话上下文，曾实测含陈旧字符串 20260924）；把它归档到
-      // holo-session-archive（不丢），本次运行从 store 初始化时的全新会话开始。
       try {
         const persisted = JSON.parse(s) as SessionMemory
-        if (persisted && Array.isArray(persisted.messages) && persisted.messages.length > 0) {
-          pushSessionToArchive(persisted)
+        if (persisted && restoreSessionMemory) {
+          // 用户开启「跨重启记住上一段对话」：恢复持久化的会话记忆
+          sessionMemory.value = persisted
+        } else {
+          // 默认：会话记忆按「会话」隔离——进程重启即新会话。上一次运行残留的会话
+          // （正常关窗不经过会话边界）**不恢复进本次运行**（否则会经 apiStore 的 buildSessionMemoryPrefix
+          // 作为「会话记忆」注入新会话上下文，曾实测含陈旧字符串 20260924）；归档到
+          // holo-session-archive（不丢），本次运行从全新会话开始。
+          if (persisted && Array.isArray(persisted.messages) && persisted.messages.length > 0) {
+            pushSessionToArchive(persisted)
+          }
+          clearSession()
         }
       } catch { /* ignore */ }
-      // 本次运行从全新会话开始，并即时落盘覆盖 vault 里的旧值（避免下次启动再读到）
-      clearSession()
     }
     const p = vault.readCache('memory', 'holo-projects')
     if (p) {

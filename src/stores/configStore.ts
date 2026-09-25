@@ -27,7 +27,8 @@ export const useConfigStore = defineStore('config', () => {
     dialogPanelWidth: 460,
     favoriteSkills: [],
     recentSkills: [],
-    llmTimeoutScale: 1
+    llmTimeoutScale: 1,
+    restoreSessionMemoryOnStartup: false
   })
   const theme = ref<'dark' | 'light' | 'green'>('dark')
 
@@ -139,6 +140,12 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
+  // HANDOFF 下一步 4 续：会话记忆跨重启策略开关（设置 → 记忆）
+  function setRestoreSessionMemoryOnStartup(enabled: boolean) {
+    config.value.restoreSessionMemoryOnStartup = enabled
+    saveToStorage()
+  }
+
   function addFavoriteSkill(skillId: string) {
     if (!config.value.favoriteSkills) config.value.favoriteSkills = []
     if (!config.value.favoriteSkills.includes(skillId)) {
@@ -189,6 +196,7 @@ export const useConfigStore = defineStore('config', () => {
         if (parsed.recentSkills) config.value.recentSkills = parsed.recentSkills
         if (parsed.llmTimeoutScale !== undefined) setLlmTimeoutScale(parsed.llmTimeoutScale)
         if (parsed.viewMode) config.value.viewMode = parsed.viewMode
+        if (parsed.restoreSessionMemoryOnStartup !== undefined) config.value.restoreSessionMemoryOnStartup = parsed.restoreSessionMemoryOnStartup
         if (parsed.theme) {
           theme.value = parsed.theme as 'dark' | 'light' | 'green'
           document.documentElement.setAttribute('data-theme', theme.value)
@@ -230,6 +238,7 @@ export const useConfigStore = defineStore('config', () => {
     setStarmapNodeDensity,
     setDialogPanelWidth,
     setLlmTimeoutScale,
+    setRestoreSessionMemoryOnStartup,
     addFavoriteSkill,
     removeFavoriteSkill,
     addRecentSkill,

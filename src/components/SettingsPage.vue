@@ -85,6 +85,22 @@
             <div class="sp-hint">单价用于估算对话成本（调试台「估算成本」与 Token 预算）。</div>
           </div>
 
+          <!-- HANDOFF 下一步 4 续：会话记忆的跨重启策略开关 -->
+          <div v-if="activeTab === 'memory'" class="sp-section">
+            <div class="sp-field">
+              <label>跨重启记住上一段对话</label>
+              <input
+                type="checkbox"
+                :checked="configStore.config.restoreSessionMemoryOnStartup === true"
+                @change="configStore.setRestoreSessionMemoryOnStartup(($event.target as HTMLInputElement).checked)"
+              />
+            </div>
+            <div class="sp-hint">
+              关闭（默认）：一次运行一个会话——重启后不把上一段对话带入新会话（旧会话仍归档保留在 holo-session-archive）。
+              开启：启动时恢复上一次运行的会话记忆，让助手继续记得上一段对话的内容。
+            </div>
+          </div>
+
           <div v-if="activeTab === 'notifications'" class="sp-section">
             <div class="sp-field" v-for="(val, key) in notificationStore.settings" :key="key">
               <label>{{ settingLabel(key) }}</label>
@@ -181,6 +197,7 @@ const tabs = [
   { id: 'appearance', icon: '🎨', label: '外观' },
   { id: 'perf', icon: '⚡', label: '性能' },
   { id: 'pricing', icon: '💰', label: '计价' },
+  { id: 'memory', icon: '🧠', label: '记忆' },
   { id: 'notifications', icon: '🔔', label: '通知' },
   { id: 'data', icon: '💾', label: '数据' },
   { id: 'shortcuts', icon: '⌨', label: '快捷键' },

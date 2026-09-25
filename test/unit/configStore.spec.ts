@@ -283,4 +283,20 @@ describe('configStore', () => {
     const saved = JSON.parse(vault.readCache('config', 'holo-user-config')!)
     expect(saved.llmTimeoutScale).toBe(2)
   })
+
+  // HANDOFF 下一步 4 续：会话记忆跨重启策略开关
+  it('setRestoreSessionMemoryOnStartup 默认关、可持久化并 loadFromStorage 恢复', () => {
+    const store = useConfigStore()
+    expect(store.config.restoreSessionMemoryOnStartup).toBe(false)
+    store.setRestoreSessionMemoryOnStartup(true)
+    expect(store.config.restoreSessionMemoryOnStartup).toBe(true)
+    const saved = JSON.parse(vault.readCache('config', 'holo-user-config')!)
+    expect(saved.restoreSessionMemoryOnStartup).toBe(true)
+
+    setActivePinia(createPinia())
+    vault.writeCache('config', 'holo-user-config', JSON.stringify({ jobRole: 'finance', restoreSessionMemoryOnStartup: true }))
+    const store2 = useConfigStore()
+    store2.loadFromStorage()
+    expect(store2.config.restoreSessionMemoryOnStartup).toBe(true)
+  })
 })

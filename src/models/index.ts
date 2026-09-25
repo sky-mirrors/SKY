@@ -209,6 +209,9 @@ export interface UserConfig {
   // P0-B4：LLM 超时整体缩放系数（1=默认 CPU 校准阶梯；CPU 慢机可调大，
   // 乘 tierTimeoutFor 各档；仅渲染进程 apiStore 生效，主进程 IPC 固定 scale=1）
   llmTimeoutScale?: number
+  // HANDOFF 下一步 4 续：会话记忆的跨重启策略。默认 false＝一次运行一个会话（重启归档重置）；
+  // 用户可在「设置 → 记忆」开启 true＝跨重启记住上一段对话（启动时恢复 holo-session）。
+  restoreSessionMemoryOnStartup?: boolean
 }
 
 export interface RecentSkillEntry {
