@@ -46,6 +46,18 @@ function extractFilePath(input: string): string | null {
 }
 
 /**
+ * 抽出一个**文件夹**路径（无扩展名即可，不要求存在）。
+ * 2026-09-25（HANDOFF 下一步 5）：Q15 用——`extractFilePath` 要求带扩展名，抓不到目录。
+ * 排除中文标点/括号，避免把「（例如 20260315-01.jpg）」这类示例吞进路径。
+ */
+function extractDirPath(input: string): string | null {
+  const m = input.match(/([A-Za-z]:\\[^\s"'，。；、（）()【】]+)/)
+  if (m) return m[1].replace(/[\\/]+$/, '')
+  const m2 = input.match(/(~?\/[^\s"'，。；、（）()【】]+)/)
+  return m2 ? m2[1].replace(/[\\/]+$/, '') : null
+}
+
+/**
  * 第二波·图像能力：从自然语言里抽出**可确定执行**的图像操作。
  * 抽不到任何一项就返回空对象——由调用方决定是"直调"还是交给下游层（不猜用户意图）。
  */
@@ -466,6 +478,49 @@ const skillRules: L0SkillRule[] = [
         steps: [
           { step: 1, description: '读取文件内容', tool: 'read_file', params: { path: filePath }, expectedOutput: '文件内容' }
         ],
+        isExploration: false
+      }
+    }
+  },
+  {
+    // 2026-09-25（HANDOFF 下一步 5）：**图片按拍摄日期重命名**——执行层确定性化。
+    // 该意图**不经模型**：直接产出单步计划调用 rename_images_by_date（列目录带日期 → YYYYMMDD-序号 → 逐个移动）。
+    // 依据：Q15 长期失败已证伪「提示词能救弱模型」——trace 显示它只反复 list_directory 再编造 shell 结果。
+    name: '图片按拍摄日期重命名',
+    domain: 'file',
+    triggerPatterns: [
+      /(重命名|改名|更名|批量命名).{0,12}?(图片|照片|图像|图)/i,
+      /(图片|照片|图像).{0,12}?(重命名|改名|更名)/i
+    ],
+    forbiddenPatterns: [
+      /(审查|合规|条款|风险|法律|合同|转换|转成|转为|导出|保存为)/
+    ],
+    async buildPlan(input: string): Promise<L0DirectPlan | null> {
+      const dir = extractDirPath(input)
+      if (!dir) {
+        return {
+          intent: '图片按拍摄日期重命名：未识别到文件夹路径',
+          steps: [{
+            step: 1,
+            description: '如实说明未识别到文件夹路径，并请用户给出完整路径',
+            tool: 'llm_generate',
+            params: {
+              prompt: `用户要求把某个文件夹里的图片按拍摄日期重命名，但没能从请求里识别出**真实的文件夹路径**。请请用户给出该文件夹的完整绝对路径（例如 C:\\Users\\<用户名>\\Desktop\\某文件夹），拿到后调用 rename_images_by_date。全程不得编造路径、不得假装已完成重命名。用户原话：${input}`
+            },
+            expectedOutput: '路径澄清'
+          }],
+          isExploration: false
+        }
+      }
+      return {
+        intent: `按拍摄日期重命名 ${dir} 中的图片`,
+        steps: [{
+          step: 1,
+          description: `列出并按拍摄日期重命名 ${dir} 中的图片（EXIF 优先，无 EXIF 取文件系统时间）`,
+          tool: 'rename_images_by_date',
+          params: { dir },
+          expectedOutput: '重命名清单（旧名 → 新名）'
+        }],
         isExploration: false
       }
     }

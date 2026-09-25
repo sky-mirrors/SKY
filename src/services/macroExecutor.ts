@@ -184,6 +184,16 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_move failed')
   }
 
+  // 2026-09-25（HANDOFF 下一步 5）：Q15 执行层确定性化——图片按拍摄日期批量重命名。
+  // 一次调用跑完全批（列目录带日期 → YYYYMMDD-序号 → 逐个 file_move），不经模型逐文件决策。
+  // 写门已由本函数顶部的 requestWriteApproval(fullName, args) 统一覆盖（rename_images_by_date 在 WRITE_TOOLS 内）。
+  if (fullName === 'rename_images_by_date') {
+    const dir = await resolveFilePath(String(args.dir || args.path || args.dirPath || ''))
+    if (!dir) throw new Error('rename_images_by_date: missing dir')
+    const { renameImagesByDate, summarizeRename } = await import('./imageRenameByDate')
+    return summarizeRename(await renameImagesByDate(dir))
+  }
+
   // 第一波·文档能力：文档 → PDF。应用内转换（mammoth 出 HTML + Electron printToPDF 出 PDF），
   // 不依赖本机 Word/LibreOffice/pandoc（实测均无）。返回值带产物路径与字节数，便于上游如实报告。
   if (fullName === 'file_convert') {

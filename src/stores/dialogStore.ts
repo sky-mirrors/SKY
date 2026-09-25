@@ -658,6 +658,17 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         ? `已重命名/移动: ${r.from || from} → ${r.to || to}`
         : `重命名/移动失败: ${r.error || ''}`
     }
+    // 2026-09-25（HANDOFF 下一步 5）：Q15 执行层确定性化——一次调用跑完「图片按拍摄日期重命名」整批，
+    // 不让弱模型在自由回路里逐文件决策（实测它只会反复 list_directory 再编造 shell 结果）。
+    if (fullName === 'rename_images_by_date') {
+      const dir = String(args.dir || args.path || args.dirPath || '')
+      if (!dir) return 'rename_images_by_date: 缺少 dir 参数（图片所在文件夹的绝对路径）'
+      if (!(await requestWriteApproval('rename_images_by_date', args))) {
+        return 'rename_images_by_date: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      const { renameImagesByDate, summarizeRename } = await import('@/services/imageRenameByDate')
+      return summarizeRename(await renameImagesByDate(dir))
+    }
     // 第一波·文档能力：文档 → PDF（应用内转换）。与 file_write 同路径：先经 O10 用户裁决再生产文件。
     if (fullName === 'file_convert') {
       const source = String(args.source || args.from || args.path || '')

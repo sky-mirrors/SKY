@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'create_docx', 'image_process', 'media_process'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -211,6 +211,20 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' }
       },
       required: ['from', 'to']
+    }
+  },
+  {
+    // 2026-09-25（HANDOFF 下一步 5）：Q15「图片按拍摄日期重命名」长期失败——弱模型在自由工具回路里
+    // 只反复列目录、收口时编造「用 shell、退出码 -1」，提示词侧改四条仍无效。执行层确定性化：
+    // 把「列目录（带拍摄日期）→ 按 YYYYMMDD-序号 重命名」做成一个工具，一次调用跑完整批。
+    name: 'rename_images_by_date',
+    description: '把某个文件夹里的图片**按拍摄日期**批量重命名成「日期-序号.ext」（如 20260315-01.jpg）：日期优先取 EXIF 拍摄时间，无 EXIF 时取文件系统时间；同一天按原文件名顺序从 01 编号。一次调用完成整批重命名并返回新文件名清单。遇到「把这个文件夹的图片/照片按拍摄日期（或拍摄时间）重命名」这类请求就用它——不要逐张 file_move，也不要用 shell（重命名类 shell 命令会被安全策略拒绝）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: '图片所在文件夹的**绝对路径**（不是文件路径）。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' }
+      },
+      required: ['dir']
     }
   },
   {
