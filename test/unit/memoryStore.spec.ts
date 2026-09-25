@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useMemoryStore } from '@/stores/memoryStore'
+import { vault } from '@/vault'
 
 function mockLocalStorage() {
   const store: Record<string, string> = {}
@@ -198,5 +199,24 @@ describe('memoryStore', () => {
     expect(store.projectMemories[0].parentGroupId).toBe('group-1')
     store.setProjectGroup(project!.id, undefined)
     expect(store.projectMemories[0].parentGroupId).toBeUndefined()
+  })
+
+  // HANDOFF 下一步 4：会话记忆按「会话」隔离——进程重启即新会话。上一次运行残留的会话记忆
+  // （正常关窗不经过会话边界）不得恢复进本次运行，否则会经 apiStore 的 buildSessionMemoryPrefix
+  // 作为「会话记忆」注入新会话上下文（曾实测含陈旧字符串 20260924）。
+  it('loadFromStorage 不把上一次运行的会话记忆恢复进本次运行（会话隔离）', () => {
+    vault.clearCache()
+    const store = useMemoryStore()
+    store.addDialogMessage({ role: 'user', type: 'text', content: '陈旧消息20260924' })
+    expect((store.sessionMemory.messages || []).length).toBe(1)
+
+    // 模拟进程重启：重新从 vault 加载
+    store.loadFromStorage()
+
+    // 本次运行应是全新会话，不含上一次运行的消息
+    expect(store.sessionMemory.messages || []).toEqual([])
+    // 旧会话不丢——归档到 holo-session-archive
+    const archive = JSON.parse(vault.readCache('memory', 'holo-session-archive') || '[]') as { messages?: { content?: string }[] }[]
+    expect(archive.some(s => (s.messages || []).some(m => m.content === '陈旧消息20260924'))).toBe(true)
   })
 })

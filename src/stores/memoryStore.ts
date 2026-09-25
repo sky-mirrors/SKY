@@ -127,14 +127,20 @@ export const useMemoryStore = defineStore('memory', () => {
     saveSessionToStorage()
   }
 
-  function archiveSession() {
+  // 会话记忆归档：把一段会话记忆推入 vault holo-session-archive（保留最近 20 段）。
+  // archiveSession（会话边界）与 loadFromStorage（进程重启）共用，避免两处各写一份。
+  function pushSessionToArchive(session: SessionMemory) {
     const raw = vault.readCache('memory', 'holo-session-archive') || '[]'
     try {
       const arr = JSON.parse(raw) as SessionMemory[]
-      arr.push({ ...sessionMemory.value })
+      arr.push(session)
       if (arr.length > 20) arr.splice(0, arr.length - 20)
       vault.writeThrough('memory', 'holo-session-archive', JSON.stringify(arr))
     } catch { /* ignore */ }
+  }
+
+  function archiveSession() {
+    pushSessionToArchive({ ...sessionMemory.value })
     clearSession()
   }
 
@@ -373,7 +379,18 @@ export const useMemoryStore = defineStore('memory', () => {
   function loadFromStorage() {
     const s = vault.readCache('memory', 'holo-session')
     if (s) {
-      try { sessionMemory.value = JSON.parse(s) as SessionMemory } catch { /* ignore */ }
+      // HANDOFF 下一步 4：会话记忆按「会话」隔离——进程重启即新会话。上一次运行残留的会话记忆
+      // （正常关窗不经过会话边界）**不恢复进本次运行**（否则会经 apiStore 的 buildSessionMemoryPrefix
+      // 作为「会话记忆」注入新会话上下文，曾实测含陈旧字符串 20260924）；把它归档到
+      // holo-session-archive（不丢），本次运行从 store 初始化时的全新会话开始。
+      try {
+        const persisted = JSON.parse(s) as SessionMemory
+        if (persisted && Array.isArray(persisted.messages) && persisted.messages.length > 0) {
+          pushSessionToArchive(persisted)
+        }
+      } catch { /* ignore */ }
+      // 本次运行从全新会话开始，并即时落盘覆盖 vault 里的旧值（避免下次启动再读到）
+      clearSession()
     }
     const p = vault.readCache('memory', 'holo-projects')
     if (p) {
