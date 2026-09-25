@@ -53,4 +53,13 @@ describe('EXAM-3 固定回归集 18 题（ACCEPTANCE-SPEC 命题表）', () => {
     expect(q11.prompt.length).toBeGreaterThan(600)
     expect(q11.prompt).toContain('52,610')
   })
+
+  // 2026-09-25（C）：Q15 判词口径与素材自洽——4 张考题图无 EXIF（坑 22），用户已裁定
+  // 「无 EXIF 时以文件系统时间为拍摄日期」（macroExecutor.ts:575-576 记载）。判卷员此前因
+  // 模型如实说明「取自文件系统时间」而判 not-deliverable（roundD 实测），本条守住该口径不再回退。
+  it('Q15 judgeHint 与素材自洽：无 EXIF 时以文件系统时间为拍摄日期即视为完成', () => {
+    const q15 = EXAM_CASES.find(c => c.id === 'Q15')!
+    expect(q15.judgeHint).toContain('无 EXIF')
+    expect(q15.judgeHint).toContain('文件系统时间为拍摄日期')
+  })
 })

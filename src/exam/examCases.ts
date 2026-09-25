@@ -220,7 +220,7 @@ export const EXAM_CASES: ExamCase[] = [
     assertions: [
       { kind: 'dirPattern', dir: 'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos', pattern: '^\\d{8}-\\d{2}\\.(jpg|jpeg|png)$' }
     ],
-    judgeHint: '文件夹内全部图片完成重命名且符合 YYYYMMDD-序号 格式，报告张数与新文件名。'
+    judgeHint: '文件夹内全部图片完成重命名且符合 YYYYMMDD-序号 格式，报告张数与新文件名。口径（2026-09-25 校准，与素材自洽）：本机这批图片不含 EXIF，用户已裁定「无 EXIF 时以文件系统时间为拍摄日期」，故模型按文件系统时间重命名即属正确完成；如实标注日期来源（EXIF 标签名 / 取自文件系统时间）、附一句说明或询问是否需按 EXIF 重做，均视为完成，不得以「未使用 EXIF 拍摄日期」「需用户再确认」为由判为不可交付。'
   },
   {
     id: 'Q16',
