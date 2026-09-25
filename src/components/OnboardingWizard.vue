@@ -94,6 +94,7 @@ import { useApiStore } from '@/domains/api'
 import { useNodeStore } from '@/domains/node'
 import { useNotificationStore } from '@/domains/app'
 import { JobRole } from '@/models'
+import { completeStep } from '@/services/onboardingManager'
 
 const configStore = useConfigStore()
 const apiStore = useApiStore()
@@ -170,7 +171,9 @@ function skip() {
 
 function finish() {
   if (selectedRole.value) {
-    configStore.setJobRole(selectedRole.value as JobRole)
+    // 2026-09-25（机制体检）：改经 onboardingManager 走同一条路——此前直接调 configStore，
+    // 使 onboardingManager 整个模块成为死代码（同一功能两套机制）。现由模块统一落库。
+    completeStep(2, { jobRole: selectedRole.value as JobRole })
     nodeStore.applyJobRoleTemplates(selectedRole.value as JobRole)
   }
 
@@ -203,7 +206,9 @@ function finish() {
     }).catch(() => {})
   }
 
+  completeStep(3, { apiConfigured: !!(apiUrl.value && apiModel.value) })
   configStore.markFirstLaunchDone()
+  completeStep(5)
   close()
 }
 

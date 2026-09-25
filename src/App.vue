@@ -128,6 +128,7 @@ import { qualityEmaStore } from '@/kernel/competition'
 import { registerApiHandlers } from '@/domains/api/handlers'
 import { registerAppHandlers } from '@/domains/app/handlers'
 import { registerConfigHandlers } from '@/domains/config/handlers'
+import { shouldShowOnboarding } from '@/services/onboardingManager'
 import { registerDataHandlers } from '@/domains/data/handlers'
 import { registerDebugHandlers } from '@/domains/debug/handlers'
 import { registerDialogHandlers } from '@/domains/dialog/handlers'
@@ -280,7 +281,7 @@ function onStarMapReady(api: any) {
       tooltipInfo.value = val
     })
   }
-  if (configStore.isFirstLaunch) {
+  if (configStore.isFirstLaunch && shouldShowOnboarding()) {
     api.startOnboarding()
     onboardingWizardRef.value?.open()
   }
@@ -544,11 +545,6 @@ onMounted(async () => {
   dialogStore.initSession()
   workflowLogStore.loadFromStorage()
 
-  // R16：工作台模式下 StarMap 不挂载，首启引导由工作台直接打开（星图模式的引导仍由 onStarMapReady 触发）
-  if (configStore.isFirstLaunch && configStore.uiMode === 'workbench') {
-    onboardingWizardRef.value?.open()
-  }
-
   const kernel = createKernel()
   // A2-9：pack veto 钩子桥在内核与 pack 运行时均就绪后启动（桥内部 fail-open，失败不阻塞启动）
   Promise.all([initKernelRuntime(), initPackRuntime()])
@@ -564,6 +560,12 @@ onMounted(async () => {
   registerApiHandlers(globalBus)
   registerAppHandlers(globalBus)
   registerConfigHandlers(globalBus)
+  // R16：工作台模式下 StarMap 不挂载，首启引导由工作台直接打开（星图模式的引导仍由 onStarMapReady 触发）
+  // 2026-09-25（机制体检）：改用 onboardingManager.shouldShowOnboarding()——须在 registerConfigHandlers 之后调用
+  // （该函数经 bus.request 读取，处理器未注册时会抛）。
+  if (configStore.isFirstLaunch && shouldShowOnboarding() && configStore.uiMode === 'workbench') {
+    onboardingWizardRef.value?.open()
+  }
   registerDataHandlers(globalBus)
   registerDebugHandlers(globalBus)
   registerDialogHandlers(globalBus)
