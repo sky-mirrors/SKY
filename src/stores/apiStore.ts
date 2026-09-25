@@ -552,6 +552,24 @@ export const useApiStore = defineStore('api', () => {
         }
       } catch { /* non-critical */ }
     }
+    // G-16（B）：会话记忆接线——memoryStore.sessionMemory 此前「只写不读」（快照 §〇 核实），
+    // 用户裁定接线进对话上下文。门控与上方偏好注入一致（exam/benchmark 隔离、结构化输出跳过、
+    // 防重复注入）；与当前窗口的重叠由 buildSessionMemoryPrefix 去重，避免重复注入本轮对话。
+    if (!isLearningIsolated
+      && (routingOptions?.taskType === undefined || routingOptions?.taskType === 'chat' || routingOptions?.taskType === 'llm_generate')
+      && !messages.some(m => (m.content || '').includes('只输出JSON'))
+      && !messages.some(m => (m.content || '').includes('[会话记忆]'))) {
+      try {
+        const { useMemoryStore } = await import('@/stores/memoryStore')
+        const { buildSessionMemoryPrefix } = await import('@/services/sessionMemoryContext')
+        const memMsgs = (useMemoryStore().sessionMemory?.messages || []).map(m => ({ role: m.role, content: m.content || '' }))
+        const prefix = buildSessionMemoryPrefix(memMsgs, messages.map(m => ({ role: m.role, content: m.content || '' })))
+        if (prefix) {
+          messages = [{ role: 'system', content: prefix }, ...messages]
+          debugLog('[chatCompletion:session-memory] 已注入会话记忆前缀')
+        }
+      } catch { /* non-critical */ }
+    }
     // P1-40：成功调用统一发射 record-cost（经 bus 桥落 debugStore 记账 + 调试窗时间线）
     // M17/M20：local=true 标记本地 Ollama 调用，费用记 0
     const emitRecordCost = (usage: { promptTokens: number; completionTokens: number; totalTokens: number; cacheHitTokens?: number }, tier?: string, category?: string, local?: boolean) => {
