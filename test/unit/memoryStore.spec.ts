@@ -179,6 +179,18 @@ describe('memoryStore', () => {
     expect(store.sessionMemory.id).toBeDefined()
   })
 
+  // G-16 残留（2026-09-25 修复）：archiveSession 此前全仓零调用方、只被它调用的 clearSession 同样零调用。
+  // 现在它挂在会话边界（dialogStore.newSession / clearCurrentSession），成为真实路径。
+  it('archiveSession 重置会话记忆且不抛（归档写入 vault holo-session-archive）', () => {
+    const store = useMemoryStore()
+    const beforeId = store.sessionMemory.id
+    store.addDialogMessage({ role: 'user', type: 'text', content: '归档前的会话消息' })
+    expect((store.sessionMemory.messages || []).length).toBeGreaterThan(0)
+    expect(() => store.archiveSession()).not.toThrow()
+    expect(store.sessionMemory.id).not.toBe(beforeId)
+    expect(store.sessionMemory.messages || []).toEqual([])
+  })
+
   it('setProjectGroup assigns group to project', () => {
     const store = useMemoryStore()
     const project = store.addProjectMemory('Group Test')

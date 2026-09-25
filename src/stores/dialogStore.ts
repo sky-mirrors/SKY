@@ -32,7 +32,7 @@ import { kernelRegistry } from '@/host/kernelRuntime'
 import type { DefaultKernelContext } from '@/kernels/default'
 import { FEEDBACK_RE, SHORT_FEEDBACK_RE } from '@/kernels/default'
 import type { DefaultKernelPlugin } from '@/kernels/default/plugin'
-import type { CompetitionRecord, FunnelBaseContext, FunnelOutcome } from '@/kernel/funnel'
+import type { CompetitionRecord, FunnelBaseContext, FunnelGates, FunnelOutcome } from '@/kernel/funnel'
 import {
   runShadowEvaluation,
   qualityEmaStore,
@@ -70,7 +70,9 @@ function userRequestedFile(input: string): boolean {
 
 import { useSessionStore } from './sessionStore'
 import type { Session } from './sessionStore'
+import { useMemoryStore } from './memoryStore'
 import { debugLog } from '@/services/debugLog'
+import { parseFunnelGates, describeGateOverrides } from '@/services/funnelGates'
 import { newTraceId } from '@/services/trace'
 import { NATIVE_TOOL_NAMES } from '@/services/toolRegistry'
 
@@ -803,7 +805,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             return { content: (r as { content?: string }).content || '' }
           }
         }
-        const outcome = await kernelRegistry.route(content, ctx)
+        const outcome = await kernelRegistry.route(content, ctx, { gates: await loadFunnelGates() })
         const legacyEndpoint = legacyEndpointFromTrail(legacyTrail)
         const funnelEndpoint = funnelEndpointOf(outcome)
         // 暂停点类终点旧侧走 system notice（无 log-probe），无法自动判定 → match=null 人工核对
@@ -851,6 +853,34 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   /** R16：工作台导航开关调用——vault 写入后清除闭包缓存，下一条消息即按新值路由 */
   function refreshFunnelMainFlag(): void {
     funnelMainEnabled = null
+  }
+
+  // ===== G-15（2026-09-25）：漏斗门值配置通道 =====
+  // 门值默认仍是 funnel.ts 的启发式常量；本通道让它们可经 vault `config/holo-funnel-gates`（JSON，如
+  // {"l05Pass":0.75}）覆盖，并把被覆盖的字段打到探针（此前既不可调也不可见）。未配置时逐字节等于默认。
+  let funnelGatesCache: FunnelGates | null = null
+
+  async function loadFunnelGates(): Promise<FunnelGates> {
+    if (funnelGatesCache) return funnelGatesCache
+    try {
+      const rawStr = await vault.read('config', 'holo-funnel-gates')
+      let parsed: unknown = null
+      if (rawStr) {
+        try { parsed = JSON.parse(rawStr) } catch { parsed = null }
+      }
+      funnelGatesCache = parseFunnelGates(parsed)
+      const overrides = describeGateOverrides(parsed)
+      if (overrides.length > 0) {
+        globalBus.emit('debug:log-probe', {
+          level: 'info', domain: 'funnel',
+          message: `门值被配置覆盖：${overrides.join('、')}`,
+          detail: JSON.stringify(funnelGatesCache)
+        })
+      }
+    } catch {
+      funnelGatesCache = parseFunnelGates(null)
+    }
+    return funnelGatesCache
   }
 
   // ===== A2-9 / 规格 9.2：pre-output 严格否决 flag（vault config:holo-strict-veto = '1' 开，默认关，无 UI）=====
@@ -1208,7 +1238,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           return { content: (r as { content?: string }).content || '' }
         }
       }
-      const outcome = await kernelRegistry.route(content, ctx)
+      const outcome = await kernelRegistry.route(content, ctx, { gates: await loadFunnelGates() })
       const handled = await consumeFunnelOutcome(content, outcome, allMcpTools)
       // 观测事件（R16）：工作台运行时面板订阅渲染最近路由结果
       // C-11：携带请求级 traceId（数据层归因，显示渲染不做）
@@ -3303,6 +3333,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   // P0-C4：新建会话也统一经此入口；返回新建会话供调用方提示
   function newSession(name?: string): Session {
     const sessionStore = useSessionStore()
+    // G-16 残留（2026-09-25）：会话边界归档会话记忆——memoryStore.archiveSession 此前全仓零调用方，
+    // 且只被它调用的 clearSession 同样零调用 ⇒ 会话记忆永不归档、永不重置（叠加会话记忆现已接线读取，
+    // 更成了一个只增不减的全局桶）。此处把结束的会话记忆归档到 vault `holo-session-archive` 并重置。
+    try { useMemoryStore().archiveSession() } catch { /* store 未就绪不阻塞建会话 */ }
     sessionStore.updateActiveMessages(messages.value)
     const session = sessionStore.createSession(name)
     sessionStore.switchToSession(session.id, messages.value)
@@ -3317,6 +3351,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   function clearCurrentSession(): void {
     const sessionStore = useSessionStore()
     if (!sessionStore.activeSessionId) return
+    // G-16 残留：清空当前会话同样是一次会话边界——归档并重置会话记忆，避免残留。
+    try { useMemoryStore().archiveSession() } catch { /* store 未就绪 */ }
     sessionStore.clearSession(sessionStore.activeSessionId)
     messages.value = []
     clearAllPausePoints()

@@ -81,3 +81,15 @@ describe('G-16（B）接线：apiStore 主路径注入会话记忆前缀', () =>
     expect(src).toContain('只输出JSON')
   })
 })
+
+// G-16 残留（2026-09-25 修复）：memoryStore.archiveSession 此前是死函数。若会话边界不再调用它，
+// 会话记忆又会退化为「只增不减、永不归档」——本条守住它被真实调用。
+describe('G-16 残留：archiveSession 在会话边界被调用', () => {
+  const dialog = readFileSync(join(process.cwd(), 'src/stores/dialogStore.ts'), 'utf-8')
+  const calls = dialog.match(/useMemoryStore\(\)\.archiveSession\(\)/g) || []
+
+  it('newSession 与 clearCurrentSession 两处会话边界都归档会话记忆', () => {
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    expect(dialog).toContain('function clearCurrentSession')
+  })
+})
