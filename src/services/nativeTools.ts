@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'image_process', 'media_process'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'create_docx', 'image_process', 'media_process'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -211,6 +211,25 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' }
       },
       required: ['from', 'to']
+    }
+  },
+  {
+    // 2026-09-25：把 app 自带的真 docx 写入能力接给模型。
+    // 背景：主进程 `file:createDocx`（electron/ipc-handlers.ts:419）一直在，但只被应用内部
+    // （长回复导出到桌面）使用，**没有工具定义**——于是用户说「把 x.md 转成 docx」时，模型只能
+    // 去用 file_convert（出口被写死为 PDF）或 shell+node -e（被安全闸拒），两条路都出不来 docx。
+    // 本工具把「读到的文本 → 真 docx」这条最稳的路给它（不碰 shell，绕开全部 shell 闸）。
+    name: 'create_docx',
+    description: '把一段**文本内容**写成真正的 Word 文档（.docx）并保存到指定绝对路径。用于「把 x.md / 这段内容转成 Word 文档」这类请求：先用 read_file 读出 .md 等源文件的文本，再调用本工具写入 .docx。不要用 shell + node -e 生成 docx（会被安全策略拒绝），也不要用 file_write 往 .docx 后缀写纯文本（那不是真 docx）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: '目标 .docx 的绝对路径（须以 .docx 结尾）。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        source: { type: 'string', description: '源文件绝对路径（.md / .txt 等）。把**已有文件**转成 docx 时优先用这个——工具会自己读取它，无需你先把正文读出来。与 content 二选一。' },
+        content: { type: 'string', description: '直接给出的文本内容；内容较短时用这个。与 source 二选一。' },
+        title: { type: 'string', description: '可选：文档标题，会作为一级标题写在第 1 段' }
+      },
+      required: ['filePath']
     }
   },
   {

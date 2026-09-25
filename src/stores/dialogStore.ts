@@ -102,10 +102,7 @@ const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥�
 6. 每步思考不超过2句话，简洁明了。
 7. 最终回复必须基于工具返回的真实数据，不得编造。
 8. 当可用工具不足以完成任务时，诚实告知用户缺少哪些工具或权限，不要编造替代方案的结果。
-9. 生成 .docx 文件的【完整步骤】：
-   第一步：先用 shell_exec 执行 "npm install docx"（工作目录 %USERPROFILE%），安装docx库。
-   第二步：再用 shell_exec 执行 node -e "脚本内容"，脚本中使用 require("docx") 的 Document/Packer/Paragraph/TextRun/HeadingLevel 创建文档，用 Packer.toBuffer 生成 Buffer，用 fs.writeFileSync 写入桌面路径（process.env.USERPROFILE + "\\Desktop\\文件名.docx"）。
-   【注意】不要用 fs.writeFile 把纯文本写到 .docx 后缀的文件，那只是改名后的 .md 文件，不是真正的 docx。必须用 docx 库生成真正的 docx 格式。
+9. 生成 .docx 文件的【唯一正确做法】：用 create_docx 工具（参数 filePath=目标 .docx 的绝对路径、content=要写入的文本、title=可选标题）。要把一份已有文件（如 .md / .txt）转成 docx 时：先用 read_file 读出它的内容，再把内容交给 create_docx。**不要**用 shell + node -e 去生成 docx（会被安全策略拒绝，实测报「node -e 代码包含危险模式」）；也**不要**用 file_write 往 .docx 后缀写纯文本（那只是改名的文本，不是真 docx）。若只需转成 PDF，用 file_convert（它只支持输出 .pdf）。
 10. 所有需要输出的文件，默认保存到用户桌面（%USERPROFILE%\\Desktop\\）。
 11. 【回复格式】使用纯文本和Markdown格式回复，禁止输出HTML标签、<div>、<span>、style属性等HTML代码。用户看到的是渲染后的界面，不需要HTML。
 12. 【完整回复】每次回复必须完整，禁止说"需要更多权限"或"继续执行"之类的话。遇到阻碍时，**必须先实际尝试对应工具**，再根据工具的真实返回说明结论；不得在未尝试的情况下凭猜测声称"没有权限/无法访问"。如果回复可能很长，优先保证内容完整，宁可简洁也不要截断。
@@ -659,6 +656,33 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       return r.success
         ? `已生成 PDF: ${r.path || target}（${r.bytes ?? 0} 字节，源文件: ${source}）`
         : `PDF 转换失败: ${r.error || ''}`
+    }
+    // 2026-09-25：create_docx —— app 自带的真 docx 写入能力（主进程 file:createDocx）。
+    // 与 file_write / file_convert 同路径：先经 O10 用户裁决再生产文件。
+    // 用户实测痛点：说「把 x.md 转成 docx」时，模型手里只有 file_convert（只出 PDF）⇒ 必然报
+    // 「目标文件必须是 .pdf」。本分支让「读到的文本 → 真 docx」有一条可走的正路。
+    if (fullName === 'create_docx') {
+      const filePath = String(args.filePath || args.path || args.file_path || '')
+      const source = String(args.source || args.from || '')
+      let content = String(args.content ?? '')
+      const title = args.title !== undefined ? String(args.title) : undefined
+      if (!filePath) return 'create_docx: 缺少 filePath 参数（目标 .docx 的绝对路径，例如 C:\\Users\\<用户名>\\Desktop\\x.docx）'
+      // source 优先：把已有文件转 docx 时由工具自己读源文件——不让模型把整篇正文当参数搬进来
+      // （弱模型搬不动长正文，实测它宁可传空参数而失败）。
+      if (source) {
+        if (!window.electronAPI?.fileRead) throw new Error('create_docx: fileRead not available')
+        const rd = await window.electronAPI.fileRead(source)
+        if (!rd || !rd.success) return `create_docx: 源文件读取失败: ${source}${rd?.error ? `（${rd.error}）` : ''}`
+        if (rd.isBinary) return `create_docx: 源文件是二进制，无法作为文本写入: ${source}`
+        content = rd.content ?? ''
+      }
+      if (!content && !source) return 'create_docx: 需要 source（源文件路径）或 content（文本内容）二者之一'
+      if (!(await requestWriteApproval('create_docx', args))) {
+        return 'create_docx: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.createDocx) throw new Error('create_docx not available')
+      const r = await window.electronAPI.createDocx({ filePath, content, title })
+      return r.success ? `已生成 Word 文档: ${filePath}` : `生成 docx 失败: ${r.error || ''}`
     }
     // 第二波·图像能力：批量图像处理。与 file_convert 同路径：先经 O10 用户裁决再生产文件。
     if (fullName === 'image_process') {
