@@ -67,6 +67,22 @@ describe('文件类任务 system 提示：内容', () => {
     expect(p).toMatch(/ren|move|Move-Item/)
     expect(p).toContain('退出码 -1')
   })
+
+  // 考试实测（trace）：模型坚持用 powershell/node -e 读 EXIF，被拒后仍反复重试、4 轮耗尽失败。
+  // 而 list_directory 返回的「拍摄日期」本就是权威日期——必须直接堵住这个执念。
+  it('堵住"用 shell 读 EXIF"的执念：声明 list_directory 的拍摄日期即权威', () => {
+    const p = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(p).toContain('拍摄日期')
+    expect(p).toContain('不要为了读 EXIF')
+    expect(p).toContain('list_directory')
+  })
+
+  it('omitShell=true 时不向模型提供 shell_exec（文件类直调路径）', () => {
+    const p = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP, omitShell: true })
+    expect(p).not.toContain('shell_exec（执行命令）')
+    expect(p).toContain('不提供 shell_exec')
+    expect(p).toContain('file_move')
+  })
 })
 
 describe('文件类任务提示：全路径走查（三处 payload 都要带）', () => {
@@ -88,5 +104,11 @@ describe('文件类任务提示：全路径走查（三处 payload 都要带）'
   it('三处 payload 都带上了 system 消息', () => {
     const sysUses = branch.match(/role:\s*'system'/g) || []
     expect(sysUses.length).toBe(3)
+  })
+
+  it('写类工具匹配时剔除 shell_exec（Q15：弱模型反复重试被拒的 shell）', () => {
+    expect(branch).toContain('isWriteTool(matched.name)')
+    expect(branch).toMatch(/t\.name === 'shell_exec'/)
+    expect(branch).toContain('omitShell')
   })
 })

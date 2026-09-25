@@ -20,16 +20,23 @@
  * 命令被拒、退出码 -1、0 文件改名（两轮考试连续复现）。此处把 file_move/file_convert 补进清单，
  * 并新增「【重命名/移动】」段写明"用 file_move、不要用 shell"。
  */
-export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; desktop?: string }): string {
+export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; desktop?: string; omitShell?: boolean }): string {
   const profile = (opts.userProfile || '').trim().replace(/[\\/]+$/, '')
   const desktop = (opts.desktop || (profile ? `${profile}\\Desktop` : '')).trim().replace(/[\\/]+$/, '')
+  const omitShell = !!opts.omitShell
+
+  const toolLine = omitShell
+    ? '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、file_move（重命名/移动文件）、file_convert（转换格式）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。本路径**不提供 shell_exec**（shell 白名单仅含 npm/dir/ls/cat/echo/type/mkdir/copy/cp/cd/pwd/pip，做不了文件操作）。'
+    : '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、file_move（重命名/移动文件）、file_convert（转换格式）、shell_exec（执行命令）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。'
 
   const lines: string[] = [
     '你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。',
     '',
-    '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、file_move（重命名/移动文件）、file_convert（转换格式）、shell_exec（执行命令）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。',
+    toolLine,
     '',
-    '【重命名/移动】重命名或移动文件【必须】用 file_move（参数 from→to），不要把重命名交给 shell_exec：shell 的命令白名单**不包含 ren / move / Move-Item / del**，这类命令会被直接拒绝并以退出码 -1 失败（Q15「图片按日期重命名」曾因此整题失败）。'
+    '【重命名/移动】重命名或移动文件【必须】用 file_move（参数 from→to），不要把重命名交给 shell_exec：shell 的命令白名单**不包含 ren / move / Move-Item / del**，这类命令会被直接拒绝并以退出码 -1 失败（Q15「图片按日期重命名」曾因此整题失败）。',
+    '',
+    '【拍摄日期】给图片按日期重命名时，`list_directory` 返回的每行「拍摄日期=…」就是权威日期（EXIF 优先，无 EXIF 时取自文件系统时间）——**直接用它命名即可**。**不要为了读 EXIF 去调 shell_exec**：shell 白名单只含 npm install / dir / ls / cat / echo / type / mkdir / copy / cp / cd / pwd / pip install，其余命令（含 powershell、node -e）一律被拒、退出码 -1。看到「拍摄日期」就直接 file_move，不要再做任何 shell 尝试。'
   ]
 
   if (profile && desktop) {

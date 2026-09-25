@@ -84,8 +84,8 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
   return []
 }
 
-import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs } from '@/services/nativeTools'
-import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS } from '@/services/writeGate'
+import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs, shellFailureMessage } from '@/services/nativeTools'
+import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS, isWriteTool } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 // 2026-09-25：文件类任务（mcp-direct 路径）此前不带 system 消息 ⇒ 模型不知道用户真实目录、
 // 只能猜路径（Q14/Q16 实测猜成 C:\Users 被安全策略拒）。见模块头注释的取证。
@@ -604,7 +604,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         return result.stdout || '(命令执行成功，无输出)'
       }
       globalBus.emit('debug:log-probe', { level: 'error', domain: 'shell', message: `命令执行失败(exit code ${result.code})`, detail: result.stderr || result.stdout || '' })
-      return `命令执行失败（退出码${result.code}）`
+      // Q15 真缺陷（2026-09-25）：重命名类命令被 shell 白名单拒时，回给模型的信息直接指向 file_move，
+      // 让回路自纠正（纯提示词对弱模型不可靠）。
+      return shellFailureMessage(String(args.command || ''), result.code, result.stderr)
     }
 
     // N1：原生文件工具分发——不依赖 MCP 连接
@@ -1077,9 +1079,14 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         try {
           userProfile = (await window.electronAPI?.resolvePath?.('%USERPROFILE%')) || ''
         } catch { userProfile = '' }
-        const fileTaskSystemPrompt = buildNativeFileTaskSystemPrompt({ userProfile })
+        const fileTask = isWriteTool(matched.name)
+        const fileTaskSystemPrompt = buildNativeFileTaskSystemPrompt({ userProfile, omitShell: fileTask })
         try {
-          const directTools = withAlwaysAvailableTools(matched, allMcpTools)
+          // Q15 真缺陷（2026-09-25）：文件类直调路径不把 shell_exec 交给模型——shell 白名单极窄
+          // （仅 npm/dir/ls/cat/echo/type/mkdir/copy/cp/cd/pwd/pip），读 EXIF / 重命名都必被拒；
+          // trace 实证弱模型（qwen2.5:3b）会反复重试 shell、4 轮耗尽后整题失败。匹配到写类原生工具
+          // 时剔除 shell_exec——function-calling 只允许已声明工具，模型便无从再走 shell。
+          const directTools = withAlwaysAvailableTools(matched, allMcpTools).filter(t => !(fileTask && t.name === 'shell_exec'))
           let apiResult = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'system', content: fileTaskSystemPrompt }, { role: 'user', content }], stream: true, tools: directTools, signal: toolCtl.signal }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           // 2026-09-24：原为**单轮**（执行一次 toolCalls 即呈现）。实测（HANDOFF 追加五十）
           // 路由落到本分支时，模型调一次 list_directory 就再无续跑——多步任务（先列目录再改名）

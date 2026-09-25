@@ -38,6 +38,43 @@ export function withAlwaysAvailableTools(
   return [...base, ...always].filter((t, i, arr) => arr.findIndex(x => x.name === t.name) === i)
 }
 
+/**
+ * shell_exec 失败时给模型的**可操作**提示（Q15 真缺陷，2026-09-25）。
+ *
+ * `SHELL_ALLOWED_COMMANDS` 不含 ren / move / Move-Item / del，重命名/移动类命令必被拒
+ * （退出码 -1，见 electron/ipc-handlers.ts:385-386）。只回"命令执行失败（退出码-1）"时，
+ * 弱模型会卡住或反复重试同一条被拒命令——验收考试实测：Q15 走 mcp-direct 时模型仍选 shell
+ * （一次等了 5 分钟写权限超时、一次 16s 即失败），两轮整题失败。
+ *
+ * 这里把失败信息直接指向 **file_move**：工具回路会把该结果回灌给模型，它据此即可改用，让失败
+ * 自纠正——不依赖"模型是否读懂并遵守了 system 提示"（实测纯提示词对 qwen2.5:3b 不可靠）。
+ */
+export function looksLikeRenameCommand(command: string): boolean {
+  const c = String(command || '')
+  return /\b(ren|rename|move|move-item|rename-item|mv)\b/i.test(c) || /renamesync|os\.rename|fs\.rename|::Move\s*\(|git\s+mv/i.test(c)
+}
+
+/**
+ * 判定一条 shell 失败是否为**白名单拒绝**（`electron/shell-security.ts` 的 SHELL_ALLOWED_COMMANDS
+ * 只含 npm install / dir / ls / cat / echo / type / mkdir / copy / cp / cd / pwd / pip install）。
+ * 这类拒绝必须回给模型**可操作的替代**，否则弱模型只会重复同一条被拒命令然后放弃。
+ */
+export function looksLikeWhitelistRejection(stderr?: string): boolean {
+  const s = String(stderr || '')
+  return s.includes('安全策略拒绝') || s.includes('白名单') || s.includes('命令被安全策略')
+}
+
+export function shellFailureMessage(command: string, code: number | string | undefined, stderr?: string): string {
+  const base = `命令执行失败（退出码${code}）`
+  if (looksLikeWhitelistRejection(stderr)) {
+    return `${base}。原因：该命令不在 shell 白名单内。文件类操作请改用原生工具——重命名/移动→file_move（参数 from=原路径、to=新路径）、写文件→file_write、转 PDF→file_convert、图片处理→image_process。不要用 shell 做文件操作。`
+  }
+  if (looksLikeRenameCommand(command)) {
+    return `${base}。原因：shell 命令白名单不含 ren / move / Move-Item / del——重命名或移动文件请【改用 file_move 工具】（参数 from=原路径、to=新路径），不要再用 shell 重试。`
+  }
+  return base
+}
+
 /** 常驻原生工具定义（不含 shell_exec——其定义保留在 dialogStore.buildMcpTools） */
 export interface ImageProcessArgs {
   inputs: string[]
