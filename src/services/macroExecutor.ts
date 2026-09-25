@@ -28,7 +28,7 @@ import { requestWriteApproval } from './writeGate'
 import { buildImageProcessArgs, buildMediaProcessArgs } from './nativeTools'
 // 2026-09-24：宏路径输出纪律（占位符/臆造字段/草稿字样）——宏的 llm_generate 与 direct 分支
 // 此前只发一条 user 消息，主对话的交付质量约束在此路径上不存在（见模块头注释的取证）。
-import { buildMacroLlmMessages } from './macroOutputDiscipline'
+import { buildMacroLlmMessages, composeLlmGeneratePrompt } from './macroOutputDiscipline'
 
 // P0-B2：删除按 tier 冻结的默认 STEP_TIMEOUT_MS 阶梯（nano 8s 在 CPU 后端基本 abort 一切，
 // 且遮蔽 apiStore 统一阶梯使其 2 档沦为死代码；stepTimeout 按初始 tier 冻结、降级重试不重算）。
@@ -377,6 +377,10 @@ export async function callToolDirectWithTier(
   if (fullName === 'llm_generate') {
     const prompt = String(args.prompt || args.input || '')
     if (!prompt) throw new Error('llm_generate: missing prompt')
+    // 2026-09-24：把**用户的原始请求**并入发给模型的作业指令。取证（q2-probe2 抓到的真实请求体）：
+    // Q2 周报那条 prompt 只带用户的内容（经 {{step_2_result}}）、丢了用户的格式要求（「分三块」），
+    // 模型只能照宏模板输出四块 ⇒ 四轮全挂。仅用于 messages，routing 仍按作业指令原文，避免改变档位。
+    const llmInput = composeLlmGeneratePrompt(prompt, userInput?.inputText)
 
     let tier: string
     if (!modelTier) {
@@ -420,7 +424,7 @@ export async function callToolDirectWithTier(
         // P0-10：原请求 llm:chat-completion 死频道（全仓无注册，每次必抛）；改走 api:chat-completion，
         // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
         const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-          messages: buildMacroLlmMessages(prompt),
+          messages: buildMacroLlmMessages(llmInput),
           // 2026-09-23：宏步骤此前完全不传 tools —— 插桩实测（handlers.ts 汇聚点）
           // `chan=nonstream tools=0 caller=macro:nano`，即模型看不到 read_file/list_directory/
           // file_write/shell_exec 的存在，只能回"我无法访问你电脑上的本地路径/没有文件系统权限"

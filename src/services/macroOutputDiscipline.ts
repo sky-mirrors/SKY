@@ -38,3 +38,23 @@ export function buildMacroLlmMessages(
     { role: 'user', content: userContent, timestamp: Date.now() }
   ]
 }
+
+/**
+ * 把用户的原始请求并入宏的 `llm_generate` 作业指令。
+ *
+ * 取证（`q2-probe2.mjs` 在 pinia api store 层抓到的真实请求体）：Q2「周报撰写」实际发出的
+ * user 消息逐字为——
+ *   「根据以下本周工作文档，生成一份周报草稿，包含：本周完成工作、进行中工作、下周计划、
+ *     需要协调的事项。\n\n文档内容：要点：1、完成了客户管理模块的联调…」
+ * 即：宏把用户的**内容**带上了（经 `{{step_2_result}}`——`resolveParams` 会把 `{{input}}`
+ * /step 结果填进去），却把用户的**格式要求**（考题原话「分「本周完成」「风险与问题」
+ * 「下周计划」三块」）整个丢了，模型只能照宏模板输出四块 ⇒ 四轮考试全挂。
+ * `macroExecutor.ts` 的 `resolveParams` 里 `input` 变量一直是可用的，只是这条 prompt 没引用它。
+ *
+ * 去重：作业指令里已含用户原话时（如 direct 模板的 `{{input}}`）原样返回，不重复注入。
+ */
+export function composeLlmGeneratePrompt(prompt: string, userRequest?: string): string {
+  const req = (userRequest || '').trim()
+  if (!req || prompt.includes(req)) return prompt
+  return `【用户的原始请求（其中的格式、分块数量、字段清单要求优先于下方作业指令中的建议结构）】\n${req}\n\n【本步骤作业指令】\n${prompt}`
+}

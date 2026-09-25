@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
-import { MACRO_OUTPUT_DISCIPLINE, buildMacroLlmMessages } from '@/services/macroOutputDiscipline'
+import { MACRO_OUTPUT_DISCIPLINE, buildMacroLlmMessages, composeLlmGeneratePrompt } from '@/services/macroOutputDiscipline'
 
 /**
  * 宏路径输出纪律（2026-09-24 第三批之二）
@@ -73,5 +73,44 @@ describe('宏路径输出纪律：全路径走查（防单侧修复）', () => {
 
   it('不再残留裸 user 消息装配（否则新调用点又会绕过纪律）', () => {
     expect(src).not.toMatch(/messages:\s*\[\{\s*role:\s*'user'/)
+  })
+})
+
+/**
+ * 宏提示词压过用户原话（Q2 四轮全挂的根因）
+ *
+ * 取证（`q2-probe2.mjs` 在 pinia api store 层抓的真实请求体，2026-09-24）：
+ *   [user] 根据以下本周工作文档，生成一份周报草稿，包含：本周完成工作、进行中工作、下周计划、需要协调的事项。
+ *          \n\n文档内容：要点：1、完成了客户管理模块的联调…5、下周计划：做完导出功能…
+ * ——宏把用户的**内容**带上了（经 {{step_2_result}}），却把用户的**格式要求**（考题原话「分「本周完成」
+ * 「风险与问题」「下周计划」三块」）整个丢了，模型只能照宏模板输出四块。
+ * `resolveParams`（macroExecutor.ts:752-756）里 `input` 一直是可用的，只是这条 prompt 没引用它。
+ */
+describe('宏提示词并入用户原始请求', () => {
+  const REQ = '帮我写一份周报，分「本周完成」「风险与问题」「下周计划」三块。\n要点：1、xxx'
+  const JOB = '根据以下本周工作文档，生成一份周报草稿，包含：本周完成工作、进行中工作、下周计划、需要协调的事项。\n\n文档内容：要点：1、xxx'
+
+  it('用户请求不在作业指令里时，前置并入并声明优先级', () => {
+    const out = composeLlmGeneratePrompt(JOB, REQ)
+    expect(out).toContain(REQ)
+    expect(out).toContain(JOB)
+    expect(out.indexOf(REQ)).toBeLessThan(out.indexOf(JOB))
+    expect(out).toMatch(/优先/)
+  })
+
+  it('作业指令已含用户原话时不重复注入（direct 模板的 {{input}} 已带）', () => {
+    const withInput = `请根据以下要点撰写一封专业的商务邮件。\n\n要点：${REQ}`
+    expect(composeLlmGeneratePrompt(withInput, REQ)).toBe(withInput)
+  })
+
+  it('无用户请求（未提供/空白）时原样返回', () => {
+    expect(composeLlmGeneratePrompt(JOB, '')).toBe(JOB)
+    expect(composeLlmGeneratePrompt(JOB, undefined)).toBe(JOB)
+    expect(composeLlmGeneratePrompt(JOB, '   ')).toBe(JOB)
+  })
+
+  it('作业指令逐字保留在尾部，不被改写', () => {
+    const out = composeLlmGeneratePrompt(JOB, REQ)
+    expect(out.endsWith(JOB)).toBe(true)
   })
 })
