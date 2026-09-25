@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord, ModelTier } from '@/models'
+import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord, ModelTier, ConstraintFeedbackStat } from '@/models'
 import { debugLog } from '@/services/debugLog'
 import { recordLlmCost, getBudgetStatus as getBudgetStatusFromService, initBudgetSystem, getCostBreakdownByTier, getCostBreakdownByCategory } from '@/services/tokenBudget'
 import { calculateCost } from '@/services/tokenPricing'
@@ -60,6 +60,10 @@ export const useDebugStore = defineStore('debug', () => {
   const budgetStatus = ref<BudgetStatus | null>(null)
   const costByTier = ref<Record<string, { cost: number; callCount: number; totalTokens: number }>>({})
   const costByCategory = ref<Record<string, { cost: number; callCount: number }>>({})
+  // 2026-09-25 机制体检：约束反馈自治的审计快照（由 constraintFeedback 经
+  // debug:constraint-feedback 广播、handlers.setConstraintFeedbackStats 写入）。
+  // 属本 store 状态 → 经既有 storeSync 自动镜像到独立的调试台窗口。
+  const constraintFeedbackStats = ref<ConstraintFeedbackStat[]>([])
 
   const CATEGORY_ICONS: Record<ConsoleCategory, string> = {
     system: '⚙️', raap: '🎯', llm: '🤖', shell: '💻', cache: '♻️',
@@ -419,6 +423,11 @@ export const useDebugStore = defineStore('debug', () => {
     costByCategory.value = getCostBreakdownByCategory()
   }
 
+  /** 写入约束反馈自治审计快照（来源：debug:constraint-feedback 广播） */
+  function setConstraintFeedbackStats(list: ConstraintFeedbackStat[]) {
+    constraintFeedbackStats.value = Array.isArray(list) ? list : []
+  }
+
   captureConsole()
 
   emitEvent('info', 'system', '[DebugCenter] 调试中心已自动激活，将记录所有操作和token计数')
@@ -449,6 +458,8 @@ export const useDebugStore = defineStore('debug', () => {
     budgetStatus,
     costByTier,
     costByCategory,
+    constraintFeedbackStats,
+    setConstraintFeedbackStats,
     recordStepCost,
     recordTokenUsage,
     refreshBudgetStatus,

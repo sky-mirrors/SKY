@@ -1109,6 +1109,31 @@ export interface ConstraintFeedbackEntry {
   documentId?: string
 }
 
+/**
+ * 约束反馈的**审计快照**（2026-09-25 机制体检）。
+ * constraintFeedback 的自治（误报率 >30% 自动禁用 / >20% 自动降级，样本 ≥10）
+ * 一直在跑，但结果无处可见、无法审计——本类型是「管理面」的对外形态，
+ * 供调试台「约束反馈自治」面板渲染，口径与 checkAutoDowngrade 逐字对齐。
+ */
+export interface ConstraintFeedbackStat {
+  constraintId: string
+  /** 该约束累计评估数（含状态变更事件） */
+  totalEvaluations: number
+  falsePositives: number
+  truePositives: number
+  /** 累计误报率 */
+  falsePositiveRate: number
+  /** 自治实际口径的窗口样本数（最近 N 条） */
+  recentEvaluations: number
+  /** 自治实际口径的窗口误报率 */
+  recentFalsePositiveRate: number
+  /** 约束当前状态；约束不存在时为 'unknown' */
+  status: RuleStatus | 'unknown'
+  lastEvaluated: number | null
+  /** 按当前口径，自治会/已采取的动作 */
+  autonomy: 'none' | 'disable' | 'downgrade'
+}
+
 export interface FactConflict {
   type: FactEntityType
   sourceRaw: string

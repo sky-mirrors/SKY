@@ -50,3 +50,42 @@ describe('debug 域：/debug 命令的 4 条频道必须接线到 debugStore', (
     expect((store as unknown as { frozen: boolean }).frozen).toBe(false)
   })
 })
+
+/**
+ * 机制体检（2026-09-25）：constraintFeedback 的自治写侧在跑（factGuard → processConstraintResults），
+ * 但结果无处可见。服务在每次记录/清空反馈时 emit 审计快照，此处验证它真的进了 debugStore
+ * （再经 storeSync 镜像到独立的调试台窗口面板）。
+ */
+describe('debug 域：约束反馈自治审计频道接线', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    registerDebugHandlers(globalBus)
+  })
+
+  it('debug:constraint-feedback → debugStore.constraintFeedbackStats', () => {
+    const store = useDebugStore()
+    expect(store.constraintFeedbackStats).toEqual([])
+    const snapshot = [{
+      constraintId: 'legal-employment-protection',
+      totalEvaluations: 12,
+      falsePositives: 5,
+      truePositives: 7,
+      falsePositiveRate: 5 / 12,
+      recentEvaluations: 12,
+      recentFalsePositiveRate: 5 / 12,
+      status: 'active' as const,
+      lastEvaluated: 123,
+      autonomy: 'downgrade' as const
+    }]
+    globalBus.emit('debug:constraint-feedback', snapshot)
+    expect(store.constraintFeedbackStats).toHaveLength(1)
+    expect(store.constraintFeedbackStats[0].constraintId).toBe('legal-employment-protection')
+    expect(store.constraintFeedbackStats[0].autonomy).toBe('downgrade')
+  })
+
+  it('非数组 payload 被忽略（防脏广播破坏 store 状态）', () => {
+    const store = useDebugStore()
+    globalBus.emit('debug:constraint-feedback', { bad: true })
+    expect(store.constraintFeedbackStats).toEqual([])
+  })
+})

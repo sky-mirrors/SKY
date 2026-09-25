@@ -1,6 +1,6 @@
 import type { HoloEventBus } from '@/kernel/bus'
 import { useDebugStore } from '@/stores/debugStore'
-import type { ConsoleCategory, ConsoleLogLevel, ProbeSnapshot } from '@/models'
+import type { ConsoleCategory, ConsoleLogLevel, ProbeSnapshot, ConstraintFeedbackStat } from '@/models'
 
 // HoloEventBus.emit() 只达 bus.on() 监听器、registerHandler() 仅 request() 可达；
 // debug:* 频道全部走 emit() 发布，故除 registerHandler 外必须桥接 on()（HMR 重挂载先释放旧订阅）
@@ -18,6 +18,7 @@ let _disposeActivate: Disposer = null
 let _disposeDeactivate: Disposer = null
 let _disposeEnv: Disposer = null
 let _disposeUnfreeze: Disposer = null
+let _disposeConstraintFeedback: Disposer = null
 
 type DebugEnvironment = { model: string; provider: string; apiReachable: boolean; nodeCount: number; manifestCount: number }
 
@@ -124,4 +125,16 @@ export function registerDebugHandlers(bus: HoloEventBus) {
   bus.registerHandler('debug:unfreeze-buffer', unfreezeHandler)
   _disposeUnfreeze?.()
   _disposeUnfreeze = bus.on('debug:unfreeze-buffer', unfreezeHandler)
+
+  // 2026-09-25（机制体检）：约束反馈自治的审计快照。constraintFeedback 的自治
+  // （误报率 >30% 自动禁用 / >20% 自动降级）写侧在跑，但结果此前无处可见 ⇒
+  // 服务在每次记录/清空反馈时 emit 快照，此处桥接到 debugStore，再经既有 storeSync
+  // 镜像到独立的调试台窗口面板「约束反馈自治」。emit 只达 on()，故 registerHandler 亦挂。
+  const constraintFeedbackHandler = (payload: ConstraintFeedbackStat[]) => {
+    if (!Array.isArray(payload)) return
+    useDebugStore().setConstraintFeedbackStats(payload)
+  }
+  bus.registerHandler('debug:constraint-feedback', constraintFeedbackHandler as (payload: unknown) => unknown)
+  _disposeConstraintFeedback?.()
+  _disposeConstraintFeedback = bus.on('debug:constraint-feedback', constraintFeedbackHandler as (payload: unknown) => unknown)
 }

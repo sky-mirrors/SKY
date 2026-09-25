@@ -54,6 +54,20 @@
             </div>
           </div>
         </div>
+        <div class="feedback-audit-section">
+          <div class="panel-title">约束反馈自治</div>
+          <div class="fa-hint">≥10 样本 · 误报率&gt;30% 自动禁用 / &gt;20% 自动降级</div>
+          <div v-if="debugStore.constraintFeedbackStats.length === 0" class="empty-hint">暂无约束反馈</div>
+          <div v-else class="fa-list">
+            <div v-for="s in debugStore.constraintFeedbackStats" :key="s.constraintId"
+                 class="fa-row"
+                 :title="`累计评估 ${s.totalEvaluations} 次（窗口 ${s.recentEvaluations}）· 累计误报率 ${(s.falsePositiveRate * 100).toFixed(1)}% · 状态 ${s.status}`">
+              <span class="fa-id">{{ s.constraintId }}</span>
+              <span class="fa-rate" :class="{ 'fa-warn': s.recentFalsePositiveRate > 0.2, 'fa-danger': s.recentFalsePositiveRate > 0.3 }">{{ (s.recentFalsePositiveRate * 100).toFixed(1) }}%</span>
+              <span class="fa-autonomy" :class="`fa-auto-${s.autonomy}`">{{ autonomyLabel(s.autonomy) }}</span>
+            </div>
+          </div>
+        </div>
         <div v-if="debugStore.selectedProbe" class="probe-detail">
           <div class="detail-grid">
             <div class="detail-cell"><span class="dk">来源</span><span class="dv" :class="`source-tag-${debugStore.selectedProbe.source}`">{{ sourceLabel(debugStore.selectedProbe.source) }}</span></div>
@@ -233,6 +247,11 @@ function onUnfreeze() {
   debugStore.unfreezeBuffer()
 }
 
+/** 自治动作的中文短标签（审计面板） */
+function autonomyLabel(a: 'none' | 'disable' | 'downgrade'): string {
+  return a === 'disable' ? '禁用' : a === 'downgrade' ? '降级' : '—'
+}
+
 </script>
 
 <style scoped>
@@ -295,6 +314,20 @@ function onUnfreeze() {
 .source-llm { border-left: 2px solid #6688ff; }
 .source-rule { border-left: 2px solid #44ff88; }
 .source-cache { border-left: 2px solid #ffaa44; }
+
+/* 约束反馈自治审计面板（2026-09-25 机制体检） */
+.feedback-audit-section { border-top: 1px solid rgba(255,50,50,0.15); padding: 6px; max-height: 160px; overflow-y: auto; }
+.fa-hint { font-size: 9px; color: #666; padding: 0 2px 4px; }
+.fa-list { display: flex; flex-direction: column; gap: 2px; }
+.fa-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; background: rgba(0,0,0,0.3); border-radius: 3px; font-size: 10px; }
+.fa-id { flex: 1; color: #bbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 9px; }
+.fa-rate { font-family: monospace; font-size: 9px; color: #888; min-width: 38px; text-align: right; }
+.fa-warn { color: #ffaa44; }
+.fa-danger { color: #ff5555; font-weight: bold; }
+.fa-autonomy { font-size: 9px; min-width: 28px; text-align: center; }
+.fa-auto-none { color: #555; }
+.fa-auto-downgrade { color: #ffaa44; }
+.fa-auto-disable { color: #ff5555; font-weight: bold; }
 
 .probe-detail { border-top: 1px solid rgba(255, 50, 50, 0.15); padding: 6px; overflow-y: auto; max-height: 250px; }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 6px; }
