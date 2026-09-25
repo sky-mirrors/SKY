@@ -904,7 +904,3 @@ export function getTop3CandidatesUniversal(
   const rrfResults = computeRRFGeneric([], kwScores)
   return rrfResults.slice(0, 3).map(r => ({ item: r.item, score: r.rrfScore, method: r.method }))
 }
-
-export function rewriteQuery(query: string): string {
-  return query
-}

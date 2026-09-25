@@ -13,10 +13,6 @@ export function getLLM(): LLMPort {
   return _llmPort
 }
 
-export function hasLLM(): boolean {
-  return _llmPort !== null
-}
-
 export function unregisterLLM(): void {
   _llmPort = null
 }

@@ -250,8 +250,4 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', flushOnQuit)
 }
 
-export function useVault(): VaultClient {
-  return vault
-}
-
 export type { VaultClient }
