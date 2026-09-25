@@ -36,7 +36,7 @@ export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; de
     '',
     '【重命名/移动】重命名或移动文件【必须】用 file_move（参数 from→to），不要把重命名交给 shell_exec：shell 的命令白名单**不包含 ren / move / Move-Item / del**，这类命令会被直接拒绝并以退出码 -1 失败（Q15「图片按日期重命名」曾因此整题失败）。',
     '',
-    '【拍摄日期】给图片按日期重命名时，`list_directory` 返回的每行「拍摄日期=…」就是权威日期（EXIF 优先，无 EXIF 时取自文件系统时间）——**直接用它命名即可**。**不要为了读 EXIF 去调 shell_exec**：shell 白名单只含 npm install / dir / ls / cat / echo / type / mkdir / copy / cp / cd / pwd / pip install，其余命令（含 powershell、node -e）一律被拒、退出码 -1。看到「拍摄日期」就直接 file_move，不要再做任何 shell 尝试。'
+    '【拍摄日期】给图片按日期重命名时，`list_directory` 返回的每行「拍摄日期=…」就是权威日期（EXIF 优先，无 EXIF 时取自文件系统时间）——**直接用它命名即可**。**不要为了读 EXIF 去调 shell_exec**：shell 白名单只含 npm install / dir / ls / cat / echo / type / mkdir / copy / cp / cd / pwd / pip install（`powershell` 等一律被拒、退出码 -1；`node -e` 仅在受限模式放行，只允许 require fs/path/os/docx/xlsx/pdf-parse/mammoth/archiver/marked 且写目标限桌面/文档/下载，读 EXIF 用不上）。看到「拍摄日期」就直接 file_move，不要再做任何 shell 尝试。'
   ]
 
   if (profile && desktop) {
