@@ -99,13 +99,14 @@ L0.5 门 0.8/0.9、L1 门 0.6、margin 0.10、green 0.95（funnel.ts:31、toolRe
 ### G-16 协作记忆循环断线——系统对用户永久失忆 ✅（A3/P0-C 已修偏好注入，2026-09-21）
 
 > 修复范围说明：本批落地"偏好注入"断点（globalMemory.preferences 经 apiStore.chatCompletion 注入主路径，见 F-1 条目修复明细）。其余断点（高频术语零写入/隐式蒸馏/sessionMemory 只写不读/归档死函数）仍未修，留待后续批次——用户手动设置的偏好现已真实生效，但从行为中自动学偏好（与 EMA 同构的隐式蒸馏）未实现。
+> **2026-09-25 补修（第八批 `5e1e51a`）**：`sessionMemory` 由"只写不读"改为**接线**——新增 `src\services\sessionMemoryContext.ts` 的 `buildSessionMemoryPrefix`，在 `apiStore.chatCompletion` 注入 `[会话记忆]` system 前缀（门控与偏好注入一致：exam/benchmark 隔离、结构化输出跳过、防重复注入；与当前窗口重叠自动去重）。`archiveSession` 与隐式蒸馏仍未实现。
 > **复考实证（2026-09-21）**：手术题 R1 偏好注入 PASS（"输出要简洁"下周报 106 token 干净收尾 vs 隔离对照 670 token 冗长+虚构）；R3+R4 重复任务第二次 2s 秒回为语义缓存命中（in=0 out=0 记账）而非隐式蒸馏——范围声明得到诚实验证（`../surgical-report-reexam.json`）。
 
 三层记忆的容器齐全（session/project/global，vault 持久化，UI 面板俱备），但循环四断：
 
 1. **globalMemory 零注入**：preferences/frequentTerms/promptTemplates 全库仅两处消费——memoryStore 自身与 DialogPanel UI 展示（DialogPanel.vue:435-450）。上下文构建器（getContextWindow，memoryStore.ts:312-330；memoryAdapter，337-351）只读 conversations+summaries；promptTranslator 全文无 memoryStore 引用。用户在面板手动设了"周报要简洁"，模型永远不知道。
 2. **高频术语连写入方都没有**：addFrequentTerm（memoryStore.ts:219-227）全库零调用——"高频术语"区永远显示 0。
-3. **sessionMemory 只写不读、归档是死函数**：经 bus 桥写入（dialogStore.ts:230/259 → addDialogMessage，cap 200 条），全库无读取方；archiveSession（memoryStore.ts:130-139）零调用——`holo-session-archive` 键从未被写入过。
+3. **sessionMemory 只写不读、归档是死函数**：经 bus 桥写入（dialogStore.ts:298/328 → addDialogMessage，cap 200 条）；archiveSession（memoryStore.ts:130-139）零调用——`holo-session-archive` 键从未被写入过。**2026-09-25 已修读取侧**（第八批 `5e1e51a`）：`sessionMemoryContext.buildSessionMemoryPrefix` 在 `apiStore.chatCompletion` 注入 `[会话记忆]` 前缀（exam/benchmark 隔离、结构化输出跳过、与当前窗口去重）；archiveSession 与隐式蒸馏仍未实现。
 4. **拉取通道也到不了偏好**：唯一活着的记忆通道 l1-workspace-memory（pipelineExecutor.ts:102-121，经 domains/memory/handlers.ts:13-15 bus 桥）只服务 getContextWindow（会话消息+摘要）——即使模型主动拉记忆，拿到的也只是聊天记录，不是用户存的偏好。
 
 写入侧同样断：preferences 唯一写入方是面板"+"按钮（DialogPanel.vue:1571-1573）——没有任何机制从用户反馈/纠正/复用行为中隐式蒸馏（对比：机制级学习 EMA/指纹/预算全部自动）。**机制对自己全自动，对用户全手动，且手动也不接线。**
