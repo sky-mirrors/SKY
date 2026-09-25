@@ -853,18 +853,10 @@ watch(() => dialogStore.messages.length, async () => {
   }
 })
 
-watch(() => {
-  const streamId = dialogStore.streamingMessageId
-  if (!streamId) return null
-  const msg = dialogStore.messages.find(m => m.id === streamId)
-  return msg ? msg.content.length : null
-}, async () => {
-  await nextTick()
-  if (messagesRef.value) {
-    messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-  }
-})
-
+// 2026-09-25：这里原本挂着一个"流式输出时自动滚到底"的 watcher，监视
+// dialogStore.streamingMessageId——但 dialogStore 从来没有这个成员 ⇒ 它恒返回 null，
+// 是一段永不生效的死代码（类型检查报了 4 轮 TS2339，此前被 typecheck 脚本的 TS6305 掩蔽）。
+// 整块移除。若确实要"边流边滚"，正确做法是先在 dialogStore 里真正维护 streamingMessageId。
 watch(() => showPanel.value, async (val) => {
   if (val === 'settings') {
     await loadCheckpoints()
@@ -1185,13 +1177,8 @@ function exportFullDialog() {
     const role = msg.role === 'user' ? '👤 用户' : '🤖 助手'
     const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('zh-CN') : ''
     md += `## ${role} ${time ? '(' + time + ')' : ''}\n\n${msg.content}\n\n`
-    if (msg.toolCalls && msg.toolCalls.length > 0) {
-      md += `**工具调用:**\n`
-      for (const tc of msg.toolCalls) {
-        md += `- \`${tc.function.name}\`\n`
-      }
-      md += '\n'
-    }
+    // 2026-09-25：原有一段读 `msg.toolCalls` 的导出逻辑，但对话消息类型里没有 toolCalls
+    // 字段、也没有任何代码往里写过它 ⇒ 恒为 undefined 的死分支。移除以消除假接口。
   }
   md += `---\n\n*共 ${msgs.length} 条消息 | 由 HoloStarmap 导出*\n`
   const blob = new Blob([md], { type: 'text/markdown' })
@@ -1217,11 +1204,16 @@ function saveMacroTemplate() {
     if (tool === 'llm_generate') {
       params.prompt = macroPrompt.value || '请根据上下文完成任务'
     }
-    return { step: idx + 1, description: desc, tool, depends_on: deps, params, modelTier: 'standard' as const }
+    // 2026-09-25：L2DagStep.expectedOutput 是必填字段，原先自建宏漏了它 ⇒ 类型不兼容
+    // （TS2322，此前被 typecheck 脚本的 TS6305 掩蔽）。用户在手写步骤行里没给输出描述，
+    // 就用步骤描述兜底（官方 manifest 的每一步也都有这个字段）。
+    return { step: idx + 1, description: desc, tool, depends_on: deps, params, modelTier: 'standard' as const, expectedOutput: desc }
   })
   const id = `l2-custom-${macroName.value.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}`
   const manifest: L2ToolManifest = {
-    identity: { id, name: macroName.value, version: '1.0.0', author: 'custom', createdAt: Date.now(), updatedAt: Date.now(), templateId: id },
+    // 2026-09-25：author 原写 'custom'，但 Author 联合类型是 'user'|'official'|'community'——
+    // 用户自建宏语义上正是 'user'，改用类型里已有的取值（而不是放宽联合类型）。
+    identity: { id, name: macroName.value, version: '1.0.0', author: 'user', createdAt: Date.now(), updatedAt: Date.now(), templateId: id },
     visual: { baseColor: '#ff9944', ringStyle: 'dashed', badges: ['custom'], hoverLabel: macroName.value, anchorGlow: '#ff8833', upgradeGlow: '#ffcc44' },
     routing: { keywords: macroKeywords.value.split(',').map(k => k.trim()).filter(Boolean), targetRoles: ['general'], requiredL1: [], inputType: 'text', retrievalSummary: macroName.value, userSummary: macroName.value, confidenceThreshold: 0.5 },
     execution: { mode: 'macro', dagPlan: { steps, fallbackStrategy: 'retry', maxRetries: 1 }, paramMapping: { slots: [], bindings: [] } },

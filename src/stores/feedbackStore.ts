@@ -39,8 +39,10 @@ export const useFeedbackStore = defineStore('feedback', () => {
     }
     try {
       if (window.electronAPI?.storeRead) {
-        const data: string | null = await window.electronAPI.storeRead(EFFECTS_KEY)
-        if (data) sideEffects.value = JSON.parse(data)
+        // 2026-09-25：storeRead 的返回类型是 unknown，原先直接标注 `string | null` 是错的
+        // （TS2322，此前被 typecheck 脚本的 TS6305 掩蔽）。改为运行时收窄：非字符串一律忽略。
+        const data = await window.electronAPI.storeRead(EFFECTS_KEY)
+        if (typeof data === 'string' && data) sideEffects.value = JSON.parse(data)
       }
     } catch { /* ignore */ }
   }
@@ -196,8 +198,9 @@ export const useFeedbackStore = defineStore('feedback', () => {
   async function clearExecutionCache(queryFingerprint: string): Promise<void> {
     try {
       if (window.electronAPI?.storeRead) {
-        const data: string | null = await window.electronAPI.storeRead('execution-fingerprints')
-        if (data) {
+        // 2026-09-25：同上——storeRead 返回 unknown，用运行时收窄替代错误的类型标注。
+        const data = await window.electronAPI.storeRead('execution-fingerprints')
+        if (typeof data === 'string' && data) {
           const parsed = JSON.parse(data)
           if (parsed[queryFingerprint]) {
             delete parsed[queryFingerprint]

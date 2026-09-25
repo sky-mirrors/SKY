@@ -30,14 +30,10 @@
               <span class="nc-item-time">{{ formatTime(n.timestamp) }}</span>
             </div>
             <div class="nc-item-msg">{{ n.message }}</div>
-            <div class="nc-item-actions" v-if="n.actions.length > 0">
-              <button
-                v-for="(a, ai) in n.actions"
-                :key="ai"
-                class="nc-action-btn"
-                @click.stop="a.handler()"
-              >{{ a.label }}</button>
-            </div>
+            <!-- 2026-09-25：原按钮 @click.stop="a.handler()"，而 NotificationAction 只有
+                 {label, action: 'detail'|'retry'|'view'|'manage'|'settings', payload}、没有 handler；
+                 且全仓没有任何调用方传 actions（grep 只命中类型定义）⇒ 这块永远渲染不出来、
+                 真渲染出来必抛 TypeError。整块移除以消除"看起来能用实则必崩"的假接口。 -->
           </div>
         </div>
         <div class="nc-empty" v-if="filteredNotifications.length === 0">

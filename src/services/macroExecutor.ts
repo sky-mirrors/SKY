@@ -1406,14 +1406,18 @@ export async function executeMacro(
   for (const reuseStep of stepPlan.willReuse) {
     // P1-15：统一不可复用缓存工具集（含 create_docx）
     if (NO_CACHE_REUSE_TOOLS.has(reuseStep.tool)) continue
-    if (isReusableCachedResult(cached?.results[reuseStep.step])) {
-      results[reuseStep.step] = cached.results[reuseStep.step]
+    // 2026-09-25：先把命中的缓存结果提成局部量——原实现先判 `cached?.results[...]`、
+    // 随后又裸写 `cached.results[...]`，TS 无法把可选链的收窄带到后面（TS18047，
+    // 此前被 typecheck 脚本的 TS6305 掩蔽）。显式判 undefined 后收窄，语义与原实现一致。
+    const cachedResult = cached?.results[reuseStep.step]
+    if (cachedResult !== undefined && isReusableCachedResult(cachedResult)) {
+      results[reuseStep.step] = cachedResult
       stepDone.set(reuseStep.step, true)
       wfUpdate(reuseStep.step, reuseStep.tool, 'completed')
       onStepReuse?.(reuseStep.step)
       savedTokens += reuseStep.tool === 'llm_generate' ? 2000 : 500
       lineage.push({ step: reuseStep.step, source: 'cache_reuse', tool: reuseStep.tool })
-      probeStep(manifest.identity.id, reuseStep.step, reuseStep.tool, 'cache', `缓存复用(fingerprint=${inputFingerprint.substring(0, 16)})`, {}, cached.results[reuseStep.step], 0, { cacheFingerprint: inputFingerprint }, traceId)
+      probeStep(manifest.identity.id, reuseStep.step, reuseStep.tool, 'cache', `缓存复用(fingerprint=${inputFingerprint.substring(0, 16)})`, {}, cachedResult, 0, { cacheFingerprint: inputFingerprint }, traceId)
     }
   }
 

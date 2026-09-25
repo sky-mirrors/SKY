@@ -677,7 +677,10 @@ export interface L2ToolIdentity {
 export interface L2ToolVisual {
   baseColor: string
   ringStyle: 'solid' | 'dashed'
-  badges: ('sparkle' | 'chain' | 'lightning')[]
+  // 2026-09-25：badges 原为 'sparkle'|'chain'|'lightning'，但两处既有数据用了类型外的取值——
+  // l2Manifests 的「文件解读助手」用 'file'、DialogPanel 的自建宏用 'custom'。badges 只被构造、
+  // 没有按值查表的渲染路径（全仓 grep 确认），故按既有数据拓宽联合类型，而不是去改数据。
+  badges: ('sparkle' | 'chain' | 'lightning' | 'file' | 'custom')[]
   hoverLabel: string
   anchorGlow: string
   upgradeGlow: string

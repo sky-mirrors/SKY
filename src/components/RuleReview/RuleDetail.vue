@@ -136,7 +136,9 @@ const automationLabel = computed(() => {
   switch (rule.value.automationLevel) {
     case 'full': return '全自动'
     case 'semi': return '半自动(需确认)'
-    case 'assist': return '辅助提示'
+    // 2026-09-25：原有一个 case 'assist'（'辅助提示'），但 Rule.automationLevel 的联合类型
+    // 只有 'full' | 'semi'（models/index.ts:1055 与 :1073），该分支永远不可达 ⇒ 移除。
+    // 若将来真要引入"辅助提示"档，得先在类型与数据源里把它落地，而不是只写个 case。
   }
 })
 

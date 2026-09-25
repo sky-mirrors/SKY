@@ -499,7 +499,9 @@ export function useDagEngine(canvasRef: Ref<HTMLCanvasElement | null>) {
 
   function removeNode(nodeId: string) {
     nodes.value = nodes.value.filter(n => n.id !== nodeId)
-    edges.value = edges.filter(e => e.sourceNodeId !== nodeId && e.targetNodeId !== nodeId)
+    // 2026-09-25：`edges` 是 Ref，直接 `.filter` 在运行时是 TypeError（删除节点必炸）。
+    // 类型检查一直在报 TS2339，此前被 typecheck 脚本的 TS6305 掩蔽着看不见。
+    edges.value = edges.value.filter(e => e.sourceNodeId !== nodeId && e.targetNodeId !== nodeId)
     if (selectedNodeId.value === nodeId) selectedNodeId.value = null
     scheduleRender()
   }

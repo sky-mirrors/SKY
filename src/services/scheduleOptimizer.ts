@@ -236,6 +236,20 @@ export function getManifestStats(manifestId: string): ManifestExecutionStats | n
   return manifestStats.get(manifestId) || null
 }
 
+/**
+ * 清空自编译统计（DebugWindow 的「重置自编译」按钮）。
+ * 2026-09-25：该按钮原先 `const { resetManifestStats } = await import('.../scheduleOptimizer')`，
+ * 而这个导出**从来不存在** ⇒ 点击恒抛 TypeError（被 catch 成 footer 提示），功能等于没有。
+ * 类型检查一直报 TS2339，此前被 typecheck 脚本的 TS6305 掩蔽着看不见。
+ */
+export function resetManifestStats(): void {
+  manifestStats.clear()
+  try {
+    const saved = window.electronAPI?.storeWrite?.(STATS_STORE_KEY, [])
+    if (saved) saved.catch(() => { /* non-critical */ })
+  } catch { /* non-critical */ }
+}
+
 export interface DataflowIssue {
   step: number
   description: string

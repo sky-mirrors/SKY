@@ -312,13 +312,16 @@ export function useThreeScene(containerRef: ReturnType<typeof ref<HTMLDivElement
     controls.noPan = true
     controls.minDistance = 4
     controls.maxDistance = 30
-    controls.noRoll = false
+    // 2026-09-25：`noRoll` 已被 three 的 TrackballControls 移除（@types/three 里没有该属性）
+    // ——原赋值是死代码，留着会给人"设了但从不生效"的假象，去掉。
     controls.staticMoving = false
     controls.dynamicDampingFactor = 0.15
     controls.target.set(0, 0, 0)
     controls.mouseButtons = {
       LEFT: null as unknown as THREE.MOUSE, // Three.js pattern: disable left mouse button for orbit controls
-      MIDDLE: THREE.MOUSE.ZOOM,
+      // 2026-09-25：THREE.MOUSE 没有 ZOOM 成员（原值实为 undefined ⇒ 中键缩放从未生效），
+      // TrackballControls 的缩放常量为 DOLLY。
+      MIDDLE: THREE.MOUSE.DOLLY,
       RIGHT: THREE.MOUSE.ROTATE
     }
 
