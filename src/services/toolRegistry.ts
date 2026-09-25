@@ -4,22 +4,20 @@
 // 原生 dispatch 的工具命名也不一致（file_read/directory_tree vs read_file/list_directory），
 // LLM 规划出的 DAG 一经执行必抛"无效工具名"。
 
-// 原生可执行工具（callToolDirectWithTier 的 dispatch 分支）
-export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'read_file',
-  'file_write',
+// 原生可执行工具（callToolDirectWithTier 的 dispatch 分支）。
+// **单一来源**：从 nativeTools 的「常驻工具」派生（每个常驻工具必有 dispatch 分支），再并入
+// 非常驻但可 dispatch 的工具。此前这里是独立维护的平行名单，曾漏登记 rename_images_by_date
+// ⇒ Q15 的单步原生计划被 isAllNative 误判为「非全原生」、落进模型循环（见 HANDOFF 下一步 3）。
+// 派生后新增常驻工具会自动进入本集，不再需要两处同步（守卫见 toolRegistryConsistency.spec.ts）。
+import { NATIVE_TOOL_NAMES as ALWAYS_AVAILABLE_TOOL_NAMES } from './nativeTools'
+
+export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
+  ...ALWAYS_AVAILABLE_TOOL_NAMES,
+  // 非常驻（不注入模型工具表）但 callToolDirectWithTier 有 dispatch 分支：
   'create_directory',
-  'create_docx',
-  'shell_exec',
   'http_request',
   'llm_generate',
-  'knowledge_search',
-  'list_directory',
-  'file_move',
-  'file_convert',
-  'rename_images_by_date',
-  'image_process',
-  'media_process'
+  'knowledge_search'
 ])
 
 // MCP 工具名形如 {serverId}___{toolName}
