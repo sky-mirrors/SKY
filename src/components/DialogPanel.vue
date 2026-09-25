@@ -604,6 +604,7 @@
               <div v-for="cp in checkpointList" :key="cp.id" class="cp-item">
                 <div class="cp-header">
                   <span class="cp-id">{{ cp.manifestId }}</span>
+                  <span v-if="resumableIds.has(cp.id)" class="cp-badge" title="未完成且未过期，可继续">可恢复</span>
                   <span class="cp-progress">{{ Object.keys(cp.completedResults).length }}/{{ cp.totalSteps }}</span>
                 </div>
                 <div class="cp-meta">{{ new Date(cp.updatedAt).toLocaleString('zh-CN') }}</div>
@@ -668,7 +669,7 @@ import { useSkillStore } from '@/domains/app'
 import { useConfigStore } from '@/domains/config'
 import { DialogMessage, ThoughtStep, TaskPlan, L2ToolManifest, McpCatalogItem, JobRole, BudgetMode } from '@/models'
 import { usePipelineStore } from '@/domains/pipeline'
-import { getAllCheckpoints, removeCheckpoint, getCheckpoint } from '@/domains/pipeline'
+import { getAllCheckpoints, removeCheckpoint, getCheckpoint, getIncompleteCheckpoints } from '@/domains/pipeline'
 import { saveCustomManifest, loadCustomManifests, removeCustomManifest } from '@/data/l2Manifests'
 import { useWorkflowLogStore } from '@/domains/app'
 import { getBudgetMode, setBudgetMode as setBudgetModeFn, getSessionSpent } from '@/services/tokenBudget'
@@ -739,6 +740,8 @@ const fileBoostWeight = ref(0)
 
 const cacheStats = ref({ size: 0, hits: 0, misses: 0 })
 const checkpointList = ref<Array<{ id: string; manifestId: string; completedResults: Record<number, string>; failedSteps: number[]; skipSteps: number[]; totalSteps: number; updatedAt: number }>>([])
+// 2026-09-25（机制体检）：resume 候选集合——供列表标出「可恢复」（此前 getIncompleteCheckpoints 零消费者）
+const resumableIds = ref<Set<string>>(new Set())
 const kbSearchQuery = ref('')
 const kbSearching = ref(false)
 const kbSearched = ref(false)
@@ -1685,12 +1688,16 @@ async function onRestoreCheckpoint(cpId: string) {
 
 async function onRemoveCheckpoint(cpId: string) {
   await removeCheckpoint(cpId)
-  checkpointList.value = await getAllCheckpoints()
+  await loadCheckpoints()
   dialogStore.addSystemNotice('🗑️ 检查点已删除')
 }
 
 async function loadCheckpoints() {
   checkpointList.value = await getAllCheckpoints()
+  // 2026-09-25（机制体检）：接上 resume 候选查询——标出哪些检查点真的可恢复
+  // （未完成 + 未过期）。此前该查询零消费者，故用户看不到"可恢复"信息。
+  const incomplete = await getIncompleteCheckpoints()
+  resumableIds.value = new Set(incomplete.map(c => c.id))
 }
 
 async function onKbSearch() {
@@ -2906,8 +2913,9 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
 .ss-del { background: none; border: none; color: #ff6666; cursor: pointer; font-size: 9px; }
 .cp-list { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
 .cp-item { padding: 4px 6px; background: rgba(10,15,30,0.5); border-radius: 3px; border: 1px solid rgba(100,180,255,0.08); }
-.cp-header { display: flex; justify-content: space-between; align-items: center; }
-.cp-id { font-size: 10px; color: #c0d8f0; }
+.cp-header { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.cp-id { font-size: 10px; color: #c0d8f0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-badge { font-size: 9px; color: #ffcc66; background: rgba(255,204,102,0.12); border: 1px solid rgba(255,204,102,0.3); padding: 0 4px; border-radius: 2px; white-space: nowrap; }
 .cp-progress { font-size: 9px; color: #44ff88; background: rgba(68,255,136,0.1); padding: 0 4px; border-radius: 2px; }
 .cp-meta { font-size: 8px; color: #5a7a9a; margin: 2px 0; }
 .cp-actions { display: flex; gap: 4px; }
