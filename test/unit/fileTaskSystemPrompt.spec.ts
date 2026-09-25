@@ -52,6 +52,21 @@ describe('文件类任务 system 提示：内容', () => {
     expect(p).toContain(DESKTOP)
     expect(p).not.toContain(`${DESKTOP}\\/`)
   })
+
+  // 2026-09-25（其他继续修）：Q15 走 mcp-direct 时整题失败——模型用 shell_exec 重命名，
+  // 而 SHELL_ALLOWED_COMMANDS 不含 ren/move/Move-Item（electron/ipc-handlers.ts:385-386），
+  // 命令被拒、退出码 -1、0 文件改名（两轮实测）。根因是原提示的工具清单**漏了 file_move**。
+  it('工具清单列出 file_move（否则模型不知道有重命名工具，只好用被拒的 shell）', () => {
+    const p = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(p).toContain('file_move')
+  })
+
+  it('明确禁止用 shell 重命名，并说明 shell 白名单不含 ren/move', () => {
+    const p = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(p).toContain('重命名')
+    expect(p).toMatch(/ren|move|Move-Item/)
+    expect(p).toContain('退出码 -1')
+  })
 })
 
 describe('文件类任务提示：全路径走查（三处 payload 都要带）', () => {

@@ -13,6 +13,12 @@
  *     （Q14 曾猜成 `C:\Users\Desktop`）。猜对猜错随采样波动 ⇒ 这两题在轮次间来回抖。
  *
  * 本提示只解决"路径与工具能力可见性"，不改工具的权限模型（安全策略照旧拒绝越界路径）。
+ *
+ * 2026-09-25 补（Q15 真缺陷）：原「【工具】」行只列了 read_file/list_directory/file_write/shell_exec，
+ * **漏了 file_move**。Q15「图片按日期重命名」走 mcp-direct 时，模型看不到重命名工具，改用 shell_exec，
+ * 而 `SHELL_ALLOWED_COMMANDS` 不含 `ren`/`move`/`Move-Item`/`del`（electron/ipc-handlers.ts:385-386），
+ * 命令被拒、退出码 -1、0 文件改名（两轮考试连续复现）。此处把 file_move/file_convert 补进清单，
+ * 并新增「【重命名/移动】」段写明"用 file_move、不要用 shell"。
  */
 export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; desktop?: string }): string {
   const profile = (opts.userProfile || '').trim().replace(/[\\/]+$/, '')
@@ -21,7 +27,9 @@ export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; de
   const lines: string[] = [
     '你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。',
     '',
-    '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、shell_exec（执行命令）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。'
+    '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、file_move（重命名/移动文件）、file_convert（转换格式）、shell_exec（执行命令）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。',
+    '',
+    '【重命名/移动】重命名或移动文件【必须】用 file_move（参数 from→to），不要把重命名交给 shell_exec：shell 的命令白名单**不包含 ren / move / Move-Item / del**，这类命令会被直接拒绝并以退出码 -1 失败（Q15「图片按日期重命名」曾因此整题失败）。'
   ]
 
   if (profile && desktop) {
