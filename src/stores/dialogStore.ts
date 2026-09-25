@@ -85,6 +85,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
 }
 
 import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs, shellFailureMessage } from '@/services/nativeTools'
+import { decideFallback } from '@/services/fallbackAnswer'
 import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS, isWriteTool } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 // 2026-09-25：文件类任务（mcp-direct 路径）此前不带 system 消息 ⇒ 模型不知道用户真实目录、
@@ -2141,8 +2142,16 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         addSystemNotice('⚠️ 计划执行失败，回退到直接回答模式...')
         globalBus.emit('debug:log-probe', { level: 'warn', domain: 'dialog', message: `[Dialog] 原生路径执行失败，回退直接回答 | input="${content.substring(0, 50)}"` })
         try {
-          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: NATIVE_TOOL_DEFS, routingOptions: { callerId: 'ds:direct1907' } }) as { content?: string }
-          let finalText = stripHtml(beautify(resp.content || '(无输出)'))
+          const resp = await globalBus.requestAsync('api:chat-completion', { messages: [{ role: 'user', content }], stream: true, tools: NATIVE_TOOL_DEFS, routingOptions: { callerId: 'ds:direct1907' } }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          // 2026-09-25（考试复跑发现）：兜底直答带着 tools 重问，而弱模型常**只回 tool_calls、不回文本**
+          // ⇒ 原先直接落 '(无输出)'、工具调用无人执行——用户收到一片空白，违背本分支自称的
+          // 「用户永远能收到回复」（Q14 两轮稳定复现）。按 decideFallback：只有工具调用就执行它们。
+          const decision = decideFallback(resp)
+          let fallbackText = decision.kind === 'content' ? decision.text : ''
+          if (decision.kind === 'tools') {
+            fallbackText = (await executeMcpToolCalls(decision.toolCalls)) || ''
+          }
+          let finalText = stripHtml(beautify(fallbackText || '(无输出)'))
           // P1-D3（验尸1补丁）：失败回退的直答同样过收口闸门——步骤失败后直答可能幻觉
           // 宣称"文件已生成"而磁盘无文件，此路径提前 return 不经过 :2430 的主收口闸门
           try {
