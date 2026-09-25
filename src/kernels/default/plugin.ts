@@ -4,6 +4,8 @@ import { runFunnel } from '@/kernel/funnel'
 import { HookRunner, runVetoGate } from '@/kernel/hooks'
 import type { VetoGateReport } from '@/kernel/hooks'
 import { createDefaultLayers, type DefaultKernelContext } from './index'
+import { auditRequiredL1 } from '@/services/l1Capabilities'
+import l2Manifests from '@/data/l2Manifests'
 
 /**
  * 默认内核插件（id: kernel-default）。
@@ -50,6 +52,17 @@ export function createDefaultKernelPlugin(): DefaultKernelPlugin {
     async mount(context) {
       hooks = new HookRunner<LayerResult>()
       context.logger.info('kernel-default mounted（六层漏斗路由就绪）')
+      // G-11（2026-09-25）：挂载期审计 requiredL1 完整性——manifest 声明的 L1 能力若未登记（悬空引用），
+      // 以 warn 暴露（fail-visible，不静默）。此前 requiredL1 全仓零消费者，悬空引用无人察觉。
+      try {
+        const violations = auditRequiredL1(l2Manifests)
+        for (const v of violations) {
+          context.logger.warn(`[kernel-default] requiredL1 悬空引用：${v.manifestId}（${v.manifestName}）→ ${v.missing.join('、')}`)
+        }
+        context.logger.debug(`[kernel-default] requiredL1 审计：${l2Manifests.length} 个 manifest，${violations.length} 处悬空`)
+      } catch (e) {
+        context.logger.warn(`[kernel-default] requiredL1 审计失败：${e instanceof Error ? e.message : String(e)}`)
+      }
     },
     async unmount() {
       // HookRunner 随实例丢弃；在途请求持 M15 快照跑完，不受影响

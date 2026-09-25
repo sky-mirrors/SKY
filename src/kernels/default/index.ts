@@ -97,6 +97,16 @@ async function planTaskWithFallback(input: string, ctx: DefaultKernelContext): P
 /** 旧 :1040-1077：从 RaaP 命中 manifest 构建计划；不可执行形态 → planTask 兜底（macroManifestId 置空）。
  *  P0-A：构建前先过输入门控（gateTemplateForInput）——file 模板无文件输入 → planTask 兜底；
  *  file_or_text 无文件但有内联材料 → 剥离读取步骤、材料直注 prompt；有真实路径 → 绑定 {{user_file}}。 */
+/**
+ * G-11（2026-09-25）：把 manifest 声明的 `routing.requiredL1` 消费进 `plan.needs`。
+ * 此前 requiredL1 全仓零消费者（快照 §〇 核实）——声明的 L1 能力既不进计划、也不被校验。
+ * 这里让它进入计划产出。`needs` 仅用于确认 UI 展示与 DAG 标注、**从不下发 LLM**
+ * （grep 证实 macroExecutor/promptTranslator 均不读 needs），故零行为风险。
+ */
+function manifestPlanNeeds(m: { routing: { requiredL1?: string[]; keywords: string[] } }): string[] {
+  return [...(m.routing.requiredL1 || []), ...m.routing.keywords.slice(0, 3)]
+}
+
 async function finalizeRaapPlan(raap: RaapMatchResult, input: string, ctx: DefaultKernelContext): Promise<LayerResult> {
   const m = raap.manifest
   const gate = gateTemplateForInput(m, input)
@@ -109,7 +119,7 @@ async function finalizeRaapPlan(raap: RaapMatchResult, input: string, ctx: Defau
       kind: 'plan',
       plan: {
         intent: m.identity.name,
-        needs: m.routing.keywords.slice(0, 3),
+        needs: manifestPlanNeeds(m),
         steps: sourceSteps.map(s => ({
           step: s.step,
           description: s.description,
@@ -128,7 +138,7 @@ async function finalizeRaapPlan(raap: RaapMatchResult, input: string, ctx: Defau
       kind: 'plan',
       plan: {
         intent: m.identity.name,
-        needs: m.routing.keywords.slice(0, 3),
+        needs: manifestPlanNeeds(m),
         steps: [{
           step: 1,
           description: m.identity.name,
@@ -314,7 +324,7 @@ function l05(input: string, merged: AdvisoryContribution | null, ctx: DefaultKer
   if (m.execution.mode === 'direct' && m.execution.directCall) {
     plan = {
       intent: m.identity.name,
-      needs: m.routing.keywords.slice(0, 3),
+      needs: manifestPlanNeeds(m),
       steps: [{
         step: 1,
         description: m.identity.name,
@@ -328,7 +338,7 @@ function l05(input: string, merged: AdvisoryContribution | null, ctx: DefaultKer
     const sourceSteps = gate.steps || m.execution.dagPlan.steps
     plan = {
       intent: m.identity.name,
-      needs: m.routing.keywords.slice(0, 3),
+      needs: manifestPlanNeeds(m),
       steps: sourceSteps.map(s => ({
         step: s.step, description: s.description, tool: s.tool,
         depends_on: s.depends_on, params: s.params as Record<string, string>, expectedOutput: s.expectedOutput
@@ -337,7 +347,7 @@ function l05(input: string, merged: AdvisoryContribution | null, ctx: DefaultKer
   } else {
     plan = {
       intent: m.identity.name,
-      needs: m.routing.keywords.slice(0, 3),
+      needs: manifestPlanNeeds(m),
       steps: [{ step: 1, description: m.identity.name, tool: 'llm_generate', depends_on: [], params: { prompt: input }, expectedOutput: '处理结果' }]
     }
   }
