@@ -17,6 +17,7 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set([
   'list_directory',
   'file_move',
   'file_convert',
+  'rename_images_by_date',
   'image_process',
   'media_process'
 ])
@@ -37,6 +38,7 @@ export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'http_request',
   'file_move',
   'file_convert',
+  'rename_images_by_date',
   'image_process',
   'media_process'
 ])
