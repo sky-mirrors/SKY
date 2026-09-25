@@ -86,6 +86,7 @@ function loadSummaries(): { period: string; summary: string; from: number; to: n
 
 import { NATIVE_TOOL_DEFS, isAlwaysAvailableTool, withAlwaysAvailableTools, buildImageProcessArgs, buildMediaProcessArgs, shellFailureMessage } from '@/services/nativeTools'
 import { decideFallback } from '@/services/fallbackAnswer'
+import { pickTopFileFromListing } from '@/services/listingPick'
 import { loadWriteGrants, revokeWriteGrant, requestWriteApproval, WRITE_TOOL_LABELS, isWriteTool } from '@/services/writeGate'
 import { yieldToUI } from '@/services/uiYield'
 // 2026-09-25：文件类任务（mcp-direct 路径）此前不带 system 消息 ⇒ 模型不知道用户真实目录、
@@ -2064,6 +2065,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           continue
         }
         const resolvedParams: Record<string, unknown> = {}
+        const { callToolDirectWithTier } = await import('@/services/macroExecutor')
         for (const [k, v] of Object.entries(s.params)) {
           if (typeof v === 'string') {
             let val = v
@@ -2072,28 +2074,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
             }
             // Q16 定案修复：原生工具路径原先只认 {{step_N_result}}，不认 {{step_N_top_files}}，
             // 导致探索计划的 read_file 收到字面量占位符（实测「文件不存在（路径：{{step_1_top_files}}）」）。
-            // 就地补上：从依赖步的清单结果里挑出与用户输入最匹配的文件名，并拼上该步的目录。
+            // 2026-09-25 修①：改为调用 macroExecutor 的**共享**实现（此前此处另抄一份，两处同错——
+            // 都把 list_directory 的整行「文件名\t拍摄日期=…」当文件名，拼出必败路径）。
             val = val.replace(/\{\{step_(\d+)_top_files\}\}/g, (whole, n: string) => {
               const depRes = stepResults[Number(n)]
               if (!depRes) return whole
-              const names = depRes.split(/\r?\n/)
-                .map(x => x.trim().replace(/^[-*•]\s*/, ''))
-                .filter(x => x.length > 0 && !x.startsWith('(') && !x.startsWith('【') && !/[\\/]$/.test(x))
-              if (names.length === 0) return whole
-              let best = ''
-              let bestScore = 0
-              for (const nm of names) {
-                const base = nm.replace(/\.\w{1,5}$/, '')
-                let score = 0
-                for (let i = 0; i < base.length; i++) {
-                  for (let len = score + 1; i + len <= base.length; len++) {
-                    if (content.includes(base.substring(i, i + len))) score = len
-                    else break
-                  }
-                }
-                if (score > bestScore) { bestScore = score; best = nm }
-              }
-              const picked = bestScore >= 2 ? best : names[0]
+              const picked = pickTopFileFromListing(depRes, content)
+              if (!picked) return whole
               const depStep = plan.steps.find(x => x.step === Number(n))
               const rawDir = depStep && typeof depStep.params.path === 'string' ? depStep.params.path : ''
               const dir = String(rawDir).replace(/\{\{[^}]+\}\}/g, '')
@@ -2105,9 +2092,19 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           }
         }
 
+        // 2026-09-25 修①：`{{step_N_top_files}}` 没解析出来（清单里没有文本可读目标）时**跳过**该步，
+        // 而不是拿字面量 `{{…}}` 当路径去调工具——那必然失败，并把整条计划带进回退。
+        // 只认这一个占位符：`{{input}}`/`{{user_file}}`/`{{workspace_dir}}` 等由 macroExecutor 稍后解析，
+        // 在本循环里未解析属正常（早先按 `{{` 宽匹配会误伤它们 → funnelMainPath 8 例红）。
+        // 跳过必须出声（system notice），不做静默处理。
+        const unresolved = Object.entries(resolvedParams).filter(([, v]) => typeof v === 'string' && /\{\{step_\d+_top_files\}\}/.test(v))
+        if (unresolved.length > 0) {
+          addSystemNotice(`⏭️ 步骤${s.step} 跳过：未找到可读取的文件（${unresolved.map(([k]) => k).join('、')}）`)
+          stepResults[s.step] = ''
+          continue
+        }
         addSystemNotice(`▶ 步骤${s.step}: ${s.description}`)
         try {
-          const { callToolDirectWithTier } = await import('@/services/macroExecutor')
           const result = await callToolDirectWithTier(s.tool, resolvedParams, undefined, undefined, undefined, stepResults, { inputText: content }, activeTraceId.value)
           stepResults[s.step] = result
           lastResult = result

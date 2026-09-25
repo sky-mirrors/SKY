@@ -674,37 +674,11 @@ export function extractStepResult(result: string, consumerStep: L2DagStep, sourc
   return truncateWithNotice(result, 500, sourceStepNum)
 }
 
-/**
- * B1：从「清单类步骤」（list_directory）的结果里挑出与用户输入最匹配的文件名。
- * 无关键词命中时退回清单中的第一个文件，保证后续 read_file 的 path 非空。
- */
-export function pickTopFileFromListing(stepResult: string, userText: string): string {
-  const names = stepResult
-    .split(/\r?\n/)
-    .map(s => s.trim().replace(/^[-*•]\s*/, ''))
-    .filter(s => s.length > 0 && !s.startsWith('(') && !s.startsWith('【') && !/[\\/]$/.test(s))
-  if (names.length === 0) return ''
-
-  const longestCommon = (a: string, b: string): number => {
-    let best = 0
-    for (let i = 0; i < a.length; i++) {
-      for (let len = best + 1; i + len <= a.length; len++) {
-        if (b.includes(a.substring(i, i + len))) best = len
-        else break
-      }
-    }
-    return best
-  }
-
-  let best = ''
-  let bestScore = 0
-  for (const n of names) {
-    const base = n.replace(/\.\w{1,5}$/, '')
-    const score = longestCommon(base, userText)
-    if (score > bestScore) { bestScore = score; best = n }
-  }
-  return bestScore >= 2 ? best : names[0]
-}
+// 2026-09-25 修①：「清单里挑可读文件」抽到叶子模块 src/services/listingPick.ts——
+// 此前本文件与 dialogStore 各抄一份、两处同错（把 list_directory 的整行「文件名\t拍摄日期=…」当文件名）。
+// 保留本文件的再导出，供既有调用方与测试继续从 macroExecutor 取。
+import { pickTopFileFromListing } from './listingPick'
+export { pickTopFileFromListing, bareNameFromListing } from './listingPick'
 
 /**
  * 在「模型驱动循环」里替换工具参数中的步骤占位符。
