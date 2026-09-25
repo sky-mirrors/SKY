@@ -60,6 +60,31 @@
             </div>
           </div>
 
+          <!-- 2026-09-25（机制体检）：用户计价层的可读写面——此前全仓无计价 UI（写而不读） -->
+          <div v-if="activeTab === 'pricing'" class="sp-section">
+            <div class="sp-field">
+              <label>输入单价（元 / 千 tokens）</label>
+              <input type="number" step="0.0001" min="0" v-model.number="pricing.inputPricePer1k" />
+            </div>
+            <div class="sp-field">
+              <label>输出单价（元 / 千 tokens）</label>
+              <input type="number" step="0.0001" min="0" v-model.number="pricing.outputPricePer1k" />
+            </div>
+            <div class="sp-field">
+              <label>缓存命中折扣（0~1）</label>
+              <input type="number" step="0.05" min="0" max="1" v-model.number="pricing.cacheHitDiscount" />
+            </div>
+            <div class="sp-field">
+              <label>估算预览（1k 输入 + 1k 输出）</label>
+              <span class="sp-hint">¥{{ estimateCny.toFixed(4) }}</span>
+            </div>
+            <div class="sp-actions">
+              <button class="sp-btn" @click="savePricing">保存</button>
+              <button class="sp-btn sp-btn-ghost" @click="resetPricing">恢复默认</button>
+            </div>
+            <div class="sp-hint">单价用于估算对话成本（调试台「估算成本」与 Token 预算）。</div>
+          </div>
+
           <div v-if="activeTab === 'notifications'" class="sp-section">
             <div class="sp-field" v-for="(val, key) in notificationStore.settings" :key="key">
               <label>{{ settingLabel(key) }}</label>
@@ -127,13 +152,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useConfigStore } from '@/domains/config'
 import { useNotificationStore } from '@/domains/app'
 import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
 import { useMcpStore } from '@/domains/mcp'
 import DataManagement from './DataManagement.vue'
+import { getUserPricing, setUserPricing, resetUserPricing } from '@/services/tokenPricing'
 
 const configStore = useConfigStore()
 const notificationStore = useNotificationStore()
@@ -147,9 +173,14 @@ const terminologyStyle = ref<'technical' | 'plain'>(configStore.terminologyStyle
 const animationEnabled = ref(configStore.animationEnabled)
 const dataMgmtRef = ref()
 
+// 用户计价（设置 → 计价）：打开设置时从服务读回，保存写回（此前该层全仓无 UI）
+const pricing = ref({ ...getUserPricing() })
+const estimateCny = computed(() => Number(pricing.value.inputPricePer1k || 0) + Number(pricing.value.outputPricePer1k || 0))
+
 const tabs = [
   { id: 'appearance', icon: '🎨', label: '外观' },
   { id: 'perf', icon: '⚡', label: '性能' },
+  { id: 'pricing', icon: '💰', label: '计价' },
   { id: 'notifications', icon: '🔔', label: '通知' },
   { id: 'data', icon: '💾', label: '数据' },
   { id: 'shortcuts', icon: '⌨', label: '快捷键' },
@@ -176,10 +207,25 @@ function open(tab?: string) {
   activeTab.value = tab || 'appearance'
   terminologyStyle.value = configStore.terminologyStyle as 'technical' | 'plain'
   animationEnabled.value = configStore.animationEnabled
+  pricing.value = { ...getUserPricing() }
 }
 
 function close() {
   visible.value = false
+}
+
+function savePricing() {
+  setUserPricing({
+    inputPricePer1k: Math.max(0, Number(pricing.value.inputPricePer1k) || 0),
+    outputPricePer1k: Math.max(0, Number(pricing.value.outputPricePer1k) || 0),
+    cacheHitDiscount: Math.min(1, Math.max(0, Number(pricing.value.cacheHitDiscount) || 0))
+  })
+  pricing.value = { ...getUserPricing() }
+}
+
+function resetPricing() {
+  resetUserPricing()
+  pricing.value = { ...getUserPricing() }
 }
 
 // P1-47：暴露 visible 供 App.vue Esc 链判断弹层是否打开
@@ -306,6 +352,50 @@ defineExpose({ open, close, visible })
   height: 16px;
   accent-color: #4488ff;
   cursor: pointer;
+}
+
+/* 设置 → 计价（2026-09-25 机制体检：用户计价层的可读写面） */
+.sp-field input[type="number"] {
+  width: 150px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(100, 180, 255, 0.2);
+  background: rgba(10, 20, 40, 0.6);
+  color: #c0d8f0;
+  font-size: 12px;
+  outline: none;
+}
+
+.sp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.sp-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(100, 180, 255, 0.3);
+  background: rgba(80, 160, 255, 0.2);
+  color: #88bbff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sp-btn:hover {
+  background: rgba(80, 160, 255, 0.35);
+}
+
+.sp-btn-ghost {
+  background: transparent;
+  color: rgba(130, 170, 220, 0.7);
+}
+
+.sp-hint {
+  font-size: 12px;
+  color: rgba(130, 170, 220, 0.5);
 }
 
 .sp-shortcut-list {

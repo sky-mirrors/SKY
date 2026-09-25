@@ -129,6 +129,7 @@ import { registerApiHandlers } from '@/domains/api/handlers'
 import { registerAppHandlers } from '@/domains/app/handlers'
 import { registerConfigHandlers } from '@/domains/config/handlers'
 import { shouldShowOnboarding } from '@/services/onboardingManager'
+import { initPricingFromVault } from '@/services/tokenPricing'
 import { registerDataHandlers } from '@/domains/data/handlers'
 import { registerDebugHandlers } from '@/domains/debug/handlers'
 import { registerDialogHandlers } from '@/domains/dialog/handlers'
@@ -544,6 +545,10 @@ onMounted(async () => {
   dialogStore.loadFromStorage()
   dialogStore.initSession()
   workflowLogStore.loadFromStorage()
+
+  // 2026-09-25（机制体检）：把持久化的用户计价读回来——此前 setUserPricing 会落盘，
+  // 但全仓没有任何 load 被调用（写而不读），重启即丢。设置在「设置 → 计价」。
+  initPricingFromVault().catch(err => console.warn('[pricing] 用户计价装载失败:', err))
 
   const kernel = createKernel()
   // A2-9：pack veto 钩子桥在内核与 pack 运行时均就绪后启动（桥内部 fail-open，失败不阻塞启动）
