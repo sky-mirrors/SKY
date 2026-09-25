@@ -13,8 +13,27 @@ C:\Users\Administrator\Desktop\HoloExam\
 ├── 项目周报.docx          # Q3：转 PDF 源文件（任意内容 docx）
 ├── 采购合同.docx          # Q18：转 PDF 源文件（任意内容 docx）
 ├── 张三报销单.txt         # Q16：内容含金额明细——机票 2100 元 + 住宿 1450 元 + 出租车 420 元（合计 3970 元）
-└── photos\               # Q15：若干 jpg 图片（EXIF 含拍摄日期更佳；无 EXIF 时按文件修改日期也算合理执行）
+├── photos\               # Q15：**每轮开考前必须复位**（见下方复位命令）
+└── photos_backup\        # Q15 的规范素材源（img0..img3.jpg，各自保留原始 mtime）
 ```
+
+**每轮开考前复位 `photos\`（必须，别省）**：Q15 会把图片改名成 `YYYYMMDD-NN.jpg` 并**留在原目录**——若不清空就直接 `cp` 拷回，历次改名结果会**逐轮累积**（目录混入 `20191207-08.jpg` 等残留），既污染 Q15 的目录硬断言（`^\\d{8}-\\d{2}\\.(jpg|jpeg|png)# 验收考试执行手册（EXAM 批交付）
+
+> 配套规格：[ACCEPTANCE-SPEC.md](./ACCEPTANCE-SPEC.md)（及格线 v1 定死：可交付 ≥80% / 零干预 ≥60% / 平均耗时 <2min）。
+> 考试器：`src/exam/examRunner.ts`，题库 `src/exam/examCases.ts`，入口在工作台 RuntimePanel「验收考试」卡。
+
+## 一、开考前准备
+
+1. **确认模型就绪**：Ollama serve 已启动（`ollama serve`），qwen2.5:3b 可用（或按当时浸泡配置的模型）。
+ 要求**目录内每个文件**都匹配），也让清单失真。复位命令（Git Bash；`cp -p` 保留原始 mtime，日期才有区分度）：
+
+```bash
+rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
+  && cp -p /c/Users/Administrator/Desktop/HoloExam/photos_backup/img*.jpg \
+           /c/Users/Administrator/Desktop/HoloExam/photos/
+```
+
+复位后 `photos\` 应**恰好**为 `img0.jpg img1.jpg img2.jpg img3.jpg`（img0 属一个较新日期、img1..img3 同为另一较早日期，用以验证「同日按序号」）。**判据取 ≥2 轮**时，每轮开考前都要复位一次。
 
 3. **勾选「桌面考试素材已就位」**（RuntimePanel 考试卡内），或保持不勾让 4 题跳过。
 4. **准备 40~60 分钟不被打断的时间**：18 题串行执行，单题超时上限 5 分钟。
