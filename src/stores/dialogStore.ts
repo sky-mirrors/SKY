@@ -770,10 +770,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
    * toolCalls（apiStore 不代执行）→ 用户恒见 "(无输出)"。
    * 与主执行循环同口径：逐个 executeToolCall，汇总为可读结果；无 toolCalls 返回 null。
    */
-  async function executeMcpToolCalls(toolCalls: { id: string; name: string; arguments: string }[]): Promise<string | null> {
+  async function executeMcpToolCalls(toolCalls: { id: string; name: string; arguments: string }[], signal?: AbortSignal): Promise<string | null> {
     if (!toolCalls || toolCalls.length === 0) return null
     const outputs: string[] = []
     for (const tc of toolCalls) {
+      // 协作式中止：单个工具调用（mcp:call-tool）本身不可取消，但循环在每步之间复查——
+      // 否则「点了终止」仍会把本轮剩余工具全部跑完，才等到下一轮 LLM 请求感知（实测延迟约 6.3s）。
+      if (signal?.aborted) break
       let args: Record<string, unknown> = {}
       try { args = JSON.parse(tc.arguments) } catch { args = {} }
       const shortName = tc.name.replace(/.*___/, '')
@@ -1150,10 +1153,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           // 执行 → 回灌真实结果 + 原始请求 → 由模型决定继续或收口；耗尽则不带 tools 强制汇报。
           let lastOutput: string | null = null
           for (let round = 0; round < 4; round++) {
+            // 中止复查（必须在发起下一次 LLM 请求之前）：apiStore 的 B-07 race 只让**调用方**
+            // 不再等待，ipcCall 本身在 race 之前就已发出 ⇒ 中止后每多走一轮就白烧一次完整请求。
+            if (toolCtl.signal.aborted) break
             // P1-25：执行模型返回的 toolCalls（此前从不执行 → 恒显"(无输出)"）
-            const toolOutput = await executeMcpToolCalls(apiResult?.toolCalls || [])
+            const toolOutput = await executeMcpToolCalls(apiResult?.toolCalls || [], toolCtl.signal)
             if (toolOutput == null) break // 模型不再调工具 ⇒ 已有自然语言回复
             lastOutput = toolOutput
+            // 工具执行期间被中止（signal 已传入 executeMcpToolCalls，返回已收集的部分）⇒ 不再续跑 LLM
+            if (toolCtl.signal.aborted) break
             apiResult = await globalBus.requestAsync('api:chat-completion', {
               messages: [{
                 role: 'system',
@@ -1167,7 +1175,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
               signal: toolCtl.signal
             }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
           }
-          if (lastOutput == null) {
+          if (toolCtl.signal.aborted) {
+            // 用户已中止：不再续跑 LLM，也不发「回路耗尽」的收口请求（同样是一条会白烧的 IPC 调用），
+            // 直接呈现已收集到的工具结果并显式标注中止。
+            addSystemNotice('⏹ 已终止（工具执行阶段）')
+            await presentExecutionOutput(lastOutput || '(已终止，无可用输出)')
+          } else if (lastOutput == null) {
             // 模型一次都没调工具（或首轮即收口）
             if (apiResult) await presentExecutionOutput(apiResult.content || '(模型未发起工具调用)')
           } else if (!apiResult?.toolCalls?.length) {
@@ -1194,8 +1207,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           }
         } catch (e) {
           const errStr = e instanceof Error ? e.message : String(e)
-          addAssistantMessage(`❌ 工具调用失败（${classifyError(errStr)}）`)
-          globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具调用失败: ${errStr}`, detail: errStr })
+          if (toolCtl.signal.aborted) {
+            // 用户主动中止不是故障：此前会显示「❌ 工具调用失败（执行异常）」，误导为出错
+            addSystemNotice('⏹ 已终止（工具执行阶段）')
+          } else {
+            addAssistantMessage(`❌ 工具调用失败（${classifyError(errStr)}）`)
+            globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `工具调用失败: ${errStr}`, detail: errStr })
+          }
         } finally {
           // S-6：本轮工具回路结束（成功/失败）即注销控制器，避免全局注册表滞留僵尸条目
           globalBus.emit('debug:clear-abort', toolCtl)
@@ -1318,6 +1336,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       // 内核对取消异常可能吞掉并返回兜底结果 ⇒ 不能只靠 catch；这里显式复查中止标志，
       // 确保「路由期间点了终止」不会继续走 consumeFunnelOutcome（否则等于照常执行）。
       if (routeCtl.signal.aborted) return abortRouting()
+      // 路由决策已定：立刻注销路由控制器——它只覆盖路由期的 LLM 调用。若留到 finally 才清，
+      // 它会跨住 consumeFunnelOutcome 的整段执行，让「⏹ 终止」在**不可中止**的执行路径上
+      // 误显为可用（正是本批要消灭的「点了没反应」；实测「L4 自动执行原生工具」路径全程不注册控制器）。
+      globalBus.emit('debug:clear-abort', routeCtl)
       const handled = await consumeFunnelOutcome(content, outcome, allMcpTools)
       // 观测事件（R16）：工作台运行时面板订阅渲染最近路由结果
       // C-11：携带请求级 traceId（数据层归因，显示渲染不做）

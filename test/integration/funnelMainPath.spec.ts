@@ -537,6 +537,59 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(noticeTexts(store)).toContain('工具直调结果')
   })
 
+  // 2026-09-26：工具执行期中止此前要等下一轮 LLM 请求才生效（实测延迟约 6.3s），且每多走一轮
+  // 就多白烧一次完整 LLM 请求（B-07 race 只让调用方不再等待，ipcCall 在 race 之前就已发出）。
+  it('mcp-direct：工具执行期中止 → 立即收口，不再续跑 LLM、不发收口请求', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+    const ctls: AbortController[] = []
+    globalBus.on('debug:register-abort', (c: unknown) => ctls.push(c as AbortController))
+    // 工具执行期间模拟用户点「⏹ 终止」——真实 terminateExecution 会 abort 注册表内全部控制器
+    globalBus.registerHandler('mcp:call-tool', async () => {
+      ctls.forEach(c => c.abort())
+      return '部分结果'
+    })
+    chatToolCallsQueue = [[{ id: 'c1', name: 'srv___calc', arguments: '{}' }]]
+
+    await store.sendMessage('算一下')
+
+    // 只发出首轮那一条 LLM 请求——中止后不得再续跑（旧行为 ≥2 条）
+    expect(chatPayloads).toHaveLength(1)
+    expect(noticeTexts(store)).toContain('⏹ 已终止（工具执行阶段）')
+    expect(noticeTexts(store)).toContain('部分结果')
+  })
+
+  it('mcp-direct：中止后同一轮的剩余工具不再执行（signal 逐工具复查）', async () => {
+    funnelMainFlag = null
+    setupBus([{
+      id: 'srv', name: '测试服务', isConnected: true,
+      tools: [{ name: 'calc', description: '计算工具', inputSchema: { type: 'object' } }]
+    }])
+    routeMock.mockResolvedValue({ kind: 'mcp-direct', toolName: 'srv___calc', source: 'L2' } as FunnelOutcome)
+    const ctls: AbortController[] = []
+    globalBus.on('debug:register-abort', (c: unknown) => ctls.push(c as AbortController))
+    let toolCallsSeen = 0
+    globalBus.registerHandler('mcp:call-tool', async () => {
+      toolCallsSeen++
+      ctls.forEach(c => c.abort())
+      return '第一个工具结果'
+    })
+    chatToolCallsQueue = [[
+      { id: 'c1', name: 'srv___calc', arguments: '{}' },
+      { id: 'c2', name: 'srv___calc', arguments: '{}' },
+      { id: 'c3', name: 'srv___calc', arguments: '{}' }
+    ]]
+
+    await store.sendMessage('算一下')
+
+    expect(toolCallsSeen).toBe(1)
+    expect(chatPayloads).toHaveLength(1)
+  })
+
   it('error outcome → 回退旧六层内联路径', async () => {
     funnelMainFlag = null
     setupBus()
