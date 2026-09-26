@@ -7,6 +7,14 @@
 
 应用「实现了」的能力明显多于「接线 / 上屏」的能力。休眠集中在三类：**① 域处理层**（`registerHandler` 后全仓无请求方）、**② 服务层的管理 / 诊断 API**（缓存统计、路由分析、预算配置、约束访问器…）、**③ 一次性迁移**（写好了但从没被调用）。真正「该删的死码」很少——多数是「设计好的接口面」或「还没上屏的能力」，属取舍而非清理。
 
+## 一之二、已落地（2026-09-26，本轮）
+
+按「跑 + 上屏」决策：
+
+- **§二 `knowledgeMigration` → 跑**：`migrateKnowledgePartitions()` 已接入启动（`src/App.vue`，紧随 `pruneExpired`）；版本守卫命中即 skipped，幂等。启动日志实测 `[knowledge-migration] partition 回填`。
+- **§3.3 的管理 / 诊断 API → 上屏**：新增调试台「运行统计」面板（`src/components/DebugWindowPage.vue` + `src/stores/debugStore.ts` 的 `mechanismStats`），聚合 **semanticCache**（条数 / 命中率 / 节省 tokens / 自适应阈值）、**smartRouter**（路由样本数 / 过度路由率 / 自适应阈值）、**tokenBudget**（今日 / 本月花费 / 模式）、**domainConstraints**（激活 / 总数）四组既有 getter；经既有 `storeSync` 镜像到独立调试窗（DOM 实测渲染成功）。
+- **仍不上屏的（§3.3 内）**：`toolRetrieval` / `nerExtractor` / `tokenEstimate` 那些是**内部 helper**（非「可上屏的对外面」），留作模块内实现，不建面板。
+
 ## 二、休眠模块（src 内零 importer，仅测试引用）：1
 
 - `src/services/knowledgeMigration.ts`（M12 knowledge partition 回填，`migrateKnowledgePartitions`）——**待裁决**。读侧已把 `undefined` 兜底为 `user`（`knowledgeBase.ts:377` 的 `(e.partition || 'user')`），故回填**非必需**。要跑就在启动接线（模块自带版本守卫 + 备份 + 计数对账，幂等），不要就删。
