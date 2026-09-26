@@ -1,5 +1,5 @@
 <template>
-  <div class="holo-starmap">
+    <div class="holo-app">
     <div class="titlebar">
       <div class="titlebar-left">
         <span class="titlebar-text">HoloStarmap</span>
@@ -26,7 +26,7 @@
     <ResultPreviewStage
       v-if="viewMode === 'preview'"
       :message="previewMessage"
-      @close="configStore.setViewMode('starmap')"
+      @close="configStore.setViewMode('workbench')"
     />
     <ApiSettings ref="apiSettingsRef" @saved="onApiSaved" />
     <Notification ref="notificationRef" />
@@ -196,7 +196,7 @@ function onOpenMcp() {
 // 预览浮层开关（原「星图↔结果预览」切换；星图删除后只剩「预览 / 主视图」两态，
 // 由命令面板的 holo-toggle-mode 事件触发）
 function togglePreview() {
-  configStore.setViewMode(viewMode.value === 'preview' ? 'starmap' : 'preview')
+    configStore.setViewMode(viewMode.value === 'preview' ? 'workbench' : 'preview')
 }
 
 function openPreview(msg: DialogMessage) {
@@ -239,7 +239,7 @@ function onKeyDown(e: KeyboardEvent) {
       return
     }
     if (viewMode.value === 'preview') {
-      configStore.setViewMode('starmap')
+      configStore.setViewMode('workbench')
     }
   }
   if (e.key === 'Enter' && e.ctrlKey && nodeStore.selectedNodeIds.length > 0) {
@@ -574,7 +574,7 @@ html, body, #app {
   color: #e0e0e0;
 }
 
-.holo-starmap {
+.holo-app {
   position: relative;
   width: 100%;
   height: 100%;

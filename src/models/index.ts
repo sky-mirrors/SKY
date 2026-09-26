@@ -203,7 +203,7 @@ export interface UserConfig {
   dialogPanelWidth?: number
   favoriteSkills?: string[]
   recentSkills?: RecentSkillEntry[]
-  viewMode?: 'starmap' | 'preview'
+  viewMode?: 'workbench' | 'preview'
   // P0-B4：LLM 超时整体缩放系数（1=默认 CPU 校准阶梯；CPU 慢机可调大，
   // 乘 tierTimeoutFor 各档；仅渲染进程 apiStore 生效，主进程 IPC 固定 scale=1）
   llmTimeoutScale?: number

@@ -263,9 +263,9 @@ describe('Bug #2 fix: selectNode(null) for deselect', () => {
 })
 
 describe('Bug #5 fix: viewMode persistence', () => {
-  it('viewMode defaults to starmap', () => {
+  it('viewMode defaults to workbench', () => {
     const configStore = useConfigStore()
-    expect(configStore.viewMode).toBe('starmap')
+    expect(configStore.viewMode).toBe('workbench')
   })
 
   it('setViewMode persists to config', () => {
@@ -282,13 +282,21 @@ describe('Bug #5 fix: viewMode persistence', () => {
     expect(configStore.viewMode).toBe('preview')
   })
 
-  it('toggleViewMode switches starmap↔preview and persists', () => {
+  it('旧配置里持久化的 viewMode:"starmap" 归一化为 "workbench"（删星图后的兼容）', () => {
+    vault.writeCache('config', 'holo-user-config', JSON.stringify({ viewMode: 'starmap', jobRole: 'general', selectedL2Ids: [], firstLaunchDone: true }))
+    setActivePinia(createPinia())
     const configStore = useConfigStore()
-    expect(configStore.viewMode).toBe('starmap')
+    configStore.loadFromStorage()
+    expect(configStore.viewMode).toBe('workbench')
+  })
+
+  it('toggleViewMode switches workbench↔preview and persists', () => {
+    const configStore = useConfigStore()
+    expect(configStore.viewMode).toBe('workbench')
     configStore.setViewMode('preview')
     expect(configStore.viewMode).toBe('preview')
-    configStore.setViewMode('starmap')
-    expect(configStore.viewMode).toBe('starmap')
+    configStore.setViewMode('workbench')
+    expect(configStore.viewMode).toBe('workbench')
   })
 })
 

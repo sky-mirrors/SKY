@@ -36,7 +36,7 @@ export const useConfigStore = defineStore('config', () => {
   const isOnboardingComplete = computed(() => config.value.onboardingCompleted ?? false)
   const terminologyStyle = computed(() => config.value.terminologyStyle ?? 'plain')
   const animationEnabled = computed(() => config.value.animationEnabled ?? true)
-  const viewMode = computed(() => config.value.viewMode ?? 'starmap')
+  const viewMode = computed(() => config.value.viewMode ?? 'workbench')
 
   function setJobRole(role: JobRole) {
     config.value.jobRole = role
@@ -105,7 +105,7 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
-  function setViewMode(mode: 'starmap' | 'preview') {
+  function setViewMode(mode: 'workbench' | 'preview') {
     config.value.viewMode = mode
     saveToStorage()
   }
@@ -175,7 +175,10 @@ export const useConfigStore = defineStore('config', () => {
         if (parsed.favoriteSkills) config.value.favoriteSkills = parsed.favoriteSkills
         if (parsed.recentSkills) config.value.recentSkills = parsed.recentSkills
         if (parsed.llmTimeoutScale !== undefined) setLlmTimeoutScale(parsed.llmTimeoutScale)
-        if (parsed.viewMode) config.value.viewMode = parsed.viewMode
+        // 删星图后 'starmap' 更名为 'workbench'——旧持久化值归一化（旧文件里的字面量已不属当前类型，故先收窄为 string 再比较）
+        if (parsed.viewMode) {
+          config.value.viewMode = (parsed.viewMode as string) === 'starmap' ? 'workbench' : parsed.viewMode
+        }
         if (parsed.restoreSessionMemoryOnStartup !== undefined) config.value.restoreSessionMemoryOnStartup = parsed.restoreSessionMemoryOnStartup
         if (parsed.theme) {
           theme.value = parsed.theme as 'dark' | 'light' | 'green'

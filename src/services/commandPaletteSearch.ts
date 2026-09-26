@@ -24,7 +24,7 @@ const STATIC_SETTINGS: SearchableItem[] = [
 ]
 
 const STATIC_ACTIONS: SearchableItem[] = [
-  { type: 'action', id: 'action-toggle-mode', label: '切换工作台/星图模式', description: '切换UI布局模式', category: '视图', keywords: ['模式', '工作台', '星图', '切换'], roleBoost: 0, recentBoost: 0 },
+  { type: 'action', id: 'action-toggle-mode', label: '切换工作台/预览浮层', description: '切换UI布局模式', category: '视图', keywords: ['模式', '工作台', '预览', '切换'], roleBoost: 0, recentBoost: 0 },
   { type: 'action', id: 'action-toggle-theme', label: '切换主题', description: '深色/浅色/护眼三态切换', category: '视图', keywords: ['主题', '深色', '浅色'], roleBoost: 0, recentBoost: 0 },
   { type: 'action', id: 'action-open-debug', label: '打开调试探针', description: '查看执行记录和调试信息', category: '工具', keywords: ['调试', '探针'], roleBoost: 0, recentBoost: 0 },
   { type: 'action', id: 'action-open-benchmark', label: '打开基准测试', description: 'Token优化压测', category: '工具', keywords: ['基准', '测试', '压测'], roleBoost: 0, recentBoost: 0 },
