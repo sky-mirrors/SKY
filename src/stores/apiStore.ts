@@ -45,6 +45,15 @@ function getLlmTimeoutScale(): number {
   }
 }
 
+// LLM-ABORT：非流式 IPC 请求的关联 id——渲染侧生成、随 ipcArgs 传给主进程，
+// 中止时经 `llm:abort` 通道按同一 id 取消主进程在途 fetch（此前 race 只让调用方不再等待）。
+// 主进程侧对应 `electron/llmAbortRegistry.ts`。
+function newLlmRequestId(): string {
+  const c = globalThis.crypto
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  return `llm-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 interface AnthropicResponse {
   content?: { text?: string }[]
   usage?: { input_tokens?: number; output_tokens?: number }
@@ -661,6 +670,9 @@ export const useApiStore = defineStore('api', () => {
     if (!degradeState && window.electronAPI?.llmChatCompletion && tierTarget.providerId
       && tierProvider?.chatFormat !== 'ollama') {
       try {
+        // LLM-ABORT：中止要真的省下 Token，就得让主进程能取消在途 fetch——
+        // 故请求带 requestId（仅在有 externalSignal 时；无信号不登记，语义等价现状）。
+        const requestId = externalSignal ? newLlmRequestId() : undefined
         const ipcArgs = {
           providerId: tierTarget.providerId,
           model: tierTarget.model,
@@ -672,21 +684,29 @@ export const useApiStore = defineStore('api', () => {
           })),
           tools,
           maxTokens,
+          ...(requestId ? { requestId } : {}),
           // G-2：temperature 随 IPC 透传（主进程侧入请求体；不传时行为不变）
           ...(routingOptions?.temperature !== undefined ? { temperature: routingOptions.temperature } : {})
         }
-        // B-07：IPC 无法携带 AbortSignal，原实现直接忽略 externalSignal——
-        // 用 race 让调用方侧中止即时生效（主进程侧请求由其自身超时兜底）
+        // B-07：IPC 无法携带 AbortSignal——用 race 让调用方侧中止即时生效；
+        // LLM-ABORT 再进一步：中止时经 llm:abort 通知主进程取消在途请求（否则 Token 照计）。
         const ipcCall = window.electronAPI.llmChatCompletion(ipcArgs)
         const result = await (externalSignal
           ? Promise.race([
               ipcCall,
               new Promise<never>((_, reject) => {
-                if (externalSignal.aborted) {
+                const onAbort = () => {
+                  if (requestId) {
+                    try {
+                      void window.electronAPI?.llmAbort?.(requestId)
+                    } catch {
+                      // 通道不可用时退化为原 race 行为（渲染侧仍即时停止等待）
+                    }
+                  }
                   reject(new DOMException('Aborted', 'AbortError'))
-                } else {
-                  externalSignal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
                 }
+                if (externalSignal.aborted) onAbort()
+                else externalSignal.addEventListener('abort', onAbort, { once: true })
               })
             ])
           : ipcCall)
@@ -744,6 +764,9 @@ export const useApiStore = defineStore('api', () => {
         }
         return ipcResult
       } catch (err) {
+        // LLM-ABORT/B-07 同型：调用方主动中止不是故障——不得进入重试（否则 sleep 后递归
+        // 重发 IPC，中止反而白烧在途请求）。与直连分支外层 catch 的同类守卫一致。
+        if (externalSignal?.aborted) throw err
         const errMsg = err instanceof Error ? err.message : String(err)
         if (errMsg.includes('IPC') || errMsg.includes('not found') || errMsg.includes('decrypt')) {
           recordFailure()

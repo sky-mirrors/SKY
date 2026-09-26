@@ -404,6 +404,59 @@ describe('apiStore', () => {
       expect(costs.length).toBe(1)
       expect(costs[0].traceId).toBe('trace-main-001')
     })
+
+    // 终止执行 → llm:abort 通道：B-07 race 此前只让调用方不再等待，主进程 fetch 照跑、Token 照计。
+    // 下面三例钉住「IPC 带 requestId → 中止时通知主进程 → 中止不重试白烧」的闭环。
+    it('LLM-ABORT: externalSignal 时 ipcArgs 携带 requestId，中止时经 llmAbort(requestId) 通知主进程取消在途请求', async () => {
+      const store = await setupReadyStore()
+      // 主进程请求在途：IPC 调用永不 resolve，逼出 race 的 abort 分支
+      electronApi.llmChatCompletion.mockReturnValue(new Promise(() => {}))
+      const llmAbort = vi.fn().mockResolvedValue({ aborted: true })
+      ;(electronApi as unknown as { llmAbort: unknown }).llmAbort = llmAbort
+      const ctrl = new AbortController()
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `abort probe ${i}` }))
+      const p = store.chatCompletion(msgs, false, undefined, undefined, ctrl.signal, { taskType: 'chat' })
+      await vi.waitFor(() => expect(electronApi.llmChatCompletion).toHaveBeenCalledTimes(1))
+
+      const ipcOpts = electronApi.llmChatCompletion.mock.calls[0][0] as Record<string, unknown>
+      expect(typeof ipcOpts.requestId).toBe('string')
+      expect(ipcOpts.requestId).toBeTruthy()
+
+      ctrl.abort()
+      await expect(p).rejects.toThrow()
+      // 关键：通知主进程按同一 requestId 取消，而不只是渲染侧不再等待
+      expect(llmAbort).toHaveBeenCalledWith(ipcOpts.requestId)
+    })
+
+    it('LLM-ABORT 守卫: 未传 externalSignal 时 ipcArgs 不带 requestId（不引入取消语义漂移）', async () => {
+      const store = await setupReadyStore()
+      electronApi.llmChatCompletion.mockResolvedValue({
+        success: true, content: 'mock response', toolCalls: [],
+        usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30, cacheHitTokens: 0, cacheMissTokens: 10 }
+      })
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `no-signal probe ${i}` }))
+      await store.chatCompletion(msgs, false, undefined, undefined, undefined, { taskType: 'chat' })
+
+      const ipcOpts = electronApi.llmChatCompletion.mock.calls[0][0] as Record<string, unknown>
+      expect(ipcOpts.requestId).toBeUndefined()
+    })
+
+    it('LLM-ABORT 守卫: externalSignal 已中止时不进入重试（不重发 IPC 白烧在途请求）', async () => {
+      const store = await setupReadyStore()
+      store.circuitBreaker.maxRetries = 1
+      electronApi.llmChatCompletion.mockReturnValue(new Promise(() => {}))
+      const llmAbort = vi.fn().mockResolvedValue({ aborted: true })
+      ;(electronApi as unknown as { llmAbort: unknown }).llmAbort = llmAbort
+      const ctrl = new AbortController()
+      const msgs = Array.from({ length: 6 }, (_, i) => ({ role: 'user', content: `retry abort probe ${i}` }))
+      const p = store.chatCompletion(msgs, true, undefined, undefined, ctrl.signal, { taskType: 'chat' })
+      await vi.waitFor(() => expect(electronApi.llmChatCompletion).toHaveBeenCalledTimes(1))
+
+      ctrl.abort()
+      await expect(p).rejects.toThrow()
+      // 不带守卫时：内层 catch 按 retryOnFailure 递归重发（sleep 后 calls 变 2）——中止不该白烧请求
+      expect(electronApi.llmChatCompletion).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('EXAM-1 exam 流量隔离（学习回路隔离 / 记账保留）', () => {

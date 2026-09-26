@@ -75,6 +75,8 @@ interface ElectronAPI {
     tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
     maxTokens?: number
     temperature?: number
+    // LLM-ABORT：关联 id——配合 llmAbort 可在途中止主进程 fetch
+    requestId?: string
   }) => Promise<{
     success: boolean
     content?: string
@@ -83,6 +85,8 @@ interface ElectronAPI {
     chatFormat?: string
     error?: string
   }>
+  // LLM-ABORT：按 requestId 取消在途的非流式 LLM 请求（「终止执行」→ 真正省下 Token）
+  llmAbort: (requestId: string) => Promise<{ aborted: boolean }>
   llmChatCompletionStream: (
     opts: {
       providerId: string

@@ -35,6 +35,8 @@ import { parseStreamUsage } from './streamUsage'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
+// LLM-ABORT：非流式 LLM IPC 请求的取消注册表（渲染侧 requestId → 主进程 AbortController）
+import { registerLlmRequest, abortLlmRequest, releaseLlmRequest } from './llmAbortRegistry'
 
 // A-06/A-01：不再持有 setupIpc 时的固定引用（macOS activate 重建窗口后变野指针、
 // 关闭后 isDestroyed 判不住），统一经 window-manager 动态获取（内含 isDestroyed 校验）
@@ -1151,11 +1153,15 @@ export function setupIpc(_win: BrowserWindow | null) {
     tools?: Array<{ name: string; description: string; parameters: Record<string, unknown> }>
     maxTokens?: number
     temperature?: number
+    // LLM-ABORT：渲染侧生成的关联 id——据此可按 id 取消在途 fetch（llm:abort 通道）
+    requestId?: string
   }) => {
-    const { providerId, model, messages, tools, maxTokens, temperature } = opts
+    const { providerId, model, messages, tools, maxTokens, temperature, requestId } = opts
     if (!providerId || !model || !messages) {
       return { success: false, error: 'Missing providerId, model, or messages' }
     }
+    // LLM-ABORT：登记可取消控制器；请求收敛（成功/失败/中止）由 finally 摘除
+    const abortCtrl = requestId ? registerLlmRequest(requestId) : null
     try {
       const stored = readStoredApiConfig()
       if (!stored) {
@@ -1232,7 +1238,11 @@ export function setupIpc(_win: BrowserWindow | null) {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))
+        // LLM-ABORT：外部取消（abortCtrl）与自身超时任一触发即中断请求；
+        // 无 requestId 时保持原行为（仅超时）
+        signal: abortCtrl
+          ? AbortSignal.any([abortCtrl.signal, AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))])
+          : AbortSignal.timeout(Math.min(tierTimeout, absoluteCap))
       })
       if (!resp.ok) {
         const errBody = await readBodyCapped(resp, 16384).catch(() => '')
@@ -1287,7 +1297,18 @@ export function setupIpc(_win: BrowserWindow | null) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       return { success: false, error: message }
+    } finally {
+      // LLM-ABORT：任何出口（成功/失败/中止）都摘除登记，避免 Map 泄漏
+      if (requestId) releaseLlmRequest(requestId)
     }
+  })
+
+  // LLM-ABORT：按 requestId 取消在途的非流式 LLM 请求。
+  // 渲染侧「终止执行」经此通道真正中断主进程 fetch、省下仍在途的 Token
+  // （此前 B-07 的 race 只让调用方不再等待，请求照跑、Token 照计）。
+  ipcMain.handle('llm:abort', (_event, opts: { requestId?: string }) => {
+    if (!opts?.requestId) return { aborted: false }
+    return { aborted: abortLlmRequest(opts.requestId) }
   })
 
   ipcMain.handle('llm:listModels', async (_event, opts: { providerId: string }) => {
