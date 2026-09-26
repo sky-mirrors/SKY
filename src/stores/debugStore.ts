@@ -317,23 +317,43 @@ export const useDebugStore = defineStore('debug', () => {
   // 仍在运行的其他任务——改为 Set 注册表，任务结束时只注销自己的控制器
   const abortControllers = new Set<AbortController>()
 
-  function terminateExecution() {
+  // 2026-09-26（browser_debug 实测后补）：把「注册表里当下有没有可中止的控制器」暴露成
+  // 响应式状态。起因：RuntimePanel 的「⏹ 终止」按钮原先只按 dialogStore.isProcessing 渲染，
+  // 而 isProcessing 在**路由/规划阶段**就已置 true——此时 AbortController 尚未注册
+  // （注册点只有 dialogStore 的 mcp-direct 分支 / macroExecutor / pipelineExecutor），
+  // 点击落到空集合：terminateExecution 只 clear()、不 abort 任何请求，任务照常跑完且用户无反馈。
+  // 以 ref 镜像 Set.size（Set 本身非响应式），供 UI 判定「此刻是否真的可中止」。
+  const abortableCount = ref(0)
+  const hasAbortable = computed(() => abortableCount.value > 0)
+
+  function syncAbortableCount() {
+    abortableCount.value = abortControllers.size
+  }
+
+  /** 中止全部在册任务。返回本次实际中止的控制器数——0 表示点击时并无任务可中止（空窗）。 */
+  function terminateExecution(): number {
+    const aborted = abortControllers.size
     for (const ac of abortControllers) {
       ac.abort()
     }
     abortControllers.clear()
+    syncAbortableCount()
+    return aborted
   }
 
   function registerAbortController(ac: AbortController) {
     abortControllers.add(ac)
+    syncAbortableCount()
   }
 
   function unregisterAbortController(ac: AbortController) {
     abortControllers.delete(ac)
+    syncAbortableCount()
   }
 
   function clearAbortController() {
     abortControllers.clear()
+    syncAbortableCount()
   }
 
   function updateEnvironment(env: DebugSession['environment']) {
@@ -496,6 +516,8 @@ export const useDebugStore = defineStore('debug', () => {
     selectProbe,
     freezeBuffer,
     unfreezeBuffer,
+    abortableCount,
+    hasAbortable,
     terminateExecution,
     registerAbortController,
     unregisterAbortController,
