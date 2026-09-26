@@ -21,7 +21,28 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Rejection]', reason)
 })
 
+// E-8：单实例锁。docs\ARCHITECTURE.md:133 承诺「启动序列: requestSingleInstanceLock(单实例)…
+// 第二个实例启动时聚焦已有主窗口」，但此前从未实现——双实例会并行写 vaults\default.db
+// （应用层 last-write-wins，无行级锁）与非原子的 store JSON。必须在 app.whenReady() 之前请求。
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  // 已有实例在运行：本实例立即退出，不再建窗 / 初始化 Vault / 注册 IPC（避免双写）
+  app.quit()
+} else {
+  // 第二个实例被拒后，由已有实例聚焦主窗（最小化时先还原再 show/focus）
+  app.on('second-instance', () => {
+    const win = getMainWindow()
+    if (!win) return
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
+}
+
 app.whenReady().then(async () => {
+  // 未持锁者已在上面 app.quit()；quit 是异步的，此处兜底不再初始化，避免竞态下建窗
+  if (!gotTheLock) return
+
   const win = createWindow()
   setupIpc(win)
 
