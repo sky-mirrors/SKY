@@ -2,7 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ProbeSnapshot, DebugSession, ConsoleLogEntry, ConsoleLogLevel, ConsoleCategory, BudgetStatus, CostRecord, ModelTier, ConstraintFeedbackStat } from '@/models'
 import { debugLog } from '@/services/debugLog'
-import { recordLlmCost, getBudgetStatus as getBudgetStatusFromService, initBudgetSystem, getCostBreakdownByTier, getCostBreakdownByCategory } from '@/services/tokenBudget'
+import { recordLlmCost, getBudgetStatus as getBudgetStatusFromService, initBudgetSystem, getCostBreakdownByTier, getCostBreakdownByCategory, getDailySpent, getMonthlySpent, getSessionSpent, getBudgetMode } from '@/services/tokenBudget'
+import { getCacheSize, getCacheSavings, getAdaptiveThreshold } from '@/services/semanticCache'
+import { analyzeRoutingEfficiency, getAdaptiveThresholds } from '@/services/smartRouter'
+import { getActiveConstraints, getAllConstraints } from '@/services/domainConstraints'
 import { calculateCost } from '@/services/tokenPricing'
 
 const MAX_PROBES = 200
@@ -64,6 +67,27 @@ export const useDebugStore = defineStore('debug', () => {
   // debug:constraint-feedback 广播、handlers.setConstraintFeedbackStats 写入）。
   // 属本 store 状态 → 经既有 storeSync 自动镜像到独立的调试台窗口。
   const constraintFeedbackStats = ref<ConstraintFeedbackStat[]>([])
+
+  // 2026-09-26（机制体检 Wave1「上屏」）：把一批此前「只实现、未上屏」的机制统计聚合上屏
+  // （来源是 semanticCache / smartRouter / tokenBudget / domainConstraints 的既有 getter）。
+  // 属本 store 状态 → 经既有 storeSync 自动镜像到独立的调试台窗口面板「运行统计」。
+  const mechanismStats = ref<{
+    cache: { size: number; savings: ReturnType<typeof getCacheSavings>; threshold: number } | null
+    routing: { efficiency: ReturnType<typeof analyzeRoutingEfficiency>; thresholds: ReturnType<typeof getAdaptiveThresholds> } | null
+    budget: { daily: number; monthly: number; session: number; mode: string } | null
+    constraints: { active: number; total: number } | null
+  }>({ cache: null, routing: null, budget: null, constraints: null })
+
+  function refreshMechanismStats() {
+    try {
+      mechanismStats.value = {
+        cache: { size: getCacheSize(), savings: getCacheSavings(), threshold: getAdaptiveThreshold() },
+        routing: { efficiency: analyzeRoutingEfficiency(), thresholds: getAdaptiveThresholds() },
+        budget: { daily: getDailySpent(), monthly: getMonthlySpent(), session: getSessionSpent(), mode: String(getBudgetMode()) },
+        constraints: { active: getActiveConstraints().length, total: getAllConstraints().length }
+      }
+    } catch { /* 非关键：任一 getter 异常不阻塞调试台 */ }
+  }
 
   const CATEGORY_ICONS: Record<ConsoleCategory, string> = {
     system: '⚙️', raap: '🎯', llm: '🤖', shell: '💻', cache: '♻️',
@@ -421,6 +445,7 @@ export const useDebugStore = defineStore('debug', () => {
     budgetStatus.value = getBudgetStatusFromService()
     costByTier.value = getCostBreakdownByTier()
     costByCategory.value = getCostBreakdownByCategory()
+    refreshMechanismStats()
   }
 
   /** 写入约束反馈自治审计快照（来源：debug:constraint-feedback 广播） */
@@ -459,6 +484,8 @@ export const useDebugStore = defineStore('debug', () => {
     costByTier,
     costByCategory,
     constraintFeedbackStats,
+    mechanismStats,
+    refreshMechanismStats,
     setConstraintFeedbackStats,
     recordStepCost,
     recordTokenUsage,

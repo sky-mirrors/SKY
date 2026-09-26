@@ -54,6 +54,16 @@
             </div>
           </div>
         </div>
+        <div class="mech-stats-section">
+          <div class="panel-title">运行统计</div>
+          <template v-if="debugStore.mechanismStats.cache">
+            <div class="ms-row"><span class="ms-k">语义缓存</span><span class="ms-v">{{ debugStore.mechanismStats.cache.size }} 条 · 命中 {{ (debugStore.mechanismStats.cache.savings.hitRate * 100).toFixed(0) }}% · 省 {{ debugStore.mechanismStats.cache.savings.semanticCacheSavedTokens }} tok</span></div>
+            <div class="ms-row"><span class="ms-k">路由</span><span class="ms-v">{{ debugStore.mechanismStats.routing?.efficiency.totalEntries ?? 0 }} 样本 · 过度路由 {{ ((debugStore.mechanismStats.routing?.efficiency.overkillRate ?? 0) * 100).toFixed(0) }}%</span></div>
+            <div class="ms-row"><span class="ms-k">预算</span><span class="ms-v">{{ debugStore.mechanismStats.budget?.mode }} · 今日 ¥{{ (debugStore.mechanismStats.budget?.daily ?? 0).toFixed(4) }} · 月 ¥{{ (debugStore.mechanismStats.budget?.monthly ?? 0).toFixed(4) }}</span></div>
+            <div class="ms-row"><span class="ms-k">约束</span><span class="ms-v">激活 {{ debugStore.mechanismStats.constraints?.active ?? 0 }} / {{ debugStore.mechanismStats.constraints?.total ?? 0 }}</span></div>
+          </template>
+          <div v-else class="empty-hint">加载中…</div>
+        </div>
         <div class="feedback-audit-section">
           <div class="panel-title">约束反馈自治</div>
           <div class="fa-hint">≥10 样本 · 误报率&gt;30% 自动禁用 / &gt;20% 自动降级</div>
@@ -314,6 +324,12 @@ function autonomyLabel(a: 'none' | 'disable' | 'downgrade'): string {
 .source-llm { border-left: 2px solid #6688ff; }
 .source-rule { border-left: 2px solid #44ff88; }
 .source-cache { border-left: 2px solid #ffaa44; }
+
+/* 运行统计（2026-09-26 机制体检 Wave1「上屏」：把未上屏的机制 getter 聚合展示） */
+.mech-stats-section { border-top: 1px solid rgba(255,50,50,0.15); padding: 6px; }
+.ms-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 2px 0; }
+.ms-k { color: #7a90a8; flex: none; }
+.ms-v { color: #c0d8f0; font-family: monospace; text-align: right; }
 
 /* 约束反馈自治审计面板（2026-09-25 机制体检） */
 .feedback-audit-section { border-top: 1px solid rgba(255,50,50,0.15); padding: 6px; max-height: 160px; overflow-y: auto; }
