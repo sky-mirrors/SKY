@@ -37,12 +37,15 @@ describe('E2E 真实场景冒烟', () => {
     }
   })
 
-  it('启动App看到3D星图DOM', async () => {
+  it('启动App看到工作台DOM（星图视图已删除）', async () => {
     const html = await page.content()
     expect(html.length).toBeGreaterThan(100)
-    const hasStarMap = html.includes('StarMap') || html.includes('starmap') || html.includes('star-map')
-      || html.includes('canvas') || html.includes('three') || html.includes('WebGL')
-    expect(hasStarMap).toBe(true)
+    // 工作台外壳必须渲染（星图删除后它是唯一主视图）
+    expect(html).toContain('wb-shell')
+    // 星图容器必须不存在。注意：原断言是 canvas|three|WebGL|starmap 的 || 串联，
+    // 删掉星图后仍可能被 canvas/根类名 holo-starmap 兜住而恒绿，故改为对星图
+    // 专属标记的显式否定。
+    expect(html).not.toContain('starmap-container')
   })
 
   it('输入框输入创建文件命令并回车', async () => {

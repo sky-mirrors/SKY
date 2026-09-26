@@ -3,8 +3,9 @@
     <!-- 区 1：路由与执行 -->
     <div class="wb-rt-section">
       <div class="wb-rt-title">路由与执行</div>
-      <div class="wb-rt-card" v-if="dialogStore.isProcessing">
+      <div class="wb-rt-card wb-rt-running" v-if="dialogStore.isProcessing">
         <span class="wb-rt-dot working"></span>执行中…
+        <button class="wb-rt-terminate" title="立即终止当前执行" @click="debugStore.terminateExecution">⏹ 终止</button>
       </div>
       <div class="wb-rt-card warn" v-if="dialogStore.awaitingConfirmation">
         <div class="wb-rt-card-head">⏸ 等待计划确认</div>
@@ -408,6 +409,22 @@ function formatExamDuration(ms: number): string {
   .wb-rt-exam-actions { display: flex; gap: 6px; margin-top: 6px; }
 .wb-rt-card.wb-rt-card { flex-direction: column; align-items: stretch; }
 .wb-rt-card .wb-rt-dot { align-self: auto; }
+
+/* D1（星图删除的补偿）：星图模式里带「终止执行」的探针面板随星图删除，
+   而工作台模式下该面板本来就不可见 ⇒ 主窗口将没有任何窗口内终止入口。
+   这里把终止按钮补回工作台的「路由与执行」区。 */
+.wb-rt-card.wb-rt-running { flex-direction: row; align-items: center; justify-content: space-between; }
+.wb-rt-terminate {
+  border: 1px solid rgba(255, 90, 90, 0.5);
+  color: #ff6b6b;
+  background: rgba(255, 60, 60, 0.08);
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.wb-rt-terminate:hover { background: rgba(255, 60, 60, 0.18); color: #ff8a8a; }
 
 .wb-rt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .wb-rt-dot.working { background: #6db3ff; animation: wb-pulse 1s infinite; }
