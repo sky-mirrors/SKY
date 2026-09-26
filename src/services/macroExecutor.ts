@@ -1162,6 +1162,22 @@ function buildStepLineage(step: L2DagStep, execResult: { fromRule?: boolean; rul
   return { step: step.step, source: 'tool_call', tool: step.tool }
 }
 
+export interface MacroRunResult {
+  results: Record<number, string>
+  lastResult: string
+  savedTokens: number
+  lineage: MacroLineage
+  sideEffects: import('@/models').SideEffectRecord[]
+}
+
+/**
+ * H-6：宏执行的**唯一对外入口**，职责只有两件——持有 abort 控制器、保证收口。
+ * 执行内核见 runMacroBody。把 try/finally 放在最外层（与 pipelineExecutor 同构）：
+ * 内核任意位置的抛出（executeStep 逃逸、checkpoint IO 失败、onPlanPreview 回调抛出、
+ * 并行分支 Promise.all reject）都必须注销控制器、并把未收口的时间线标 failed——
+ * 原实现只在正常路径收口，异常时 macroController 残留全局终止注册表、
+ * workflowLog 永久卡 running。
+ */
 export async function executeMacro(
   manifest: L2ToolManifest,
   userInput: { filePath?: string; inputText?: string; context?: string },
@@ -1173,15 +1189,43 @@ export async function executeMacro(
   onPlanPreview?: (preview: string) => void,
   replayPriorResults?: Record<number, string>,
   traceId?: string
-): Promise<{ results: Record<number, string>; lastResult: string; savedTokens: number; lineage: MacroLineage; sideEffects: import('@/models').SideEffectRecord[] }> {
-  const { execution } = manifest
-  let savedTokens = 0
+): Promise<MacroRunResult> {
   const macroController = new AbortController()
   globalBus.emit('debug:register-abort', macroController)
+  // wfState 由内核写入：wfLogId 收口日志；settled 表示内核已显式收口
+  // （正常/明确失败），此时 finally 不得再改写状态。
+  const wfState: { wfLogId: string | null; settled: boolean } = { wfLogId: null, settled: false }
+  try {
+    return await runMacroBody(
+      manifest, userInput, macroController, wfState,
+      onStepStart, onStepDone, onStepFailed, onStepReuse, onStepSkip, onPlanPreview, replayPriorResults, traceId
+    )
+  } finally {
+    if (!wfState.settled && wfState.wfLogId) {
+      try { useWorkflowLogStore().completeLog(wfState.wfLogId, 'failed') } catch { /* ignore */ }
+    }
+    // B-09：定向注销本宏的控制器（无 payload 的清空仅保留给全局终止）
+    globalBus.emit('debug:clear-abort', macroController)
+  }
+}
+
+async function runMacroBody(
+  manifest: L2ToolManifest,
+  userInput: { filePath?: string; inputText?: string; context?: string },
+  macroController: AbortController,
+  wfState: { wfLogId: string | null; settled: boolean },
+  onStepStart?: (stepNum: number, tool: string) => void,
+  onStepDone?: (stepNum: number, result: string) => void,
+  onStepFailed?: (stepNum: number, error: string) => void,
+  onStepReuse?: (stepNum: number) => void,
+  onStepSkip?: (stepNum: number) => void,
+  onPlanPreview?: (preview: string) => void,
+  replayPriorResults?: Record<number, string>,
+  traceId?: string
+): Promise<MacroRunResult> {
+  const { execution } = manifest
+  let savedTokens = 0
   const macroSignal = macroController.signal
-  // D-08：提前退出路径的统一注销点——direct 返回/dagPlan 缺失/数据流预检失败/
-  // 并行 ask_user 中断都必须注销，避免控制器在注册表中泄漏成僵尸
-  const unregisterAbort = () => { globalBus.emit('debug:clear-abort', macroController) }
   const lineage: MacroLineage = []
 
   if (execution.mode === 'direct' && execution.directCall) {
@@ -1206,14 +1250,11 @@ export async function executeMacro(
       signal: macroController.signal,
       routingOptions: { taskType: 'raap', callerId: 'macro_directCall', ...(traceId ? { traceId } : {}) }
     })
-    // D-08：direct 模式提前返回前注销控制器
-    unregisterAbort()
+    // H-6：提前返回无需各自注销——外壳 finally 统一收口
     return { results: { 1: resp.content || '' }, lastResult: resp.content || '', savedTokens: 0, lineage: [{ step: 1, source: 'llm_standard', tool: 'llm_generate' }], sideEffects: [] }
   }
 
   if (!execution.dagPlan) {
-    // D-08：提前 throw 前注销控制器
-    unregisterAbort()
     throw new Error('macro/chain mode requires dagPlan')
   }
 
@@ -1224,8 +1265,6 @@ export async function executeMacro(
   if (!dataflowReport.ok) {
     debugLog(`[MacroExecutor] 数据流预检失败: ${dataflowReport.summary}`)
     const issueList = dataflowReport.issues.filter(i => i.severity === 'error').map(i => i.description).join('；')
-    // D-08：提前 throw 前注销控制器
-    unregisterAbort()
     throw new Error(`DAG数据流预检失败：${issueList}`)
   }
   if (dataflowReport.issues.length > 0) {
@@ -1235,13 +1274,12 @@ export async function executeMacro(
 
   // P1-43：工作流时间线生命周期——createLog → updateNodeStatus(随步回调) → completeLog
   // nodeId 用 `S{step}:{tool}` 前缀防同名工具 first-match 冲突
-  let wfLogId: string | null = null
   const wfNodeId = (stepNum: number, tool: string) => `S${stepNum}:${tool}`
   const wfUpdate = (stepNum: number, tool: string, status: 'pending' | 'running' | 'completed' | 'failed') => {
-    if (!wfLogId) return
+    if (!wfState.wfLogId) return
     try {
       useWorkflowLogStore().updateNodeStatus(
-        wfLogId,
+        wfState.wfLogId,
         wfNodeId(stepNum, tool),
         status,
         status === 'running' ? Date.now() : undefined,
@@ -1249,10 +1287,12 @@ export async function executeMacro(
       )
     } catch { /* 非关键：无 pinia 环境(测试)时跳过 */ }
   }
+  // H-6：显式收口即置 settled——外壳 finally 据此判断是否还需补记 failed
   const wfComplete = (status: 'completed' | 'failed') => {
-    if (!wfLogId) return
+    wfState.settled = true
+    if (!wfState.wfLogId) return
     try {
-      useWorkflowLogStore().completeLog(wfLogId, status)
+      useWorkflowLogStore().completeLog(wfState.wfLogId, status)
     } catch { /* ignore */ }
   }
   try {
@@ -1265,7 +1305,7 @@ export async function executeMacro(
         wfEdges.push([depStep ? wfNodeId(depStep.step, depStep.tool) : `S${dep}:unknown`, wfNodeId(s.step, s.tool), 'data'])
       }
     }
-    wfLogId = wfStore.createLog(manifest.identity.id, wfNodes, wfEdges).id
+    wfState.wfLogId = wfStore.createLog(manifest.identity.id, wfNodes, wfEdges).id
   } catch { /* 非关键：时间线不可用时静默降级 */ }
   const stepToolOf = (stepNum: number) => steps.find(s => s.step === stepNum)?.tool || ''
   const stepStartCb = (stepNum: number, tool: string) => { wfUpdate(stepNum, tool, 'running'); onStepStart?.(stepNum, tool) }
@@ -1517,7 +1557,10 @@ export async function executeMacro(
         results[step.step] = execResult.result
         lineage.push(buildStepLineage(step, execResult))
         for (const cond of conditions) {
-          if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results)) {
+          // H-4：单步就绪路径同样传入 fromStep——原实现只传两参，D-09 的
+          // 「求值域收敛到来源步骤」只覆盖了并行分支，串行场景仍会扫全部步骤结果，
+          // 文件大小/耗时毫秒等无关数字会让 $.output.amount > N 误成立而错跳步
+          if (cond.fromStep === step.step && !evaluateCondition(cond.expr, results, cond.fromStep)) {
             skipSteps.add(cond.toStep)
           }
         }
@@ -1545,9 +1588,8 @@ export async function executeMacro(
         } else {
           stepFailed.set(step.step, true)
           if (execution.dagPlan.fallbackStrategy === 'ask_user') {
-            // D-08：并行 ask_user 失败提前返回前注销控制器
+            // H-6：显式标 failed 即 settled；控制器注销交给外壳 finally
             wfComplete('failed')
-            unregisterAbort()
             return { results, lastResult: '执行中断', savedTokens, lineage, sideEffects }
           }
         }
@@ -1618,8 +1660,7 @@ export async function executeMacro(
   }
   // H-5：被取消的运行不得记为 completed（原实现只看 stepFailed，取消时零失败 → 假报 completed）
   wfComplete(aborted || stepFailed.size > 0 ? 'failed' : 'completed')
-  // B-09：定向注销本宏的控制器，不再清空全局注册表（避免误杀并发任务）
-  unregisterAbort()
+  // H-6：控制器注销与时间线保底收口统一由外壳 executeMacro 的 finally 负责
   return { results, lastResult: gatedResult, savedTokens, lineage, sideEffects }
 }
 
