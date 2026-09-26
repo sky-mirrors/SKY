@@ -133,7 +133,7 @@
 | A2-7 | ❌ | kernel/funnel.ts:181-185 | 六层编排层仍 try/catch+continue 静默降级；kernel.dispatch 仍零生产调用方 |
 | A2-8 | ❌ | kernel/funnel.ts:162-166 | beforeLlm 全仓仅 funnel 自引，'budget-blocked' 生产不可达 |
 | A2-9 | ❌ | packs/*/pack.json:11; funnel.ts:198 | 两个 shipped pack 声明 veto:["pre-output"] 但无 pre-output 评估点，声明能力未实现 |
-| A2-10 | ❌ | onboardingManager.ts:1-43 | 死模块原样，建议删除未执行 |
+| A2-10 | ✅ **已接线**（2026-09-27 复核） | onboardingManager.ts:1-43 | 读侧 `shouldShowOnboarding` 在 `App.vue:361` 调用；写侧 `completeStep` 在 `OnboardingWizard.vue:176/209/211`；依赖的 5 条 `config:*` 频道已在 `domains/config/handlers.ts:22-78` 接线。残留：`isStepComplete`/`resetOnboarding` 仅测试引用 |
 | A2-11 | ◐ | apiStore.ts:728-761; kernel/bus.ts:91-103 | apiStore 侧已包装 cleanup；kernel/bus requestStream 仍丢弃 handler 返回的 cleanup |
 | A2-12 | ❌ | kernel/funnel.ts:146-149,215 | L1 autoExecutable 恒 false（与旧路径平价，无回归） |
 | A2-13 | ✅ | dialogStore.ts:771-775 | mcp-direct 未命中显式提示 + 错误日志 |

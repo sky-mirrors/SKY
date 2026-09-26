@@ -35,6 +35,8 @@
 在 3 个目录内定义、而 src/ 其它文件**无任何词引用**的导出：**117 个**（不含 tests 计数，故"被测试用"的也会入列）。
 
 ### 已坐实的"真死"（模块级）
+
+> ⚠️ **2026-09-27 复核：下表三项均已接线，本节标记作废**——onboardingManager（`App.vue:361` + `OnboardingWizard.vue:176/209/211` + `domains/config/handlers.ts:22-78`）、tokenPricing（`App.vue:332` `initPricingFromVault` + 设置页新增「计价」tab）、dagCheckpoint 读侧（`DialogPanel.vue:1699` 可恢复徽章 + `App.vue:336` `pruneExpired`）。残留死导出：`isStepComplete` / `resetOnboarding` / `loadPricingFromStorage`（仅 mock 引用）。
 | 项 | 证据 | 判读 |
 |---|---|---|
 | **`services/onboardingManager.ts` 全模块** | `completeStep`/`isStepComplete`/`shouldShowOnboarding`（L9/28/45）全仓零消费者；而 `OnboardingWizard.vue` **自己手搓**了同一件事（直接 `configStore.setJobRole` / `markFirstLaunchDone` / `apiStore.addProvider`，`finish()` 在 L~180） | **同一功能两套机制**：一套（含 5 个 `config:*` 频道）整个是死的，且步骤语义还与 UI 不一致（模块有 `knowledgeFed` 步、UI 没有）⇒ **边界不清晰**。建议**删除模块**（另一套在跑且更完整），或反过来让 UI 复用它——二选一，不要并存 |

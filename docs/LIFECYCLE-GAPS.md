@@ -11,7 +11,7 @@
 
 ## 第一批：静默破坏价值（最严重）
 
-### G-1 消费者截断悬崖——分析步骤只看得到文档的 6.7% ❌
+### G-1 消费者截断悬崖——分析步骤只看得到文档的 6.7% ⚠️ **部分修**（2026-09-27 复核：阈值未动，`macroExecutor.ts:669` standard 仍 800 字；已加 `⚠️【已截断】` 告知 `:658-661`，注入点 `:671/:695`）
 
 S1 `read_file` 读入约 12000 字符财报全文，但 S2（standard 档消费者）经 `extractStepResult` 只吃到 **800 字符**（nano:300 / mini:600 / standard:800 / pro:2000，macroExecutor.ts:376-378）。整个流水线在分析一份它只看过开头的文档；用户以为"分析了财报"，实际营收分析只基于前 800 字。无任何机制检测或告知这个信息瓶颈。
 结构性解法在 Phase D（map-reduce），但当前没有任何文档承认这个悬崖的存在。
@@ -21,7 +21,7 @@ S1 `read_file` 读入约 12000 字符财报全文，但 S2（standard 档消费�
 `MODEL_TIER_CONFIG`（scheduleOptimizer.ts:309-314）定义 nano 0.1 / mini 0.3 / standard 0.5 / pro 0.7，probe 遥测也如实记录 `modelParams`（macroExecutor.ts:618）——但请求体只有 `{model, messages, stream, options.num_predict}`（ollamaProvider.ts:58-59/94-95），apiStore.ts 全文无 temperature。**Ollama 一直用自己的默认温度，nano 档"低温度保证确定性"的承诺从未兑现**。已二次复核坐实。
 **修复**（H-2）：macroExecutor llm 步将 `getTierConfig(tier).temperature` 经 routingOptions 传入；apiStore/ollamaProvider 透传至请求体 `options.temperature`；未传时请求体等价现状（冷启动兼容）。测试：ollamaProvider.spec G-2 ×3、apiStore.spec H-1 批。
 
-### G-3 FactGuard 保护窗口只有 5000 字 ❌
+### G-3 FactGuard 保护窗口只有 5000 字 ✅ **已修**（2026-09-27 复核：改全文分段抽取 `extractEntitiesAll`——`macroExecutor.ts:877/:950`、`factGuard.ts:48/61-73`）
 
 ground truth 从 `contextText.substring(0, 5000)` 抽取（macroExecutor.ts:519）——财报后半部分的金额/日期不在防幻觉保护范围内。与 G-1 叠加成最坏组合：模型看不全文档（可能编数字），FactGuard 也看不全（编了不拦）。且保护仅覆盖 targetRoles 含 `finance/legal/hr` 的 manifest。
 
@@ -37,7 +37,7 @@ ground truth 从 `contextText.substring(0, 5000)` 抽取（macroExecutor.ts:519�
 7 处 `recordOutcome` 传的 `actualCost` 全部是 `budgetResult.estimatedCost`（apiStore.ts:634/745/788/831/970/1088/1188；估算逻辑 tokenPricing.ts:61-67，输出按 `min(input×0.5, 上限)`）——账本中没有一条真实费用。`cacheHitTokens` 硬编码 0（ollamaProvider.ts:79-80），OpenAI 返回的 cached_tokens 虽被解析（apiStore.ts:812）但 debugStore 成本计算处硬传 0（debugStore.ts:131/134）——缓存节省在成本账上不存在。
 **修复**（H-4）：`actualCostOf(usage, local)` 按实际 usage 经 calculateCost 计价（本地 Ollama 与记账口径一致记 0），7 处 recordOutcome 全部替换；cacheHitTokens 真实值经 record-cost 透传。测试：apiStore.spec H-1 批 ×2。
 
-### G-6 双引擎审核的费效比倒挂 ❌
+### G-6 双引擎审核的费效比倒挂 ⚠️ **部分修**（2026-09-27 复核：读类已收窄为仅敏感路径 `dualEngineValidator.ts:124-132`；残留 `:276` maxTokens 固定 5000、`scheduleOptimizer.ts:487` 缓存键仍含 targetFile）
 
 S1 一个本地 `read_file` 要付一次 **maxTokens 5000** 的审核调用（dualEngineValidator.ts:262-266）——审核比动作本身贵一个数量级；审核缓存 key 含 targetFile（`skillId|targetFile|operation|structHash`，scheduleOptimizer.ts:386-393），文件路径一换即 miss；审核 prompt 看不到文件内容，只看意图与路径。对低危本地读操作，这道门近乎纯开销。
 
