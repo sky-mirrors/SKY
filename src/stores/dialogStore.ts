@@ -2066,7 +2066,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const errMsg = String(err)
       addSystemNotice(`❌ 执行失败（${classifyError(errMsg)}）`)
       globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `执行失败: ${errMsg}`, detail: errMsg })
-      globalBus.emit('node:set-l0-red-flash', { value: true })
       isProcessing.value = false
       return ''
     }
@@ -2383,9 +2382,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         const l2Nodes = (globalBus.request('node:get-nodes', {}) as any[]).filter(n => n.level === 'L2')
         return l2Nodes.find(n => n.id.includes(mcpPrefix) || t.shortName.includes(n.id.split('-').pop() || ''))?.id
       }).filter(Boolean) as string[]
-      globalBus.emit('node:highlight-l2-candidates', { ids: candidateL2Ids })
       if (candidateL2Ids.length > 0) {
-          globalBus.emit('debug:log-probe', { level: 'info', domain: 'raap', message: `RAG检索到${topCandidates.length}个候选工具，已高亮L2节点` })
+          globalBus.emit('debug:log-probe', { level: 'info', domain: 'raap', message: `RAG检索到${topCandidates.length}个候选工具，其中${candidateL2Ids.length}个命中L2节点` })
       }
 
       // ===== Map plan steps to L2 nodes for DAG chain =====
@@ -2891,7 +2889,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const errMsg = String(err)
       addSystemNotice(`❌ 执行失败（${classifyError(errMsg)}）`)
       globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `执行失败: ${errMsg}`, detail: errMsg })
-      globalBus.emit('node:set-l0-red-flash', { value: true })
       isProcessing.value = false
       return ''
     }

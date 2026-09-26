@@ -4,6 +4,10 @@ import { ToolNode, ToolLevel, JobRole, InteractionState, DegradedState, HistoryE
 import { generateAllNodes, getJobRoleTemplates } from '@/data/topology'
 import { vault } from '@/vault'
 
+export type DagStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'replanned' | 'reuse' | 'skip'
+export interface DagStep { nodeId: string; stepNum: number; status: DagStepStatus }
+export interface DagChainState { active: boolean; steps: DagStep[]; dependsOnMap: Record<number, number[]> }
+
 /**
  * nodeStore：工具节点图 + L2 manifest 注册表 + 少量跨组件运行态。
  *
@@ -13,9 +17,12 @@ import { vault } from '@/vault'
  * `DialogPanel`、流水线的 `ToolSelector`、`SettingsPage`、`domains\node` 的总线处理器、
  * 以及 dialogStore 的路由上下文（`node:get-*` 系列）。
  *
- * 注意：`dagChainState` 当前**只读不写**（写入方是已删除的星图侧 `node:set-dag-chain`
- * 等频道，且这批频道在删除前就已无监听）——工作台的 DAG 卡片因此恒不显示，属既有
- * 缺陷，本次不修（见快照 §十一）。
+ * DAG 执行链（`dagChainState`）：写入方是下面 6 个 `DAG` 函数，由 `domains\node` 把
+ * `node:set-dag-chain` 等 6 条频道桥接过来。此前这 6 条 emit 全仓库无 `bus.on` 监听、
+ * 且 `setDAGChain` 等写函数在 `cbb66b5` 随星图清扫被删——致工作台 DAG 卡片、状态栏计数
+ * 与 DialogPanel 的 P1-24 人工暂停入口**自提交起静默失效**。本次接通（对应
+ * `docs\ARCHITECTURE.md` §8.6「执行可视化链路三重断裂」；因星图已移除，断裂③的
+ * StarMap 载荷转发不再需要）。
  */
 export const useNodeStore = defineStore('nodes', () => {
   const nodes = ref<ToolNode[]>(generateAllNodes())
@@ -164,14 +171,50 @@ export const useNodeStore = defineStore('nodes', () => {
   }
 
   /**
-   * 星图 DAG 动画已随星图移除；此状态保留给工作台 RuntimePanel/StatusBar 读取。
-   * 当前无写入方（原写入方是已无监听的 node:set-dag-chain 等频道，本次一并删除）。
+   * DAG 执行链状态。消费方：工作台 `RuntimePanel`（DAG 执行链卡片）、`StatusBar`（执行中
+   * 计数 done/total）、`DialogPanel` P1-24（人工暂停入口——取第一个 `pending` 步骤）。
+   * 写入方是下面 6 个函数（经 `domains\node` 的 6 条总线频道桥接）。
    */
-  const dagChainState = ref<{
-    active: boolean
-    steps: { nodeId: string; stepNum: number; status: 'pending' | 'running' | 'done' | 'failed' | 'replanned' | 'reuse' | 'skip' }[]
-    dependsOnMap: Record<number, number[]>
-  }>({ active: false, steps: [], dependsOnMap: {} })
+  const dagChainState = ref<DagChainState>({ active: false, steps: [], dependsOnMap: {} })
+
+  /** 建立执行链（node:set-dag-chain）。步骤/依赖做浅拷贝——避免总线载荷被后续就地改动。 */
+  function setDAGChain(steps: DagStep[], dependsOnMap?: Record<number, number[]>): void {
+    dagChainState.value = { active: true, steps: steps.map(s => ({ ...s })), dependsOnMap: { ...(dependsOnMap || {}) } }
+  }
+
+  /** 单步状态推进（node:update-dag-step：running/done/failed/replanned/reuse/skip）。 */
+  function updateDAGStep(stepNum: number, status: DagStepStatus): void {
+    const step = dagChainState.value.steps.find(s => s.stepNum === stepNum)
+    if (step) step.status = status
+  }
+
+  /** 追加步骤（node:dag-chain-push-step：重规划产生的新步骤）。 */
+  function pushDAGStep(step: DagStep): void {
+    dagChainState.value.steps.push({ ...step })
+  }
+
+  /** 更新某步依赖（node:dag-chain-set-deps：重规划后编号重映射）。 */
+  function setDAGDeps(stepNum: number, dependsOn: number[]): void {
+    dagChainState.value.dependsOnMap = { ...dagChainState.value.dependsOnMap, [stepNum]: [...dependsOn] }
+  }
+
+  /**
+   * 任务链收尾（node:mark-task-chain-complete，emit 点均在执行循环末尾）。
+   * 把仍 `pending` 的步骤收敛为 `done`——链已结束，不应在卡片/状态栏残留"未完成"；
+   * 不覆盖 `failed`/`replanned`/`reuse`/`skip` 等真实终态（不掩盖失败）。
+   * 注：原实现只置一个供星图完成动画轮询的 `taskChainCompleteFlag`（与 dagChainState 无关），
+   * 该轮询已随星图删除，故此处按工作台语义重新映射到链状态。
+   */
+  function markDAGChainComplete(): void {
+    for (const s of dagChainState.value.steps) {
+      if (s.status === 'pending') s.status = 'done'
+    }
+  }
+
+  /** 清空执行链（node:clear-dag-chain，通常在执行收尾 3s 后）。 */
+  function clearDAGChain(): void {
+    dagChainState.value = { active: false, steps: [], dependsOnMap: {} }
+  }
 
   /**
    * 路由在用（domains\node 的 node:get-visible-l2-ids ← dialogStore）。
@@ -204,6 +247,12 @@ export const useNodeStore = defineStore('nodes', () => {
     l1WorkStatus,
     setL1Status,
     dagChainState,
+    setDAGChain,
+    updateDAGStep,
+    pushDAGStep,
+    setDAGDeps,
+    markDAGChainComplete,
+    clearDAGChain,
     l2Manifests,
     loadL2Manifests,
     getL2Manifest,
