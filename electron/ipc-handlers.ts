@@ -32,6 +32,8 @@ import { planRestoreTargets, applyRestore, validateBackupDir, BACKUP_EXTS } from
 import { decodeShellOutput } from './shellOutput'
 // S-3：流式 usage 解析（含缓存命中字段）——与渲染层 sseParser 同口径
 import { parseStreamUsage } from './streamUsage'
+// E-5/E-6/E-7（主进程有界性）：限量读取与发送存活判定抽到叶子模块，可单测
+import { readBodyCapped, readJsonCapped, safeSendTo, LLM_JSON_MAX_BYTES } from './ipcBounds'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 // P0-B1：统一超时阶梯（相对导入——主进程构建无 @ alias；模块零依赖可安全打入 bundle）
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
@@ -77,29 +79,8 @@ function readStoredApiConfig(): StoredApiConfig | null {
   ])
 }
 
-// A-15：响应体流式限量读取——resp.text() 会先把整个响应载入内存后才截断，
-// 恶意/超大响应可直接打爆主进程内存；读到上限即停止并释放剩余连接
-const HTTP_MAX_RESPONSE_SIZE = 512000
-async function readBodyCapped(resp: Response, maxBytes: number = HTTP_MAX_RESPONSE_SIZE): Promise<string> {
-  if (!resp.body) return (await resp.text()).substring(0, maxBytes)
-  const reader = resp.body.getReader()
-  const decoder = new TextDecoder()
-  let out = ''
-  let received = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    if (received + value.byteLength > maxBytes) {
-      const room = maxBytes - received
-      if (room > 0) out += decoder.decode(value.subarray(0, room))
-      try { await reader.cancel() } catch { /* non-critical */ }
-      return out
-    }
-    received += value.byteLength
-    out += decoder.decode(value, { stream: true })
-  }
-  return out
-}
+// A-15 / E-5 / E-6 / E-7：响应体限量读取、JSON 体积上限、发送存活判定
+// 已抽到 ./ipcBounds（无 Electron 依赖、可单测），此处只保留调用。
 
 // P1-1/E-4 修复：备份目录校验（拒符号链接/非常规文件/未列出扩展名，限数量与体积）
 // 已抽到 ./backupRestore（无 Electron 依赖、可单测），并按 kind 区分扩展名白名单——
@@ -955,6 +936,20 @@ export function setupIpc(_win: BrowserWindow | null) {
     }
     const tierTimeout = Math.min(opts.timeout || HTTP_TIMEOUT_TIER[method] || 30000, HTTP_ABSOLUTE_CAP)
     const MAX_REDIRECTS = 3
+
+    // E-5：超时计时器必须活到 **body 读完** 为止——原实现紧跟 `await safeFetch` 的 finally
+    // 就 clearTimeout，于是超时只覆盖到"响应头到达"，其后读 body 完全无界：慢速/停滞的
+    // 响应体可以把主进程挂住，HTTP_ABSOLUTE_CAP 也拦不住。这里把"最近一跳"的计时器存起来，
+    // 直到 body 正常/异常收尾才释放。
+    // 注：必须声明在 try 之外——try / catch / finally 是三个独立块，块内 const 在 finally 不可见。
+    let liveTimers: { tier: ReturnType<typeof setTimeout>; cap: ReturnType<typeof setTimeout> } | null = null
+    const clearLiveTimers = () => {
+      if (!liveTimers) return
+      clearTimeout(liveTimers.tier)
+      clearTimeout(liveTimers.cap)
+      liveTimers = null
+    }
+
     try {
       let currentUrl = opts.url
       let currentMethod = method
@@ -971,20 +966,18 @@ export function setupIpc(_win: BrowserWindow | null) {
       for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
         // P0-3：每一跳都重新做协议 + DNS 解析 + 私网判定，堵死 302 重定向绕过；
         // A-12：safeFetch 校验后固定连接已校验 IP，消除 DNS rebinding TOCTOU
+        clearLiveTimers() // 上一跳的计时器不再需要（其 body 已 cancel 或即将 cancel）
         const controller = new AbortController()
         const tierTimer = setTimeout(() => controller.abort(), tierTimeout)
         const capTimer = setTimeout(() => controller.abort(), HTTP_ABSOLUTE_CAP)
-        try {
-          resp = await safeFetch(currentUrl, {
-            method: currentMethod,
-            headers: opts.headers,
-            body: (currentBody && currentMethod !== 'GET' && currentMethod !== 'HEAD') ? currentBody : undefined,
-            signal: controller.signal
-          })
-        } finally {
-          clearTimeout(tierTimer)
-          clearTimeout(capTimer)
-        }
+        liveTimers = { tier: tierTimer, cap: capTimer }
+        // E-5：这里**不**在 finally 里 clearTimeout——计时器要活到 body 读完
+        resp = await safeFetch(currentUrl, {
+          method: currentMethod,
+          headers: opts.headers,
+          body: (currentBody && currentMethod !== 'GET' && currentMethod !== 'HEAD') ? currentBody : undefined,
+          signal: controller.signal
+        })
 
         if ([301, 302, 303, 307, 308].includes(resp.status)) {
           const location = resp.headers.get('location')
@@ -1007,7 +1000,8 @@ export function setupIpc(_win: BrowserWindow | null) {
       if (!resp) {
         return { success: false, status: 0, error: '请求未产生响应' }
       }
-      // A-15：流式限量读取，不再先整读后截断
+      // A-15：流式限量读取，不再先整读后截断。
+      // E-5：读 body 期间 liveTimers 仍活着——停滞的 body 会被 tier/绝对上限掐断。
       const text = await readBodyCapped(resp)
       return { success: true, status: resp.status, headers: Object.fromEntries(resp.headers.entries()), body: text }
     } catch (e: unknown) {
@@ -1016,6 +1010,9 @@ export function setupIpc(_win: BrowserWindow | null) {
         return { success: false, status: 0, error: `HTTP请求超时(${tierTimeout}ms)` }
       }
       return { success: false, status: 0, error: msg }
+    } finally {
+      // E-5：成功 / 失败 / 超时任一出口都释放超时计时器
+      clearLiveTimers()
     }
   })
 
@@ -1248,7 +1245,8 @@ export function setupIpc(_win: BrowserWindow | null) {
         const errBody = await readBodyCapped(resp, 16384).catch(() => '')
         return { success: false, error: `API error ${resp.status}: ${errBody.slice(0, 200)}` }
       }
-      const data = await resp.json() as Record<string, unknown>
+      // E-6：JSON 响应体先设体积上限再解析（原 resp.json() 无上限，超大响应可打爆主进程）
+      const data = await readJsonCapped<Record<string, unknown>>(resp, LLM_JSON_MAX_BYTES)
       if (chatFormat === 'anthropic') {
         const contentArr = data.content as Array<Record<string, unknown>> | undefined
         const text = contentArr?.[0]?.text
@@ -1360,7 +1358,8 @@ export function setupIpc(_win: BrowserWindow | null) {
         const errBody = await readBodyCapped(resp, 16384).catch(() => '')
         return { success: false, error: `API error ${resp.status}: ${errBody.slice(0, 200)}` }
       }
-      const data = await resp.json() as { data?: Array<{ id: string }> }
+      // E-6：listModels 响应同样设体积上限
+      const data = await readJsonCapped<{ data?: Array<{ id: string }> }>(resp, LLM_JSON_MAX_BYTES)
       const models = (data.data || []).map(m => ({ id: m.id, name: m.id, providerId: opts.providerId }))
       return { success: true, models }
     } catch (err) {
@@ -1565,19 +1564,19 @@ ipcMain.on('llm:stream:start', async (event, opts: {
 
   try {
     if (!providerId || !model || !messages) {
-      event.sender.send(errorChannel, 'Missing providerId, model, or messages')
+      safeSendTo(event.sender, errorChannel, 'Missing providerId, model, or messages')
       activeStreamControllers.delete(streamId)
       return
     }
     const stored = readStoredApiConfig()
     if (!stored) {
-      event.sender.send(errorChannel, 'No API configuration found')
+      safeSendTo(event.sender, errorChannel, 'No API configuration found')
       activeStreamControllers.delete(streamId)
       return
     }
     const provider = (stored.providers || []).find(p => p.id === providerId)
     if (!provider) {
-      event.sender.send(errorChannel, `Provider '${providerId}' not found`)
+      safeSendTo(event.sender, errorChannel, `Provider '${providerId}' not found`)
       activeStreamControllers.delete(streamId)
       return
     }
@@ -1587,14 +1586,14 @@ ipcMain.on('llm:stream:start', async (event, opts: {
         const buffer = Buffer.from(apiKey.substring(4), 'base64')
         apiKey = safeStorage.decryptString(buffer)
       } catch {
-        event.sender.send(errorChannel, 'Failed to decrypt API key')
+        safeSendTo(event.sender, errorChannel, 'Failed to decrypt API key')
         activeStreamControllers.delete(streamId)
         return
       }
     }
     const baseUrl = (provider.baseUrl || stored.baseUrl || '').replace(/\/+$/, '')
     if (!baseUrl) {
-      event.sender.send(errorChannel, 'No base URL configured')
+      safeSendTo(event.sender, errorChannel, 'No base URL configured')
       activeStreamControllers.delete(streamId)
       return
     }
@@ -1602,12 +1601,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       const baseUrlObj = new URL(baseUrl)
       const hostCheck = await isHostAllowed(baseUrlObj.hostname)
       if (!hostCheck.allowed) {
-        event.sender.send(errorChannel, `LLM API不允许访问内网地址: ${baseUrlObj.hostname}（${hostCheck.reason || ''}）`)
+        safeSendTo(event.sender, errorChannel, `LLM API不允许访问内网地址: ${baseUrlObj.hostname}（${hostCheck.reason || ''}）`)
         activeStreamControllers.delete(streamId)
         return
       }
     } catch {
-      event.sender.send(errorChannel, 'LLM API base URL格式无效')
+      safeSendTo(event.sender, errorChannel, 'LLM API base URL格式无效')
       activeStreamControllers.delete(streamId)
       return
     }
@@ -1666,12 +1665,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
     })
     if (!resp.ok) {
       const errBody = await readBodyCapped(resp, 16384).catch(() => '')
-      event.sender.send(errorChannel, `API error ${resp.status}: ${errBody.slice(0, 200)}`)
+      safeSendTo(event.sender, errorChannel, `API error ${resp.status}: ${errBody.slice(0, 200)}`)
       activeStreamControllers.delete(streamId)
       return
     }
     if (!resp.body) {
-      event.sender.send(errorChannel, 'Response body is null')
+      safeSendTo(event.sender, errorChannel, 'Response body is null')
       activeStreamControllers.delete(streamId)
       return
     }
@@ -1706,7 +1705,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
           if (chatFormat === 'openai') {
             if (d.trim() === '[DONE]') {
               const toolCalls = Array.from(toolCallMap.values())
-              event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+              safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
               activeStreamControllers.delete(streamId)
               return
             }
@@ -1714,13 +1713,13 @@ ipcMain.on('llm:stream:start', async (event, opts: {
               const p = JSON.parse(d)
               // S-4：服务端在流内报错必须走 error 频道，不得静默丢弃后当成功收尾
               if (p.error) {
-                event.sender.send(errorChannel, typeof p.error === 'string' ? p.error : (p.error.message || 'stream error'))
+                safeSendTo(event.sender, errorChannel, typeof p.error === 'string' ? p.error : (p.error.message || 'stream error'))
                 activeStreamControllers.delete(streamId)
                 return
               }
               if (p.choices?.[0]?.delta?.content) {
                 accumulatedContent += p.choices[0].delta.content
-                event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.choices[0].delta.content, toolCalls: undefined, usage: undefined, done: false })
+                safeSendTo(event.sender, chunkChannel, { content: accumulatedContent, delta: p.choices[0].delta.content, toolCalls: undefined, usage: undefined, done: false })
               }
               if (p.choices?.[0]?.delta?.tool_calls) {
                 for (const tc of p.choices[0].delta.tool_calls) {
@@ -1749,13 +1748,13 @@ ipcMain.on('llm:stream:start', async (event, opts: {
               const p = JSON.parse(d)
               // S-4：Anthropic 流内错误事件（overloaded_error 等）→ error 频道
               if (p.type === 'error') {
-                event.sender.send(errorChannel, p.error?.message || p.error?.type || 'anthropic stream error')
+                safeSendTo(event.sender, errorChannel, p.error?.message || p.error?.type || 'anthropic stream error')
                 activeStreamControllers.delete(streamId)
                 return
               }
               if (p.type === 'content_block_delta' && p.delta?.type === 'text_delta' && p.delta?.text) {
                 accumulatedContent += p.delta.text
-                event.sender.send(chunkChannel, { content: accumulatedContent, delta: p.delta.text, toolCalls: undefined, usage: undefined, done: false })
+                safeSendTo(event.sender, chunkChannel, { content: accumulatedContent, delta: p.delta.text, toolCalls: undefined, usage: undefined, done: false })
               }
               if (p.type === 'content_block_start' && p.content_block?.type === 'tool_use') {
                 toolCallMap.set(p.content_block.index ?? 0, { id: p.content_block.id, name: p.content_block.name, arguments: '' })
@@ -1780,7 +1779,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
               }
               if (p.type === 'message_stop') {
                 const toolCalls = Array.from(toolCallMap.values())
-                event.sender.send(endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+                safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
                 activeStreamControllers.delete(streamId)
                 return
               }
@@ -1794,12 +1793,12 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       // S-4：走到这里说明流已 EOF 但从未见到终止标记（[DONE]/message_stop）——标记 truncated，
       // 交由渲染层判失败/不入缓存，不再当成正常完成
       const toolCalls = Array.from(toolCallMap.values())
-      event.sender.send(endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+      safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
     }
     activeStreamControllers.delete(streamId)
   } catch (err) {
     if (!abortCtrl.signal.aborted) {
-      event.sender.send(errorChannel, err instanceof Error ? err.message : String(err))
+      safeSendTo(event.sender, errorChannel, err instanceof Error ? err.message : String(err))
     }
     activeStreamControllers.delete(streamId)
   }
