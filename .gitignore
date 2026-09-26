@@ -35,3 +35,6 @@ benchmark-result-professional.json
 quality-report.json
 test-edge-results.json
 test-multi-model-results.json
+
+# 机制体检扫描产物（scripts/mechanism-scan 生成）
+.rivet-scan-*

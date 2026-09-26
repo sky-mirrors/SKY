@@ -60,11 +60,16 @@
 
 **性质**：抽查（`api:list-models` 的 `return [...store.config.models]`、`dialog:set-mode`、`feedback:record-outcome`）显示它们是**薄薄的 bus 门面——包一层 store 方法**，而消费方大多**直接调 store** ⇒ 门面闲置。按裁决「**保留域处理层**」（后续加领域包 / 前缀缓存要用这套对外面），**不删**。
 
-## 五、方法与口径（可复跑）
+## 五、方法与口径（可复跑资产）
 
-脚本在 `~/.rivet/scratch/`（会话本地）：
+脚本已固化进仓库：**`scripts/mechanism-scan/`**（口径、已知误报源与最近结论见其 `README.md`）：
 
-- `scan-wave1.py`：「死导出」= 除定义文件外全 `src` 无该名（词边界）；再三分——`internal-only`（本文件自用）/ `unwired-tested`（仅测试引用）/ `truly-dead`（哪都没用）。「休眠模块」= `services|stores|composables` 下 `.ts` 在 `src` 内零 importer（**静态 `from` 与动态 `import()` 都算**——这点很关键，漏动态 import 会把 `imageRenameByDate`/`deliverableCheck`/`sessionMemoryContext` 误报为休眠）。
-- `scan-bus-channels.py`：`globalBus.emit|request|requestAsync('chan')` 对 `registerHandler|on('chan')`。**已修**正则以覆盖 `request<T>('chan')`（原漏 → 14 个误报）。
+```bash
+node scripts/mechanism-scan/scan-dormant.mjs   # 休眠模块 + 死导出三分
+node scripts/mechanism-scan/scan-bus.mjs       # 总线普查 + 死监听复核
+```
 
-**两把尺子都只认字面通道名 / 标识符**：多行调用、变量名拼装、经 registry 的成员访问之外的动态派发会漏。故本表对每类都单列了已知误报源；**动手前仍须 grep 复核**。
+- `scan-dormant.mjs`：「死导出」= 除定义文件外全 `src` 无该名（词边界）；再三分——`internal-only`（本文件自用）/ `unwired-tested`（仅测试引用）/ `truly-dead`（哪都没用）。「休眠模块」= `services|stores|composables` 下 `.ts` 在 `src` 内零 importer（**静态 `from` 与动态 `import()` 都算**——这点很关键，漏动态 import 会把 `imageRenameByDate`/`deliverableCheck`/`sessionMemoryContext` 误报为休眠）。
+- `scan-bus.mjs`：生产 `src`+`electron` 的 `globalBus.emit|request|requestAsync('chan')` 对 `registerHandler|on('chan')`；并对「死监听候选」在 `src`+`electron`+`test` 里逐项复核调用方。正则已覆盖 `request<T>('chan')` 与 `this.bus.emit(...)`；复核按**带引号的完整字符串**并排除注册/注释行。
+
+**两把尺子都只认字面通道名 / 标识符**：多行调用、变量名拼装（如 `this.bus.emit(e.type, e)`）、经 registry 的成员访问之外的动态派发会漏。故本表对每类都单列了已知误报源；**动手前仍须 grep 复核**。
