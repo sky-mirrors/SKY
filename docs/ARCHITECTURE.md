@@ -513,6 +513,15 @@ dialogStore(执行循环)
 - **修复成本极低**:补 bus.on→nodeStore 写函数→StarMap 载荷补 3 个转发,合计约 10 行,故列为 P1(17.C11)而非 P2;
 - **相邻死代码**:空 if 块(useThreeScene.ts:2423-2424)、StarMap 声明未发的 dragStart/dragEnd(StarMap.vue:20-26)、App.vue `@saved` 死监听(49)、FilterBar 空 defineEmits、RuleReviewForm comment 采集未提交、DialogPanel emit 先于 defineEmits(731 vs 734)。
 
+> **2026-09-26 更新（`6b77229`，DAG 执行链子集已接通）**：断裂①/②对 **DAG 执行链** 已修复——
+> `src/domains/node/handlers.ts` 为 `node:set-dag-chain`/`update-dag-step`/`dag-chain-push-step`/
+> `dag-chain-set-deps`/`mark-task-chain-complete`/`clear-dag-chain` 注册 `bus.on` 桥接，`nodeStore`
+> 恢复/新增对应写函数，驱动工作台 `RuntimePanel` 的「DAG 执行链」卡片、`StatusBar` 执行中计数与
+> `DialogPanel` 的 P1-24 人工暂停入口（三者此前自提交起静默失效）。断裂③（StarMap 载荷转发）随星图
+> 移除**不再需要**；`node:highlight-l2-candidates`、`node:set-l0-red-flash` 两条**无消费方**的星图
+> 频道已删除。其余**星图特效**（L1 闪烁/汇聚光束/脉冲星/探针红闪/连接流粒子）仍不生效——其视觉
+> 消费端已随星图删除，不再有修复目标。
+
 ---
 
 ## 9. 数据与配置层
