@@ -50,11 +50,15 @@
 - 8 个 `node:*` DAG / 星图通道（`dialogStore` 发、无监听）：`node:update-dag-step`、`node:set-dag-chain`、`node:clear-dag-chain`、`node:dag-chain-push-step`、`node:dag-chain-set-deps`、`node:mark-task-chain-complete`、`node:highlight-l2-candidates`、`node:set-l0-red-flash`——按既定口径「星图暂且不论」**暂缓**。
 - `llm-degraded`（`src/services/providerChain.ts` 的 `emitDegraded`）——源码注释写明是「供域层 / 调试面板订阅」的扩展点；**用户可见**的降级通知走 `notification:add`（那条是通的）⇒ **保留**。
 
-### 4.2 死监听（`registerHandler` 后无请求方）：31
+### 4.2 死监听（复核后）：31 个「注册无请求方」→ **20 真死 / 11 误判**
 
-- **已确认无请求方**（域处理层建了、但组件绕过它直接用 store）：`data:storage-breakdown` / `data:storage-total` / `data:export`（`src/domains/data/handlers.ts`；`DataManagement.vue` 里连 `globalBus` 都没有）、`session:get-active`、`mcp:list-tools`、`node:select-node`、`pipeline:start` / `pipeline:list`、`knowledge:get-entries` / `knowledge:get-groups`。
-- `kernel:*` / `pack:*`（`hotplugStore` 的生命周期监听）——**待核**：发射方可能在主进程或别的总线，本扫描只覆盖 `src` + `electron` 里的**字面**通道名。
-- 其余约 14 个多为 `request` 多行 / 变量名拼装的**误判**，需逐项复核。
+**复核方法**（`~/.rivet/scratch/scan-bus-verify.py`）：对每个频道按**完整带引号字符串**在 `src`+`electron`+`test` 里找出现行，排除注册行（`registerHandler(` / `.on(`）与**注释行**；并另查模板串 / 变量名拼装调用（全仓仅 `globalBus.emit(AUDIT_CHANNEL, ...)` 一处，不涉及本批）。**两轮去噪**很关键：① 裸子串匹配会把 `config:set` 命中到 `config:set-job-role`、`data:export` 命中到 `data:exportZip`；② 注释行会把 `knowledge:get-groups` 误判为已接。
+
+**11 误判（其实已接线）**：`debug:constraint-feedback`（`constraintFeedback` 经 `AUDIT_CHANNEL` 常量 emit）、`kernel:activated / switched / fatal / zombie / mount-failed / switch-cancelled`（`src/host/kernelRegistry.ts` 用 `this.bus.emit('kernel:…')`，`this.bus = opts.bus ?? globalBus`）、`pack:mounted / unmounted / reloaded / mount-failed`（`PackLoader.emit` 内部 `this.bus.emit(e.type, e)`，`packLoader = new PackLoader()` → globalBus）。原扫描正则 `(?<![\w.])bus\.` 把 `this.bus.emit` 排除了 → 误判。
+
+**20 真死（仅注册，全仓无任何调用方）**：`api:chat-completion-stream` / `api:detect-domain` / `api:list-models`、`config:get-terminology` / `config:set`、`data:export` / `data:storage-breakdown` / `data:storage-total`、`dialog:set-mode`、`feedback:get-weights` / `feedback:record-outcome`、`knowledge:get-entries` / `knowledge:get-groups`、`mcp:list-tools`、`memory:get-recent`、`node:get-context` / `node:select-node`、`pipeline:list` / `pipeline:start`、`session:get-active`。
+
+**性质**：抽查（`api:list-models` 的 `return [...store.config.models]`、`dialog:set-mode`、`feedback:record-outcome`）显示它们是**薄薄的 bus 门面——包一层 store 方法**，而消费方大多**直接调 store** ⇒ 门面闲置。按裁决「**保留域处理层**」（后续加领域包 / 前缀缓存要用这套对外面），**不删**。
 
 ## 五、方法与口径（可复跑）
 
