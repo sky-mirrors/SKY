@@ -9,8 +9,6 @@
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换浅色模式' : configStore.theme === 'light' ? '切换护眼模式' : '切换深色模式'">{{ configStore.theme === 'dark' ? '☀️' : configStore.theme === 'light' ? '🌿' : '🌙' }}</span>
         <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心">🔔<span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
         <span class="settings-btn" @click="settingsPageRef?.open()" title="设置">⚙️</span>
-        <span class="view-toggle" v-if="uiMode === 'starmap'" @click="toggleViewMode" :title="viewMode === 'starmap' ? '切换到结果预览' : '切换到星图'">{{ viewMode === 'starmap' ? '📊' : '🌌' }}</span>
-        <span class="view-toggle" @click="toggleMainMode" :title="uiMode === 'workbench' ? '切换到星图模式' : '切换到工作台模式'">{{ uiMode === 'workbench' ? '🌌' : '🛠' }}</span>
       </div>
       <div class="titlebar-controls">
         <button class="tb-btn tb-minimize" @click="minimizeWindow">─</button>
@@ -18,55 +16,12 @@
         <button class="tb-btn tb-close" @click="closeWindow">✕</button>
       </div>
     </div>
-    <!-- R16 工作台模式（默认）：左导航 + 中对话 + 右运行时面板 + 状态栏 -->
+    <!-- 工作台：唯一主视图（125 节点 3D 星图视图已于 2026-09-26 删除，不再有模式开关） -->
     <WorkbenchShell
-      v-if="uiMode === 'workbench'"
       @open-mcp="onOpenMcp"
-      @camera-fly-to="onCameraFlyTo"
       @open-preview="openPreview"
       @open-api-settings="apiSettingsRef?.open(apiStore.config.baseUrl)"
     />
-    <!-- 星图模式：原有全部悬浮层（整体门控，工作台下卸载释放 GPU） -->
-    <template v-if="uiMode === 'starmap'">
-    <DialogPanel @open-mcp="onOpenMcp" @camera-fly-to="onCameraFlyTo" @panel-width-changed="onPanelWidthChanged" @open-preview="openPreview" />
-    <FilterBar />
-    <StarMap
-      v-show="viewMode === 'starmap'"
-      :panel-width="dialogPanelWidth"
-      @node-click="onNodeClick"
-      @node-hover="onNodeHover"
-      @ready="onStarMapReady"
-    />
-    <DebugProbePanel />
-    <div class="node-tooltip" v-if="tooltipInfo" :style="{ left: tooltipInfo.screenX + 12 + 'px', top: tooltipInfo.screenY - 28 + 'px' }">
-      {{ tooltipInfo.label }}
-    </div>
-    <button class="camera-reset-btn" @click="onCameraReset" title="重置视角 (Esc)">↺</button>
-    <NodeDetailPanel
-      :node="detailNode"
-      :degraded="nodeStore.degraded.isDegraded"
-      :circuit-breaker-open="apiStore.isCircuitOpen"
-      @lock="onLockTool"
-      @unlock="onUnlockTool"
-      @set-gravity="onSetGravity"
-      @resume-context="onResumeContext"
-      @clear-context="onClearContext"
-    />
-    <div class="kernel-status-orb" @click="showKernelDetail = !showKernelDetail">
-      <span class="orb-dot" :class="memoryWarning ? 'warning' : kernelState"></span>
-      <span class="orb-label">{{ memoryWarning ? '内存!' : kernelLabel }}</span>
-    </div>
-    <div class="circuit-breaker-indicator" v-if="apiStore.isCircuitOpen" @click="apiStore.resetCircuitBreaker()" title="API 暂时不可用（熔断器已开启）— 点击重置">
-      <span class="cb-dot"></span>
-      <span class="cb-label">熔断</span>
-    </div>
-    <div class="kernel-detail-popup" v-if="showKernelDetail">
-      <div class="kd-row"><span>嵌入模型</span><span :class="kernelState">{{ embedderStatus }}</span></div>
-      <div class="kd-row"><span>检索模式</span><span>{{ retrievalMode }}</span></div>
-      <div class="kd-row"><span>向量索引</span><span>{{ vectorIndexStatus }}</span></div>
-      <div class="kd-row" v-if="memoryUsage"><span>内存</span><span>{{ memoryUsage }}</span></div>
-    </div>
-    </template>
     <!-- 公共层：预览/弹窗/设置（跨模式共享） -->
     <ResultPreviewStage
       v-if="viewMode === 'preview'"
@@ -85,23 +40,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { defineAsyncComponent } from 'vue'
-const StarMap = defineAsyncComponent({
-  loader: () => import('./components/StarMap.vue'),
-  delay: 300,
-  timeout: 10000
-})
-import NodeDetailPanel from './components/NodeDetailPanel.vue'
 import ApiSettings from './components/ApiSettings.vue'
 import Notification from './components/Notification.vue'
 import NotificationCenter from './components/NotificationCenter.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import SettingsPage from './components/SettingsPage.vue'
 import OnboardingWizard from './components/OnboardingWizard.vue'
-import DialogPanel from './components/DialogPanel.vue'
 import WorkbenchShell from './components/workbench/WorkbenchShell.vue'
 import L0Modal from './components/L0Modal.vue'
-import FilterBar from './components/FilterBar.vue'
   import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
 import { useConfigStore } from '@/domains/config'
@@ -117,7 +63,6 @@ import { executePipeline } from '@/domains/pipeline'
 import { usePipelineStore, registerPipelineExecutor } from '@/domains/pipeline'
 import { buildCanvasPipeline } from '@/services/canvasRun'
 import { useDebugStore } from '@/domains/debug'
-import DebugProbePanel from '@/components/DebugProbePanel.vue'
 import ResultPreviewStage from '@/components/ResultPreviewStage.vue'
 import { initFileContextWatch } from '@/domains/node'
 import { debugLog } from '@/domains/debug'
@@ -162,97 +107,31 @@ const commandPaletteRef = ref()
 const notificationCenterRef = ref()
 const settingsPageRef = ref()
 const onboardingWizardRef = ref()
-const starMapRef = ref()
-const showKernelDetail = ref(false)
-const dialogPanelWidth = ref(configStore.config.dialogPanelWidth ?? 460)
 const viewMode = computed(() => configStore.viewMode)
-const uiMode = computed(() => configStore.uiMode)
 const previewMessage = ref<DialogMessage | null>(null)
 
-// R16：工作台↔星图主模式切换；离开星图时清 starMapRef（星图已卸载，防止探针/DAG 定时器调用失效场景 API）
-watch(uiMode, mode => {
-  if (mode === 'workbench') {
-    starMapRef.value = undefined
-  }
-})
+const _appTimers: ReturnType<typeof setInterval>[] = []
+let _memoryPressureWarned = false
 
-function toggleMainMode() {
-  configStore.setUiMode(uiMode.value === 'workbench' ? 'starmap' : 'workbench')
-}
-
-const kernelState = ref<'loaded' | 'degraded' | 'loading'>('loading')
-const embedderStatus = ref('加载中...')
-const retrievalMode = ref('关键词(伪向量)')
-const vectorIndexStatus = ref('未构建')
-const memoryUsage = ref('')
-const memoryWarning = ref(false)
-
+// 内存压力守卫：原挂在星图的「内核状态球」上（球随星图删除）。守卫本身保留——
+// 它经 dialogStore.addSystemNotice 提示，是工作台里同样该看到的信号。
 function checkMemoryPressure() {
   try {
     const perf = performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }
     if (perf.memory) {
-      const used = Math.round(perf.memory.usedJSHeapSize / 1048576)
-      const total = Math.round(perf.memory.jsHeapSizeLimit / 1048576)
       const ratio = perf.memory.usedJSHeapSize / perf.memory.jsHeapSizeLimit
-      memoryUsage.value = `${used}MB / ${total}MB`
-      if (ratio > 0.7 && !memoryWarning.value) {
-        memoryWarning.value = true
+      if (ratio > 0.7 && !_memoryPressureWarned) {
+        _memoryPressureWarned = true
         dialogStore.addSystemNotice(`⚠️ 内存压力过高(${Math.round(ratio*100)}%)，建议保存工作并重启应用`)
       }
-      if (ratio < 0.6) memoryWarning.value = false
+      if (ratio < 0.6) _memoryPressureWarned = false
     }
   } catch { /* ignore */ }
 }
 
-async function updateKernelStatus() {
-  try {
-    const { isEmbedderReady } = await import('@/domains/knowledge')
-    if (isEmbedderReady()) {
-      kernelState.value = 'loaded'
-      embedderStatus.value = '已加载'
-      retrievalMode.value = '精确向量'
-    } else {
-      kernelState.value = 'degraded'
-      embedderStatus.value = '降级(伪向量)'
-      retrievalMode.value = '关键词(伪向量)'
-    }
-  } catch {
-    kernelState.value = 'degraded'
-    embedderStatus.value = '降级(伪向量)'
-  }
-  try {
-    const { getKnowledgeEntries } = await import('@/services/knowledgeBase')
-    vectorIndexStatus.value = `${getKnowledgeEntries().length} 条目`
-  } catch { /* ignore */ }
-  try {
-    const perf = performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }
-    if (perf.memory) {
-      const used = Math.round(perf.memory.usedJSHeapSize / 1048576)
-      const total = Math.round(perf.memory.jsHeapSizeLimit / 1048576)
-      memoryUsage.value = `${used}MB / ${total}MB`
-    }
-  } catch { /* ignore */ }
-  checkMemoryPressure()
-}
+_appTimers.push(setInterval(checkMemoryPressure, 10000))
 
-const _appTimers: ReturnType<typeof setInterval>[] = []
-_appTimers.push(setInterval(updateKernelStatus, 10000))
-setTimeout(updateKernelStatus, 5000)
-
-const kernelLabel = computed(() => {
-  switch (kernelState.value) {
-    case 'loaded': return '精确'
-    case 'degraded': return '降级'
-    case 'loading': return '...'
-  }
-})
 const l0ModalRef = ref()
-
-const detailNode = computed(() => {
-  const hovered = nodeStore.hoveredNode
-  const selected = nodeStore.selectedNode
-  return hovered || selected
-})
 
 function minimizeWindow() {
   window.electronAPI?.windowMinimize()
@@ -278,82 +157,11 @@ function closeWindow() {
   window.electronAPI?.windowClose()
 }
 
-function onStarMapReady(api: any) {
-  starMapRef.value = api
-  if (api.hoveredNodeInfo) {
-    watch(api.hoveredNodeInfo, (val) => {
-      tooltipInfo.value = val
-    })
-  }
-  if (configStore.isFirstLaunch && shouldShowOnboarding()) {
-    api.startOnboarding()
-    onboardingWizardRef.value?.open()
-  }
-}
-
-function onNodeClick(nodeId: string, ctrlKey: boolean) {
-  const node = nodeStore.nodes.find(n => n.id === nodeId)
-  if (!node) return
-
-  if (ctrlKey && node.level !== 'L0') {
-    nodeStore.toggleNodeSelection(nodeId)
-    return
-  }
-
-  if (node.level === 'L0') {
-    l0ModalRef.value?.open()
-    nodeStore.selectNode(nodeId)
-    return
-  }
-
-  if (node.id === 'l1-model-gateway') {
-    apiSettingsRef.value?.open(apiStore.config.baseUrl)
-    nodeStore.selectNode(nodeId)
-    return
-  }
-
-  nodeStore.selectNode(nodeId)
-}
-
-function onNodeHover(_nodeId: string | null) {
-}
-
 function checkContextResume(toolId: string) {
   const cache = nodeStore.loadContextCache(toolId)
   if (cache && cache.stepIndex < cache.totalSteps) {
     notificationRef.value?.show(`检测到未完成的上下文碎片(${cache.stepIndex}/${cache.totalSteps})，可从断点恢复`, 4000)
   }
-}
-
-function onLockTool(nodeId: string) {
-  nodeStore.lockL2Tool(nodeId)
-  configStore.addSelectedL2(nodeId)
-  notificationRef.value?.show('已锁定到你的配置', 2000)
-}
-
-function onUnlockTool(nodeId: string) {
-  nodeStore.unlockL2Tool(nodeId)
-  configStore.removeSelectedL2(nodeId)
-  notificationRef.value?.show('已取消锁定', 2000)
-}
-
-function onSetGravity(nodeId: string, weight: number) {
-  nodeStore.setGravityWeight(nodeId, weight)
-  starMapRef.value?.rebuildNode(nodeId)
-}
-
-function onResumeContext(nodeId: string) {
-  const cache = nodeStore.loadContextCache(nodeId)
-  if (cache) {
-    notificationRef.value?.show(`已从碎片恢复: 步骤 ${cache.stepIndex}/${cache.totalSteps}`, 3000)
-  } else {
-    notificationRef.value?.show('未找到可恢复的上下文碎片', 2000)
-  }
-}
-
-function onClearContext(nodeId: string) {
-  nodeStore.clearContextCache(nodeId)
-  notificationRef.value?.show('上下文缓存已清除', 2000)
 }
 
 function onApiSaved() {
@@ -367,10 +175,7 @@ function onApiSaved() {
           unavailableToolIds: [],
           reason: ''
         })
-        starMapRef.value?.setDegradedVisuals(false)
       }
-      nodeStore.setL0RedFlash(false)
-      nodeStore.updateCircuitBreaker({ isOpen: false, failureCount: 0, retryCount: 0 })
     } else {
       notificationRef.value?.show('AI 大脑离线，已切换本地规则模式', 3000)
       nodeStore.setDegradedState({
@@ -380,7 +185,6 @@ function onApiSaved() {
           .map(n => n.id),
         reason: 'API不可达'
       })
-      starMapRef.value?.setDegradedVisuals(true)
     }
   }).catch(() => {})
 }
@@ -389,34 +193,16 @@ function onOpenMcp() {
   l0ModalRef.value?.open()
 }
 
-function onCameraFlyTo(nodeId: string) {
-  if (starMapRef.value?.flyToNode) {
-    starMapRef.value.flyToNode(nodeId)
-  }
-}
-
-function onCameraReset() {
-  if (starMapRef.value?.resetCamera) {
-    starMapRef.value.resetCamera()
-  }
-  nodeStore.selectNode(null)
-}
-
-function onPanelWidthChanged(width: number) {
-  dialogPanelWidth.value = width
-  configStore.setDialogPanelWidth(width)
-}
-
-function toggleViewMode() {
-  configStore.setViewMode(viewMode.value === 'starmap' ? 'preview' : 'starmap')
+// 预览浮层开关（原「星图↔结果预览」切换；星图删除后只剩「预览 / 主视图」两态，
+// 由命令面板的 holo-toggle-mode 事件触发）
+function togglePreview() {
+  configStore.setViewMode(viewMode.value === 'preview' ? 'starmap' : 'preview')
 }
 
 function openPreview(msg: DialogMessage) {
   previewMessage.value = msg
   configStore.setViewMode('preview')
 }
-
-const tooltipInfo = ref<{ screenX: number; screenY: number; label: string } | null>(null)
 
 function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'p' && e.ctrlKey && !e.shiftKey) {
@@ -454,9 +240,7 @@ function onKeyDown(e: KeyboardEvent) {
     }
     if (viewMode.value === 'preview') {
       configStore.setViewMode('starmap')
-      return
     }
-    onCameraReset()
   }
   if (e.key === 'Enter' && e.ctrlKey && nodeStore.selectedNodeIds.length > 0) {
     // D-17：焦点在输入类控件内时组合键应交给控件本身，
@@ -481,7 +265,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onSkillInstalled(skillId: string) {
-  dialogStore.insertSystemMessage(`新技能已安装，可在星图上使用`)
+  dialogStore.insertSystemMessage(`新技能已安装，可在工作台使用`)
   notificationRef.value?.show('技能安装成功', 2000)
 }
 
@@ -498,7 +282,7 @@ function onHoloOpenSettings() {
 }
 
 function onHoloToggleMode() {
-  toggleViewMode()
+  togglePreview()
 }
 
 function onHoloOpenNotifications() {
@@ -572,10 +356,9 @@ onMounted(async () => {
   registerApiHandlers(globalBus)
   registerAppHandlers(globalBus)
   registerConfigHandlers(globalBus)
-  // R16：工作台模式下 StarMap 不挂载，首启引导由工作台直接打开（星图模式的引导仍由 onStarMapReady 触发）
   // 2026-09-25（机制体检）：改用 onboardingManager.shouldShowOnboarding()——须在 registerConfigHandlers 之后调用
-  // （该函数经 bus.request 读取，处理器未注册时会抛）。
-  if (configStore.isFirstLaunch && shouldShowOnboarding() && configStore.uiMode === 'workbench') {
+  // （该函数经 bus.request 读取，处理器未注册时会抛）。星图删除后工作台是唯一视图，不再有模式条件。
+  if (configStore.isFirstLaunch && shouldShowOnboarding()) {
     onboardingWizardRef.value?.open()
   }
   registerDataHandlers(globalBus)
@@ -642,10 +425,6 @@ onMounted(async () => {
   })
   // P0-7：vault 同步已前移至 main.ts（mount 之前），此处不再重复同步
 
-  window._holoStarMapDblClickCommand = (command: string) => {
-    dialogStore.sendMessage(command)
-  }
-
   debugStore.activate()
   try {
     const { initSemanticCache } = await import('@/services/semanticCache')
@@ -665,23 +444,6 @@ onMounted(async () => {
   debugStore.emitEvent('info', 'system', '[App] 应用启动完成，调试中心已自动激活')
 
   initFileContextWatch()
-
-  let lastProbeCount = 0
-  watch(() => debugStore.activeProbes.length, (newLen) => {
-    if (newLen > lastProbeCount && starMapRef.value?.triggerProbeFlash) {
-      const latestProbe = debugStore.activeProbes[debugStore.activeProbes.length - 1]
-      if (latestProbe) {
-        const l2Nodes = nodeStore.nodes.filter(n => n.level === 'L2')
-        const matchedNode = l2Nodes.find(n => n.id === latestProbe.manifestId)
-        if (matchedNode) {
-          starMapRef.value.triggerProbeFlash(matchedNode.id)
-        } else {
-          starMapRef.value.triggerProbeFlash('l1-model-gateway')
-        }
-      }
-    }
-    lastProbeCount = newLen
-  })
 
   // Load L2 manifests from bundled data
   let l2Manifests: any[] = []
@@ -754,8 +516,6 @@ onMounted(async () => {
     }
   } catch { /* migration not critical */ }
 
-  nodeStore.initL3DecayStates()
-
   for (const node of nodeStore.l1Nodes) {
     checkContextResume(node.id)
   }
@@ -773,48 +533,6 @@ onMounted(async () => {
   setTimeout(() => {
     mcpStore.autoRestartCatalogMcp()
   }, 2000)
-
-  let dagChainTriggered = false
-
-  _appTimers.push(setInterval(() => {
-    if (!starMapRef.value) return
-    const flashes = nodeStore.consumeL1Flashes()
-    for (const nodeId of flashes) {
-      starMapRef.value.triggerL1Flash(nodeId)
-    }
-    if (nodeStore.consumeTaskChainComplete()) {
-      starMapRef.value.triggerConvergenceBeam()
-    }
-    const l2Candidates = nodeStore.consumeL2Highlights()
-    if (l2Candidates.length > 0) {
-      starMapRef.value.highlightL2Candidates(l2Candidates)
-    }
-    // Sync DAG chain state to 3D scene
-    if (nodeStore.dagChainState.active && starMapRef.value.triggerDAGChain) {
-      if (!dagChainTriggered) {
-        const dagSteps = nodeStore.dagChainState.steps
-        const dependsOnMap = nodeStore.dagChainState.dependsOnMap
-        if (dagSteps.length > 0) {
-          const fullSteps = dagSteps.map(s => ({
-            nodeId: s.nodeId,
-            stepNum: s.stepNum,
-            dependsOn: dependsOnMap[s.stepNum] || []
-          }))
-          starMapRef.value.triggerDAGChain(fullSteps)
-          dagChainTriggered = true
-        }
-      }
-      for (const step of nodeStore.dagChainState.steps) {
-        if (starMapRef.value.setDAGStepStatus) {
-          starMapRef.value.setDAGStepStatus(step.stepNum, step.status)
-        }
-      }
-    }
-    if (!nodeStore.dagChainState.active && dagChainTriggered) {
-      if (starMapRef.value.clearDAGChain) starMapRef.value.clearDAGChain()
-      dagChainTriggered = false
-    }
-  }, 100))
 
   const proactiveMod = await import('@/services/proactiveScheduler')
   proactiveMod.loadPersistedState()

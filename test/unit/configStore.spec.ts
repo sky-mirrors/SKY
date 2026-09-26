@@ -104,30 +104,12 @@ describe('configStore', () => {
 
   it('has correct default new fields', () => {
     const store = useConfigStore()
-    expect(store.uiMode).toBe('workbench')
     expect(store.isOnboardingComplete).toBe(false)
     expect(store.terminologyStyle).toBe('plain')
     expect(store.animationEnabled).toBe(true)
-    expect(store.config.starmapNodeDensity).toBe('standard')
     expect(store.config.dialogPanelWidth).toBe(460)
     expect(store.config.favoriteSkills).toEqual([])
     expect(store.config.recentSkills).toEqual([])
-  })
-
-  it('setUiMode updates uiMode', () => {
-    const store = useConfigStore()
-    store.setUiMode('starmap')
-    expect(store.uiMode).toBe('starmap')
-    expect(store.config.uiMode).toBe('starmap')
-  })
-
-  it('toggleUiMode toggles between workbench and starmap', () => {
-    const store = useConfigStore()
-    expect(store.uiMode).toBe('workbench')
-    store.toggleUiMode()
-    expect(store.uiMode).toBe('starmap')
-    store.toggleUiMode()
-    expect(store.uiMode).toBe('workbench')
   })
 
   it('markOnboardingComplete sets onboardingCompleted', () => {
@@ -160,12 +142,6 @@ describe('configStore', () => {
     expect(store.animationEnabled).toBe(true)
     store.setAnimationEnabled(false)
     expect(store.animationEnabled).toBe(false)
-  })
-
-  it('setStarmapNodeDensity sets density', () => {
-    const store = useConfigStore()
-    store.setStarmapNodeDensity('full')
-    expect(store.config.starmapNodeDensity).toBe('full')
   })
 
   it('setDialogPanelWidth clamps between 300-600', () => {
@@ -221,24 +197,20 @@ describe('configStore', () => {
       selectedL2Ids: [],
       firstLaunchDone: true,
       apiConfig: { baseUrl: '', models: [], activeModel: '', isReachable: false, lastCheckedAt: 0 },
-      uiMode: 'starmap',
       onboardingCompleted: true,
       apiConfigured: true,
       knowledgeFed: true,
       terminologyStyle: 'technical',
       animationEnabled: false,
-      starmapNodeDensity: 'full',
       dialogPanelWidth: 500,
       favoriteSkills: ['s1'],
       recentSkills: [{ id: 's2', name: 'Skill 2', lastUsed: 1000 }]
     }))
     const store = useConfigStore()
     store.loadFromStorage()
-    expect(store.uiMode).toBe('starmap')
     expect(store.isOnboardingComplete).toBe(true)
     expect(store.terminologyStyle).toBe('technical')
     expect(store.animationEnabled).toBe(false)
-    expect(store.config.starmapNodeDensity).toBe('full')
     expect(store.config.dialogPanelWidth).toBe(500)
     expect(store.config.favoriteSkills).toEqual(['s1'])
     expect(store.config.recentSkills!.length).toBe(1)
@@ -246,11 +218,9 @@ describe('configStore', () => {
 
   it('saveToStorage persists new fields', () => {
     const store = useConfigStore()
-    store.setUiMode('starmap')
     store.setTerminologyStyle('technical')
     store.saveToStorage()
     const saved = JSON.parse(vault.readCache('config', 'holo-user-config')!)
-    expect(saved.uiMode).toBe('starmap')
     expect(saved.terminologyStyle).toBe('technical')
   })
 
@@ -298,5 +268,27 @@ describe('configStore', () => {
     const store2 = useConfigStore()
     store2.loadFromStorage()
     expect(store2.config.restoreSessionMemoryOnStartup).toBe(true)
+  })
+
+  // 星图删除（2026-09-26）：125 节点 3D 星图视图整条移除——持久化里的旧模式字段
+  // 不得复活任何模式开关（否则老用户 vault 里残留的 uiMode:'starmap' 会指向一个
+  // 已被删除的视图 ⇒ 启动白屏）。
+  it('旧配置里的 uiMode/starmapNodeDensity 不得复活星图模式', () => {
+    vault.writeCache('config', 'holo-user-config', JSON.stringify({
+      jobRole: 'finance',
+      uiMode: 'starmap',
+      starmapNodeDensity: 'full'
+    }))
+    const store = useConfigStore()
+    store.loadFromStorage()
+    const s = store as unknown as Record<string, unknown>
+    expect(s.uiMode).toBeUndefined()
+    expect(s.setUiMode).toBeUndefined()
+    expect(s.toggleUiMode).toBeUndefined()
+    expect(s.setStarmapNodeDensity).toBeUndefined()
+    expect((store.config as unknown as Record<string, unknown>).uiMode).toBeUndefined()
+    expect((store.config as unknown as Record<string, unknown>).starmapNodeDensity).toBeUndefined()
+    // 其余字段照常恢复——不能因为删模式字段而砸掉整个加载
+    expect(store.config.jobRole).toBe('finance')
   })
 })

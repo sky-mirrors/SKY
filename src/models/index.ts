@@ -195,13 +195,11 @@ export interface UserConfig {
   selectedL2Ids: string[]
   firstLaunchDone: boolean
   apiConfig: ApiConfig
-  uiMode?: 'workbench' | 'starmap'
   onboardingCompleted?: boolean
   apiConfigured?: boolean
   knowledgeFed?: boolean
   terminologyStyle?: 'technical' | 'plain'
   animationEnabled?: boolean
-  starmapNodeDensity?: 'core' | 'standard' | 'full'
   dialogPanelWidth?: number
   favoriteSkills?: string[]
   recentSkills?: RecentSkillEntry[]

@@ -8,13 +8,9 @@
 
     <div class="wb-nav-section">
       <div v-if="!navCollapsed" class="wb-nav-section-label">主视图</div>
-      <button class="wb-nav-item active" :title="'工作台（当前）'">
+      <button class="wb-nav-item active" :title="'工作台（唯一主视图）'">
         <span class="wb-nav-icon">🛠</span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">工作台</span>
-      </button>
-      <button class="wb-nav-item" title="切换到星图" @click="configStore.setUiMode('starmap')">
-        <span class="wb-nav-icon">🌌</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">星图</span>
       </button>
     </div>
 
@@ -88,12 +84,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useConfigStore } from '@/domains/config'
 import { useDialogStore } from '@/domains/dialog'
 import { useSessionStore } from '@/domains/app'
 import { useHotplugStore } from '@/stores/hotplugStore'
 
-const configStore = useConfigStore()
 const dialogStore = useDialogStore()
 const sessionStore = useSessionStore()
 const hotplugStore = useHotplugStore()

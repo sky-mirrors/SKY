@@ -17,13 +17,11 @@ export const useConfigStore = defineStore('config', () => {
       isReachable: false,
       lastCheckedAt: 0
     },
-    uiMode: 'workbench',
     onboardingCompleted: false,
     apiConfigured: false,
     knowledgeFed: false,
     terminologyStyle: 'plain',
     animationEnabled: true,
-    starmapNodeDensity: 'standard',
     dialogPanelWidth: 460,
     favoriteSkills: [],
     recentSkills: [],
@@ -35,7 +33,6 @@ export const useConfigStore = defineStore('config', () => {
   const isFirstLaunch = computed(() => !config.value.firstLaunchDone)
   const currentJobRole = computed(() => config.value.jobRole)
   const isLightTheme = computed(() => theme.value === 'light' || theme.value === 'green')
-  const uiMode = computed(() => config.value.uiMode ?? 'workbench')
   const isOnboardingComplete = computed(() => config.value.onboardingCompleted ?? false)
   const terminologyStyle = computed(() => config.value.terminologyStyle ?? 'plain')
   const animationEnabled = computed(() => config.value.animationEnabled ?? true)
@@ -76,16 +73,6 @@ export const useConfigStore = defineStore('config', () => {
     setTheme(cycle[theme.value] ?? 'dark')
   }
 
-  function setUiMode(mode: 'workbench' | 'starmap') {
-    config.value.uiMode = mode
-    saveToStorage()
-  }
-
-  function toggleUiMode() {
-    config.value.uiMode = config.value.uiMode === 'workbench' ? 'starmap' : 'workbench'
-    saveToStorage()
-  }
-
   function markOnboardingComplete() {
     config.value.onboardingCompleted = true
     saveToStorage()
@@ -120,11 +107,6 @@ export const useConfigStore = defineStore('config', () => {
 
   function setViewMode(mode: 'starmap' | 'preview') {
     config.value.viewMode = mode
-    saveToStorage()
-  }
-
-  function setStarmapNodeDensity(density: 'core' | 'standard' | 'full') {
-    config.value.starmapNodeDensity = density
     saveToStorage()
   }
 
@@ -182,13 +164,11 @@ export const useConfigStore = defineStore('config', () => {
         if (parsed.jobRole) config.value.jobRole = parsed.jobRole as JobRole
         if (parsed.selectedL2Ids) config.value.selectedL2Ids = parsed.selectedL2Ids
         if (parsed.firstLaunchDone) config.value.firstLaunchDone = parsed.firstLaunchDone
-        if (parsed.uiMode) config.value.uiMode = parsed.uiMode
         if (parsed.onboardingCompleted !== undefined) config.value.onboardingCompleted = parsed.onboardingCompleted
         if (parsed.apiConfigured !== undefined) config.value.apiConfigured = parsed.apiConfigured
         if (parsed.knowledgeFed !== undefined) config.value.knowledgeFed = parsed.knowledgeFed
         if (parsed.terminologyStyle) config.value.terminologyStyle = parsed.terminologyStyle
         if (parsed.animationEnabled !== undefined) config.value.animationEnabled = parsed.animationEnabled
-        if (parsed.starmapNodeDensity) config.value.starmapNodeDensity = parsed.starmapNodeDensity
         // C-29：加载时同样做范围钳制——持久化的越界值（旧版本写入/手改文件）
         // 会绕过 setDialogPanelWidth 的 300~600 约束
         if (parsed.dialogPanelWidth !== undefined) setDialogPanelWidth(parsed.dialogPanelWidth)
@@ -215,7 +195,6 @@ export const useConfigStore = defineStore('config', () => {
     isFirstLaunch,
     currentJobRole,
     isLightTheme,
-    uiMode,
     isOnboardingComplete,
     terminologyStyle,
     animationEnabled,
@@ -226,8 +205,6 @@ export const useConfigStore = defineStore('config', () => {
     markFirstLaunchDone,
     toggleTheme,
     setTheme,
-    setUiMode,
-    toggleUiMode,
     markOnboardingComplete,
     resetOnboarding,
     setApiConfigured,
@@ -235,7 +212,6 @@ export const useConfigStore = defineStore('config', () => {
     setTerminologyStyle,
     setAnimationEnabled,
     setViewMode,
-    setStarmapNodeDensity,
     setDialogPanelWidth,
     setLlmTimeoutScale,
     setRestoreSessionMemoryOnStartup,

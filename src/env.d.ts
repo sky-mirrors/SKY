@@ -137,5 +137,4 @@ interface ElectronAPI {
 interface Window {
   electronAPI: ElectronAPI
   requestIdleCallback?: (cb: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void, opts?: { timeout: number }) => number
-  _holoStarMapDblClickCommand?: (command: string) => void
 }
