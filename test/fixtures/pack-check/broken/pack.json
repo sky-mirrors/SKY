@@ -1,0 +1,8 @@
+{
+  "id": "WRONG-ID",
+  "name": "",
+  "version": "not-semver",
+  "capabilities": {
+    "hooks": { "bogus-tier": [], "veto": ["nope"] }
+  }
+}
