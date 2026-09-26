@@ -511,7 +511,11 @@ export async function callToolDirectWithTier(
               }
               convo = `【原始请求】${prompt}\n\n【上一轮工具的真实执行结果】\n${outs2.join('\n')}\n\n`
               lastOut = outs2.join('\n')
-            } catch {
+            } catch (roundErr) {
+              // H-7：本轮失败/被取消时不能把 lastOut 当"步骤成功"返回——用户点「终止执行」抛出的
+              // AbortError 若在这里被吞掉，调用方就无法区分「已取消」与「步骤正常产出」，
+              // 会照常呈现产物并计为成功。已中止即上抛，交由外层 catch（其下有 AbortError 处理）。
+              if (externalSignal?.aborted) throw roundErr
               return lastOut
             }
           }
@@ -531,7 +535,11 @@ export async function callToolDirectWithTier(
             })
             const wrapped = (resp3.content || '').trim()
             if (wrapped) return wrapped
-          } catch { /* 收口失败不吞产物证据：回落到 lastOut */ }
+          } catch (wrapErr) {
+            // H-7：收口轮次若被取消，同样不能回落到 lastOut 冒充成功
+            if (externalSignal?.aborted) throw wrapErr
+            /* 收口失败不吞产物证据：回落到 lastOut */
+          }
           return lastOut
         }
         return resp.content || '(LLM无输出)'
