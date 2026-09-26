@@ -174,6 +174,7 @@ vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => { setTimeout
 
 import { useDialogStore } from '@/stores/dialogStore'
 import { tryL0Skill } from '@/services/l0SkillRouter'
+import { callToolDirectWithTier } from '@/services/macroExecutor'
 import { qualityEmaStore } from '@/kernel/competition'
 import type { CompetitionRecord } from '@/kernel/funnel'
 
@@ -588,6 +589,35 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
 
     expect(toolCallsSeen).toBe(1)
     expect(chatPayloads).toHaveLength(1)
+  })
+
+  // 2026-09-26：原生工具执行路径（confirmPlan 的 isAllNative 分支）此前不注册任何控制器 ⇒
+  // 整段执行不可中止（真实渲染实测：adds 里只有路由那一个）。步骤边界是这里唯一的可中断点。
+  it('plan(全原生工具)：执行期中止 → 后续步骤不再执行（步骤边界可中止）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const ctls: AbortController[] = []
+    globalBus.on('debug:register-abort', (c: unknown) => ctls.push(c as AbortController))
+    const seenTools: string[] = []
+    vi.mocked(callToolDirectWithTier).mockImplementation(async (tool: string) => {
+      seenTools.push(tool)
+      ctls.forEach(c => c.abort()) // 第 1 步执行期间模拟用户点「⏹ 终止」
+      return '第一步结果'
+    })
+    const nativePlan = {
+      intent: '列两个目录',
+      needs: ['general'],
+      steps: [
+        { step: 1, description: '列目录 A', tool: 'list_directory', depends_on: [], params: { path: 'C:\\mockA' }, expectedOutput: '清单A' },
+        { step: 2, description: '列目录 B', tool: 'list_directory', depends_on: [], params: { path: 'C:\\mockB' }, expectedOutput: '清单B' }
+      ]
+    }
+    routeMock.mockResolvedValue({ kind: 'plan', plan: nativePlan, macroManifestId: null, autoExecutable: true, source: 'L4' } as FunnelOutcome)
+
+    await store.sendMessage('列两个目录')
+
+    expect(seenTools).toEqual(['list_directory']) // 第 2 步未执行
+    expect(noticeTexts(store)).toContain('⏹ 已终止（原生工具执行阶段）')
   })
 
   it('error outcome → 回退旧六层内联路径', async () => {

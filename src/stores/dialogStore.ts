@@ -2095,6 +2095,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     const isAllNative = plan.steps.length > 0 && plan.steps.every(s => NATIVE_TOOLS.has(s.tool))
     if (isAllNative) {
       addSystemNotice(autoExecuted ? '⚡ 自动执行原生工具（未经用户点击确认）...' : '✅ 用户确认，直接执行原生工具...')
+      // 2026-09-26：原生工具执行路径此前**不注册任何控制器** ⇒ 这类执行完全无法中止
+      // （真实渲染实测：adds 里只有路由那一个，按钮因此诚实置灰，但用户也确实没有取消手段）。
+      // 注册一个控制器并在**步骤边界**复查——步骤内单次工具调用不可取消，步骤之间是唯一可中断点。
+      const nativeCtl = new AbortController()
+      globalBus.emit('debug:register-abort', nativeCtl)
       const stepResults: Record<number, string> = {}
       // P1-D3：收集本次实际产生的文件产物（供收口闸门比对用户要求）
       const createdArtifacts: string[] = []
@@ -2102,6 +2107,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       let allOk = true
 
       for (const s of plan.steps) {
+        if (nativeCtl.signal.aborted) {
+          addSystemNotice('⏹ 已终止（原生工具执行阶段）')
+          break
+        }
         const depsOk = s.depends_on.every(d => stepResults[d] !== undefined)
         if (!depsOk) {
           globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `跳过步骤${s.step}: 依赖未满足` })
@@ -2164,6 +2173,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
           break
         }
       }
+      // 循环结束（正常跑完 / 中止跳出 / 步骤失败）即定向注销，避免遗留僵尸条目让按钮误显可用。
+      globalBus.emit('debug:clear-abort', nativeCtl)
 
       if (allOk && lastResult) {
         // P1-D3：L0 原生路径收口闸门——核验用户要求的命名产物是否真实产生（fail-open）
