@@ -112,9 +112,10 @@ import { useMcpStore } from '@/domains/mcp'
 import { useDialogStore } from '@/domains/dialog'
 import { useNotificationStore } from '@/domains/app'
 import { useWorkflowLogStore } from '@/domains/app'
-import { L2ToolManifest, DialogMessage, ChatMessage, Pipeline } from '@/models'
+import { L2ToolManifest, DialogMessage, ChatMessage } from '@/models'
 import { executePipeline } from '@/domains/pipeline'
 import { usePipelineStore, registerPipelineExecutor } from '@/domains/pipeline'
+import { buildCanvasPipeline } from '@/services/canvasRun'
 import { useDebugStore } from '@/domains/debug'
 import DebugProbePanel from '@/components/DebugProbePanel.vue'
 import ResultPreviewStage from '@/components/ResultPreviewStage.vue'
@@ -516,18 +517,12 @@ onMounted(async () => {
   registerPipelineExecutor(executePipeline)
 
   // P1-26：接收流水线窗口"运行当前画布"请求——内核/LLM 网关只在主窗口注册，画布执行必须由主窗口代跑。
-  // 节点顺序即拓扑序（流水线窗口发送前已排序），executePipeline 按 serial 链式执行；进度事件回传流水线窗口。
+  // H-1：改经 buildCanvasPipeline —— 它把画布的 dagNodes/dagEdges 一并带上，
+  // executePipeline 才会按用户连的依赖边做拓扑排序（原实现只映射 steps、丢弃 edges，
+  // 执行器里那段 dagEdges 分支因此永不可达）。
   window.electronAPI?.onPipelineRunRequest?.((data) => {
-    const nodes = data.nodes
-    if (!Array.isArray(nodes) || nodes.length === 0) return
-    const transientPipeline: Pipeline = {
-      id: `canvas-run-${Date.now()}`,
-      name: '画布运行',
-      steps: nodes.map(n => ({ toolId: n.toolId, params: n.params, outputKey: n.outputKey })),
-      mode: 'serial',
-      createdAt: Date.now(),
-      attachedEntryIds: []
-    }
+    const transientPipeline = buildCanvasPipeline({ nodes: data.nodes, edges: data.edges })
+    if (!transientPipeline) return
     executePipeline(transientPipeline, (stepId, msg) => {
       window.electronAPI?.pipelineRunProgress?.({ type: 'progress', stepId, msg })
     })
