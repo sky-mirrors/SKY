@@ -131,6 +131,7 @@ import { registerConfigHandlers } from '@/domains/config/handlers'
 import { shouldShowOnboarding } from '@/services/onboardingManager'
 import { initPricingFromVault } from '@/services/tokenPricing'
 import { pruneExpired } from '@/services/dagCheckpoint'
+import { migrateKnowledgePartitions } from '@/services/knowledgeMigration'
 import { registerDataHandlers } from '@/domains/data/handlers'
 import { registerDebugHandlers } from '@/domains/debug/handlers'
 import { registerDialogHandlers } from '@/domains/dialog/handlers'
@@ -554,6 +555,12 @@ onMounted(async () => {
   // 2026-09-25（机制体检）：DAG 检查点过期回收——此前 pruneExpired 零消费者，
   // 过期检查点只能靠 saveCheckpoint 的 MAX=20 上限顺带淘汰。读侧 resume 候选见 DialogPanel。
   pruneExpired().catch(err => console.warn('[checkpoint] 过期检查点回收失败:', err))
+
+  // 2026-09-26（机制体检 Wave1）：M12 knowledge partition 回填——此前整个模块零生产调用方（休眠模块）。
+  // 模块自带版本守卫（命中即 skipped）+ 全量备份 + 计数对账，幂等，故按既有启动钩子惯例接上跑。
+  migrateKnowledgePartitions()
+    .then(r => { if (!r.skipped) console.log('[knowledge-migration] partition 回填:', r) })
+    .catch(err => console.warn('[knowledge-migration] 迁移失败:', err))
 
   const kernel = createKernel()
   // A2-9：pack veto 钩子桥在内核与 pack 运行时均就绪后启动（桥内部 fail-open，失败不阻塞启动）
