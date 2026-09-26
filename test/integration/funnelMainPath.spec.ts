@@ -572,6 +572,75 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(routed).toHaveLength(1)
     expect(routed[0]).toMatchObject({ handled: false, kind: 'exception' })
   })
+
+  // 2026-09-26：路由/规划阶段此前不注册可中止控制器 ⇒ 工作台「⏹ 终止」在整个路由窗口置灰，
+  // 且该阶段的 LLM 调用（ctx.chatCompletion）不带 signal。以下三条钉住新增的「路由期可中止」行为。
+  it('路由期 ctx.chatCompletion 的 LLM 调用必须带 signal（否则该阶段无法被终止打断）', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const plan = makePlan({ intent: '带 signal 的任务' })
+    routeMock.mockImplementation(async (_input: string, ctx: Record<string, unknown>) => {
+      await (ctx['chatCompletion'] as (m: unknown[]) => Promise<unknown>)([{ role: 'user', content: 'x' }])
+      return { kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L0' } as FunnelOutcome
+    })
+
+    await store.sendMessage('测试消息')
+
+    expect(chatPayloads).toHaveLength(1)
+    expect(chatPayloads[0]['signal']).toBeInstanceOf(AbortSignal)
+  })
+
+  it('路由期中止（route 内 abort 后正常返回）→ 按已处理短路，不落 consumeFunnelOutcome、不回退旧路径', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const ctls: AbortController[] = []
+    globalBus.on('debug:register-abort', (c: unknown) => ctls.push(c as AbortController))
+    const routed: Array<Record<string, unknown>> = []
+    globalBus.on('funnel:routed', (p: unknown) => routed.push(p as Record<string, unknown>))
+    routeMock.mockImplementation(async () => {
+      ctls[0].abort() // 模拟用户点「⏹ 终止」
+      return { kind: 'error', error: 'ignored' } as FunnelOutcome
+    })
+    vi.mocked(tryL0Skill).mockResolvedValue({
+      intent: '不该走到这里',
+      steps: [{ step: 1, description: 'x', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
+    })
+
+    await store.sendMessage('测试路由中止')
+
+    expect(store.isProcessing).toBe(false)
+    expect(store.awaitingConfirmation).toBe(false)
+    expect(noticeTexts(store)).toContain('⏹ 已终止（路由/规划阶段）')
+    expect(routed).toHaveLength(1)
+    expect(routed[0]).toMatchObject({ handled: true, kind: 'aborted' })
+    // 关键：不得退化成「换条路径把它再跑一遍」
+    expect(vi.mocked(tryL0Skill)).not.toHaveBeenCalled()
+  })
+
+  it('路由期中止（route 抛错）→ 判为「已终止」而非异常回退旧路径', async () => {
+    funnelMainFlag = null
+    setupBus()
+    const ctls: AbortController[] = []
+    globalBus.on('debug:register-abort', (c: unknown) => ctls.push(c as AbortController))
+    const routed: Array<Record<string, unknown>> = []
+    globalBus.on('funnel:routed', (p: unknown) => routed.push(p as Record<string, unknown>))
+    routeMock.mockImplementation(async () => {
+      ctls[0].abort()
+      throw new Error('Aborted')
+    })
+    vi.mocked(tryL0Skill).mockResolvedValue({
+      intent: '不该走到这里',
+      steps: [{ step: 1, description: 'x', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
+    })
+
+    await store.sendMessage('测试路由中止抛错')
+
+    expect(store.isProcessing).toBe(false)
+    expect(noticeTexts(store)).toContain('⏹ 已终止（路由/规划阶段）')
+    expect(routed).toHaveLength(1)
+    expect(routed[0]).toMatchObject({ handled: true, kind: 'aborted' })
+    expect(vi.mocked(tryL0Skill)).not.toHaveBeenCalled()
+  })
 })
 
 describe('A2-9：pre-output 否决门接入 funnel 主路径（presentExecutionOutput）', () => {

@@ -1280,6 +1280,18 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
    * 返回 true = 已接管；false = 回退旧六层内联路径（funnel error 或适配层异常兜底）。
    */
   async function routeViaFunnel(content: string, allMcpTools: ToolDef[], recentUserMsg: string): Promise<boolean> {
+    // 2026-09-26：路由/规划阶段此前不注册任何 AbortController ⇒ 工作台「⏹ 终止」在整个路由
+    // 窗口里置灰、无法中止（实测该窗口可达数秒，是该按钮唯一的「不可用」时段）。
+    // 这里为 funnel 主路径的 LLM 调用（ctx.chatCompletion＝LLM 仲裁/规划）补一个可中止控制器；
+    // 结束（含异常）一律定向注销，避免注册表滞留僵尸条目。
+    const routeCtl = new AbortController()
+    globalBus.emit('debug:register-abort', routeCtl)
+    const abortRouting = (): boolean => {
+      globalBus.emit('funnel:routed', { handled: true, kind: 'aborted', ts: Date.now(), traceId: activeTraceId.value || undefined })
+      addSystemNotice('⏹ 已终止（路由/规划阶段）')
+      isProcessing.value = false
+      return true
+    }
     try {
       const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
       const lastAssistantMsgs = messages.value.filter(m => m.role === 'assistant')
@@ -1297,11 +1309,15 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         // M16：竞争模式 flag（默认关）——L2 跨 pack 歧义候选竞标分竞争
         competitiveMode: await isCompetitiveModeEnabled(),
         chatCompletion: async (msgs) => {
-          const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128 })
+          // signal 透传：路由/规划期的 LLM 仲裁可被「⏹ 终止」打断（此前不带 ⇒ 该阶段不可中止）
+          const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128, signal: routeCtl.signal })
           return { content: (r as { content?: string }).content || '' }
         }
       }
       const outcome = await kernelRegistry.route(content, ctx, { gates: await loadFunnelGates() })
+      // 内核对取消异常可能吞掉并返回兜底结果 ⇒ 不能只靠 catch；这里显式复查中止标志，
+      // 确保「路由期间点了终止」不会继续走 consumeFunnelOutcome（否则等于照常执行）。
+      if (routeCtl.signal.aborted) return abortRouting()
       const handled = await consumeFunnelOutcome(content, outcome, allMcpTools)
       // 观测事件（R16）：工作台运行时面板订阅渲染最近路由结果
       // C-11：携带请求级 traceId（数据层归因，显示渲染不做）
@@ -1316,9 +1332,14 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       })
       return handled
     } catch (e) {
+      // 用户主动中止路由：按「已处理」短路回调用方，**不回退**旧六层内联路由——
+      // 否则「终止」会退化成「换条路径把它再跑一遍」。
+      if (routeCtl.signal.aborted) return abortRouting()
       debugLog(`[funnel:main] 主路径异常，回退旧六层内联路由: ${e instanceof Error ? e.message : String(e)}`)
       globalBus.emit('funnel:routed', { handled: false, kind: 'exception', ts: Date.now(), traceId: activeTraceId.value || undefined })
       return false
+    } finally {
+      globalBus.emit('debug:clear-abort', routeCtl)
     }
   }
 
