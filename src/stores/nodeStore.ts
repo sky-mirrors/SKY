@@ -27,26 +27,8 @@ export interface DagChainState { active: boolean; steps: DagStep[]; dependsOnMap
 export const useNodeStore = defineStore('nodes', () => {
   const nodes = ref<ToolNode[]>(generateAllNodes())
   const interaction = ref<InteractionState>({
-    hoveredNodeId: null,
     selectedNodeId: null,
-    draggingNodeId: null,
-    dragTargetLevel: null,
-    isDragging: false,
-    mouseSpeed: 0,
-    onboardingPhase: 'waiting',
-    selectedRole: null,
-    toolUseCount: 0,
-    circuitBreaker: {
-      isOpen: false,
-      failureCount: 0,
-      lastFailureAt: 0,
-      cooldownMs: 30000,
-      retryCount: 0,
-      maxRetries: 3
-    },
-    l0RedFlash: false,
-    dialogMode: 'command',
-    ctrlKey: false
+    selectedRole: null
   })
   const degraded = ref<DegradedState>({
     isDegraded: false,

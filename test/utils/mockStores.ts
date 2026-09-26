@@ -217,11 +217,7 @@ export function createMockNodeStore() {
     nodes: [mockNode],
     adjacency: new Map(),
     interaction: {
-      hoveredNodeId: null, selectedNodeId: null, draggingNodeId: null,
-      dragTargetLevel: null, isDragging: false, mouseSpeed: 0,
-      onboardingPhase: 'waiting' as const, selectedRole: null,
-      toolUseCount: 0, circuitBreaker: { isOpen: false, failureCount: 0, lastFailureAt: 0, cooldownMs: 30000, retryCount: 0, maxRetries: 3 },
-      l0RedFlash: false, dialogMode: 'command' as const, ctrlKey: false
+      selectedNodeId: null, selectedRole: null
     },
     ingestProgress: { totalChunks: 0, processedChunks: 0, isRunning: false },
     l3DecayStates: [],

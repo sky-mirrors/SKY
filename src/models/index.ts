@@ -294,20 +294,13 @@ export interface ImportPreviewItem {
   strategy: 'overwrite' | 'merge' | 'append' | 'skip'
 }
 
+// 2026-09-26：只保留有生产消费方的字段——selectedNodeId 由 nodeStore 的
+// selectNode/selectedNode 读写；selectedRole 由 domains\node 的 node:get-roles /
+// node:get-selected-role 读。星图时代的交互态（悬停/拖拽/鼠标速度/引导阶段/工具计数/
+// 熔断快照/L0 红闪/dialogMode/ctrlKey）全仓库零消费，随星图一并清掉。
 export interface InteractionState {
-  hoveredNodeId: string | null
   selectedNodeId: string | null
-  draggingNodeId: string | null
-  dragTargetLevel: ToolLevel | null
-  isDragging: boolean
-  mouseSpeed: number
-  onboardingPhase: 'waiting' | 'pulsing' | 'stardust' | 'exploding' | 'done'
   selectedRole: JobRole | null
-  toolUseCount: number
-  circuitBreaker: CircuitBreakerState
-  l0RedFlash: boolean
-  dialogMode: 'command' | 'plan' | 'teach'
-  ctrlKey: boolean
 }
 
 export interface IngestProgress {
