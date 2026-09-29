@@ -3,6 +3,8 @@ import { ingestText, hybridSearch } from './knowledgeBase'
 import { vault } from '@/vault'
 
 const CONV_SUMMARY_KEY = 'holo-conv-summaries'
+/** K-2：会话索引水位线——必须随 vault 持久化 */
+const INDEX_WATERMARK_KEY = 'holo-conv-index-watermark'
 
 interface PeriodSummary {
   period: string
@@ -22,14 +24,41 @@ function saveSummaries(summaries: PeriodSummary[]): void {
   vault.writeThrough('conv', CONV_SUMMARY_KEY, JSON.stringify(summaries.slice(-20)))
 }
 
-let lastIndexTimestamp = 0
+function loadWatermark(): number {
+  try {
+    const raw = vault.readCache('conv', INDEX_WATERMARK_KEY)
+    const n = raw ? Number(raw) : 0
+    return Number.isFinite(n) ? n : 0
+  } catch { return 0 }
+}
+
+/**
+ * K-2：索引水位线原先只是模块级变量（只写不读回）⇒ 每次重启归零，
+ * `indexConversationRound` 会把已索引过的历史对白再次全量摄取。
+ * 现随 vault 持久化；惰性读回（不在模块顶层读）以免 vault 尚未就绪时把水位线
+ * 误判为 0 并就此固化。
+ */
+let lastIndexTimestamp: number | null = null
+
+function getWatermark(): number {
+  if (lastIndexTimestamp === null) lastIndexTimestamp = loadWatermark()
+  return lastIndexTimestamp
+}
+
+function setWatermark(ts: number): void {
+  lastIndexTimestamp = ts
+  try {
+    vault.writeThrough('conv', INDEX_WATERMARK_KEY, String(ts))
+  } catch { /* 持久化失败不阻断本次索引 */ }
+}
 
 export async function indexConversationRound(messages: DialogMessage[]): Promise<void> {
   const userMsgs = messages.filter(m => m.role === 'user' || m.role === 'assistant')
   if (userMsgs.length === 0) return
 
+  const watermark = getWatermark()
   const newMsgs = userMsgs.filter(m =>
-    m.timestamp > lastIndexTimestamp &&
+    m.timestamp > watermark &&
     m.type !== 'system_notice' &&
     m.type !== 'tool_log' &&
     m.content && m.content.trim().length >= 5
@@ -43,7 +72,7 @@ export async function indexConversationRound(messages: DialogMessage[]): Promise
 
   try {
     await ingestText(batchText, { type: 'conversation' }, `conv-round-${Date.now()}`)
-    lastIndexTimestamp = newMsgs[newMsgs.length - 1].timestamp
+    setWatermark(newMsgs[newMsgs.length - 1].timestamp)
   } catch { /* non-critical */ }
 }
 
@@ -124,4 +153,7 @@ export function detectChallenge(userInput: string, lastAssistantContent: string)
 export function clearConvMemory(): void {
   vault.delete('conv', CONV_SUMMARY_KEY).catch(() => {})
   vault.delete('conv', 'holo-conv-chunks').catch(() => {})
+  // K-2：清空会话记忆时水位线一并归零——否则清库后旧水位线会挡住全部历史重新入库
+  lastIndexTimestamp = 0
+  vault.delete('conv', INDEX_WATERMARK_KEY).catch(() => {})
 }

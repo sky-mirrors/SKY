@@ -64,9 +64,11 @@ function appendEntryLocked(entry: KnowledgeEntry): void {
 }
 
 // C-15：条目索引读-改-写互斥锁（promise 链实现）——摄取窗口秒级，
-// 并发导入文件时后写者会用自己的旧快照覆盖前写者，先完成的条目从索引消失
+// 并发导入文件时后写者会用自己的旧快照覆盖前写者，先完成的条目从索引消失。
+// K-4：导出供 knowledgeMigration 复用——迁移的裸 read-modify-write 原先不持此锁，
+// 与并发摄取互相覆盖（迁移窗口内写入的新条目会被旧快照抹掉）。
 let entriesWriteLock: Promise<unknown> = Promise.resolve()
-function withEntriesLock<T>(fn: () => Promise<T>): Promise<T> {
+export function withEntriesLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = entriesWriteLock.then(fn, fn)
   entriesWriteLock = run.then(() => undefined, () => undefined)
   return run
@@ -314,6 +316,17 @@ async function ingestTextCore(
   label: string | undefined,
   partition: { kind: 'kernel' | 'pack' | 'user'; id?: string } | undefined
 ): Promise<KnowledgeEntry> {
+  // K-2：去重下沉到这一单一入口——原先只有 ingestFile 有既存检查，ingestText /
+  // ingestPackText 会不断累加同一份文本的条目。指纹 + partition 双重匹配：同一文本在
+  // 不同 partition 下可见性不同，不能互相认领。
+  const fingerprint = computeFingerprint(text)
+  const existing = getKnowledgeEntries().find(e =>
+    e.fingerprint === fingerprint &&
+    (e.partition ?? undefined) === partition?.kind &&
+    (e.partitionId ?? undefined) === partition?.id
+  )
+  if (existing) return existing
+
   const chunks = chunkBySemantic(text, 512)
   const chunkRecords: ChunkRecord[] = []
   // C-25：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
@@ -336,7 +349,7 @@ async function ingestTextCore(
     filename: label || `text-${Date.now()}`,
     fileType: 'text/plain',
     chunks: chunks.length,
-    fingerprint: computeFingerprint(text),
+    fingerprint,
     createdAt: Date.now(),
     ownerType: target.type,
     ownerId: target.ownerId,

@@ -1,5 +1,7 @@
 import { vault } from '@/vault'
 import { debugLog } from '@/services/debugLog'
+// K-4：与 knowledgeBase 持同一把锁——迁移不得在锁外裸读-改-写条目索引
+import { withEntriesLock } from './knowledgeBase'
 
 /**
  * 规格 M12：存量知识条目 partition 迁移。
@@ -93,38 +95,43 @@ export async function migrateKnowledgePartitions(): Promise<KnowledgeMigrationRe
     }
   }
 
-  const raw = await vault.read('knowledge', KNOWLEDGE_ENTRIES_KEY)
-  let entries: StoredKnowledgeEntry[] = []
-  if (raw !== null) {
-    try {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) entries = parsed
-    } catch {
-      entries = []
-    }
-  }
-
-  const beforeCount = entries.length
-  let modified = 0
-  for (const entry of entries) {
-    if (entry.partition === undefined) {
-      entry.partition = 'user'
-      modified++
-    }
-  }
-
-  await vault.write('knowledge', KNOWLEDGE_ENTRIES_KEY, JSON.stringify(entries))
-
-  const verifyRaw = await vault.read('knowledge', KNOWLEDGE_ENTRIES_KEY)
+  // K-4：整个读-改-写窗口必须在与 knowledgeBase 同一把锁内——否则迁移拿着旧快照
+  // 写回时，会把窗口内并发写入（摄取/导入）的新条目抹掉。
+  let beforeCount = 0
   let afterCount = -1
-  if (verifyRaw !== null) {
-    try {
-      const parsed = JSON.parse(verifyRaw)
-      if (Array.isArray(parsed)) afterCount = parsed.length
-    } catch {
-      afterCount = -1
+  let modified = 0
+  await withEntriesLock(async () => {
+    const raw = await vault.read('knowledge', KNOWLEDGE_ENTRIES_KEY)
+    let entries: StoredKnowledgeEntry[] = []
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) entries = parsed
+      } catch {
+        entries = []
+      }
     }
-  }
+
+    beforeCount = entries.length
+    for (const entry of entries) {
+      if (entry.partition === undefined) {
+        entry.partition = 'user'
+        modified++
+      }
+    }
+
+    await vault.write('knowledge', KNOWLEDGE_ENTRIES_KEY, JSON.stringify(entries))
+
+    const verifyRaw = await vault.read('knowledge', KNOWLEDGE_ENTRIES_KEY)
+    if (verifyRaw !== null) {
+      try {
+        const parsed = JSON.parse(verifyRaw)
+        if (Array.isArray(parsed)) afterCount = parsed.length
+      } catch {
+        afterCount = -1
+      }
+    }
+  })
 
   if (afterCount !== beforeCount) {
     try {
