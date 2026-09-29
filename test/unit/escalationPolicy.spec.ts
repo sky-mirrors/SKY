@@ -6,6 +6,7 @@ import {
   detectUnsolvable,
   resolveEscalationTarget,
   buildHonestNotice,
+  honestNoticeFor,
   type EscalationConfig
 } from '@/services/escalationPolicy'
 
@@ -38,6 +39,24 @@ describe('detectUnsolvable：识别"做不了"', () => {
   it('解释性文字不误判（避免给正常回答乱加"未完成"）', () => {
     expect(detectUnsolvable('如果无法连接，请检查网络设置后重试。')).toBe(false)
     expect(detectUnsolvable('该操作用户未授权，因此不能执行；请先在设置里开启权限。')).toBe(false)
+  })
+
+  // T-2 亲验坐实（快照 §十）：模式一会命中法律/财务场景的合理免责措辞；
+  // 模式三会命中正常的自我能力说明。二者都会给正常回答盖上「未完成」横幅。
+  it('T-2｜法律/财务免责措辞不判为"做不了"', () => {
+    expect(detectUnsolvable('我无法给出具体的法律意见，以上内容仅供参考，不构成任何法律建议。')).toBe(false)
+    expect(detectUnsolvable('我无法预测明天的股价，投资决策请咨询专业人士。')).toBe(false)
+    expect(detectUnsolvable('我无法保证这份报告的准确性，建议你以官方发布为准。')).toBe(false)
+  })
+
+  it('T-2｜正常的自我能力说明不再单独触发（模式三收紧）', () => {
+    expect(detectUnsolvable('作为AI助手，我可以帮你整理这份文档，需要我继续吗？')).toBe(false)
+    expect(detectUnsolvable('由于我是一个语言模型，我的知识有截止日期，请核实关键信息。')).toBe(false)
+  })
+
+  it('T-2｜免责排除不放过真拒答：否定 + 操作类动词仍判为做不了', () => {
+    expect(detectUnsolvable('我无法直接操作你的电脑，建议你咨询专业人士。')).toBe(true)
+    expect(detectUnsolvable('因为我是一个基于文本的AI助手，我无法直接操作你的电脑。')).toBe(true)
   })
 })
 
@@ -76,5 +95,29 @@ describe('buildHonestNotice：做不了就诚实陈述', () => {
     expect(n).toMatch(/未配置|没有/)
     expect(n).toMatch(/超出|能力/)
     expect(n).toMatch(/未完成|无法完成/)
+  })
+
+  // T-2：主模型作答时，横幅不得谎称"当前只配置了小模型"（明明是大模型在答）。
+  it('T-2｜主模型作答 → 不谎称"只配置了小模型"', () => {
+    const n = buildHonestNotice('main-unsolved')
+    expect(n).not.toMatch(/只配置了小模型/)
+    expect(n).toMatch(/未完成|无法完成/)
+  })
+})
+
+// T-2：横幅种类须按**实际角色**决定，而非只看 escTarget 是否为空——
+// 后者会在 main 角色作答时错落到 small-only（快照 §十 §2 坐实）。
+describe('honestNoticeFor：按实际角色与兜底目标选文案', () => {
+  it('有兜底目标 → both-failed（已尝试大模型）', () => {
+    expect(honestNoticeFor('aux', true)).toBe('both-failed')
+    expect(honestNoticeFor('main', true)).toBe('both-failed')
+  })
+
+  it('辅助角色且无处可升 → small-only（确实只有小模型）', () => {
+    expect(honestNoticeFor('aux', false)).toBe('small-only')
+  })
+
+  it('主模型角色且无处可升 → main-unsolved（不得说成 small-only）', () => {
+    expect(honestNoticeFor('main', false)).toBe('main-unsolved')
   })
 })

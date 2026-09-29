@@ -15,7 +15,7 @@ import { parseJsonSafe } from '@/services/jsonSafe'
 // 模型协同（2026-09-23 用户纠正后）：按角色分派——main=大模型掌舵+兜底、aux=小模型做辅助活
 import { resolveRole, resolveRoleTarget, resolveDirectTarget } from '@/services/modelRoles'
 // 小模型兜底 + 诚实陈述（2026-09-23 需求）
-import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice } from '@/services/escalationPolicy'
+import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice, honestNoticeFor } from '@/services/escalationPolicy'
 import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
 import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
@@ -744,7 +744,8 @@ export const useApiStore = defineStore('api', () => {
         // 小档（nano/mini，可能是云端小模型如 deepseek-flash）答不了 → 升级大档模型重试一次；
         // 无大档可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
         if (!forceTarget && detectUnsolvable(ipcResult.content)) {
-          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+          const role = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+          const escTarget = resolveEscalationTarget(config.value, role)
           if (escTarget) {
             debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（远程）')
             try {
@@ -759,7 +760,7 @@ export const useApiStore = defineStore('api', () => {
           }
           return {
             ...ipcResult,
-            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${ipcResult.content}`
+            content: `${buildHonestNotice(honestNoticeFor(role, !!escTarget))}\n\n${ipcResult.content}`
           }
         }
         return ipcResult
@@ -906,7 +907,8 @@ export const useApiStore = defineStore('api', () => {
         // 小模型兜底 + 诚实陈述（2026-09-23 需求）：本地小模型答不了（拒答/能力声明）
         // → 升级云端大模型重试一次；无大模型可兜底、或兜底也没成 → 明确「未完成」，不包装成成功。
         if (!forceTarget && detectUnsolvable(r.content)) {
-          const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+          const role = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+          const escTarget = resolveEscalationTarget(config.value, role)
           if (escTarget) {
             debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底')
             try {
@@ -921,7 +923,7 @@ export const useApiStore = defineStore('api', () => {
           }
           return {
             ...ollamaResult,
-            content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${r.content}`
+            content: `${buildHonestNotice(honestNoticeFor(role, !!escTarget))}\n\n${r.content}`
           }
         }
         return ollamaResult
@@ -1013,7 +1015,8 @@ export const useApiStore = defineStore('api', () => {
       // 小模型兜底 + 诚实陈述（2026-09-23 需求）——direct-fetch 分支（第三个出口）。
       // 实测：主对话走非流式 chatCompletion，而此前只包了 IPC/本地两处，故一直未生效。
       if (!forceTarget && detectUnsolvable(directResult.content)) {
-        const escTarget = resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType))
+        const role = resolveRole(routingOptions?.callerId, routingOptions?.taskType)
+        const escTarget = resolveEscalationTarget(config.value, role)
         if (escTarget) {
           debugLog('[chatCompletion:escalate] 小模型无法完成，升级大模型兜底（direct）')
           try {
@@ -1028,7 +1031,7 @@ export const useApiStore = defineStore('api', () => {
         }
         return {
           ...directResult,
-          content: `${buildHonestNotice(escTarget ? 'both-failed' : 'small-only')}\n\n${directResult.content}`
+          content: `${buildHonestNotice(honestNoticeFor(role, !!escTarget))}\n\n${directResult.content}`
         }
       }
       return directResult
@@ -1257,9 +1260,9 @@ export const useApiStore = defineStore('api', () => {
                 }, effectiveTier, 'llm')
                 // 诚实陈述（2026-09-23 需求）：流式路径同样适用——模型答不了就明确标注，不包装成成功。
       // 流式已把原文发出，无法收回，故以追加一段说明的方式呈现。
-      const needsNotice = !!final && typeof final.content === 'string' && detectUnsolvable(final.content)
+      const needsNotice = !isLearningIsolated && !!final && typeof final.content === 'string' && detectUnsolvable(final.content)
       if (needsNotice && final) {
-        const noticeText = buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+        const noticeText = buildHonestNotice(honestNoticeFor(streamRole, false))
         callbacks.onChunk({ content: `${final.content}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
         callbacks.onDone({ content: `${final.content}\n\n${noticeText}`, toolCalls: final.toolCalls, usage: final.usage })
       } else {
@@ -1392,8 +1395,8 @@ export const useApiStore = defineStore('api', () => {
         // 诚实陈述（2026-09-23 需求）：流式有多个完成出口，此处同样适用。
         // 关键：UI 端只消费 onChunk 的 delta（App.vue 的 port 忽略 onDone 的 final 载荷），
         // 因此标注必须经 onChunk 发出，仅改 onDone 不会显示。
-        const noticeText = detectUnsolvable(accumulated)
-          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+        const noticeText = !isLearningIsolated && detectUnsolvable(accumulated)
+          ? buildHonestNotice(honestNoticeFor(streamRole, false))
           : ''
         if (noticeText) {
           callbacks.onChunk({ content: `${accumulated}\n\n${noticeText}`, delta: `\n\n${noticeText}`, done: false })
@@ -1549,8 +1552,8 @@ export const useApiStore = defineStore('api', () => {
             }, effectiveTier, 'llm')
             {
         // 诚实陈述（2026-09-23 需求）：同上——必须经 onChunk 的 delta 发出才会显示在 UI
-        const noticeText2 = detectUnsolvable(accumulatedContent)
-          ? buildHonestNotice(resolveEscalationTarget(config.value, resolveRole(routingOptions?.callerId, routingOptions?.taskType)) ? 'both-failed' : 'small-only')
+        const noticeText2 = !isLearningIsolated && detectUnsolvable(accumulatedContent)
+          ? buildHonestNotice(honestNoticeFor(streamRole, false))
           : ''
         if (noticeText2) {
           callbacks.onChunk({ content: `${accumulatedContent}\n\n${noticeText2}`, delta: `\n\n${noticeText2}`, done: false })
