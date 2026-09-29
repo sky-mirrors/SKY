@@ -17,7 +17,8 @@ import type { BrowserWindow } from 'electron'
 import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds, sanitizeMcpEnv } from './mcp-manager'
 import { getMainWindow } from './window-manager'
 import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP, isMcpCommandAllowed } from './shell-security'
-import { validatePath, validateReadPath, validateOpenPath, validateWritePath, hasSuspiciousBasename, sanitizeKey } from './pathValidator'
+import { validatePath as _validatePath, validateReadPath as _validateReadPath, validateOpenPath as _validateOpenPath, validateWritePath as _validateWritePath, hasSuspiciousBasename, sanitizeKey } from './pathValidator'
+import { expandPathTemplate } from './pathExpansion'
 import archiver from 'archiver'
 import extract from 'extract-zip'
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
@@ -39,6 +40,21 @@ import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
 // LLM-ABORT：非流式 LLM IPC 请求的取消注册表（渲染侧 requestId → 主进程 AbortController）
 import { registerLlmRequest, abortLlmRequest, releaseLlmRequest } from './llmAbortRegistry'
+
+// F-8 修复：主进程侧路径模板展开的**单一入口**。
+// 亲验结论（2026-09-27 快照 §十二）：展开此前只在渲染层 macroExecutor.resolveFilePath
+// （宏路径专用，全仓 10 处调用全在该文件），主对话路径把 %USERPROFILE%\... 字面量直接
+// 透传给 file:read ⇒ 主进程按字面量 resolve，落在名为 %USERPROFILE% 的目录上 ⇒ 整组
+// 原生文件工具在含模板路径上失败（Q16 实测失败即此因），不止 read_file。
+// 这里在四个校验入口前置展开，而非逐个 handler 改写——一处覆盖全部调用方（read/write/
+// move/list/createDirectory/createDocx/doc:convertToPdf/image:process/media:process/
+// shell:openPath），且以后新增任何拿路径的 handler 都自动获得展开，杜绝「单侧修复」复发。
+// 展开只替换变量、不做放行判定：校验与安全边界完全不变（模板拼路径遍历照样被拒）。
+const homeDir = () => app.getPath('home')
+const validatePath = (p: string) => _validatePath(expandPathTemplate(p, homeDir()))
+const validateReadPath = (p: string) => _validateReadPath(expandPathTemplate(p, homeDir()))
+const validateWritePath = (p: string) => _validateWritePath(expandPathTemplate(p, homeDir()))
+const validateOpenPath = (p: string) => _validateOpenPath(expandPathTemplate(p, homeDir()))
 
 // A-06/A-01：不再持有 setupIpc 时的固定引用（macOS activate 重建窗口后变野指针、
 // 关闭后 isDestroyed 判不住），统一经 window-manager 动态获取（内含 isDestroyed 校验）
@@ -1449,10 +1465,9 @@ export function setupIpc(_win: BrowserWindow | null) {
   })
 
   ipcMain.handle('env:resolvePath', (_event, template: string) => {
-    const resolved = template
-      .replace('%USERPROFILE%', app.getPath('home'))
-      .replace('%HOME%', app.getPath('home'))
-    const pathCheck = validatePath(resolved)
+    // F-8：与 file:*/doc:* handler 复用同一展开实现（单一真相），不再各写一套 replace
+    const resolved = expandPathTemplate(template, app.getPath('home'))
+    const pathCheck = _validatePath(resolved)
     if (!pathCheck.safe) return ''
     return pathCheck.resolved
   })
