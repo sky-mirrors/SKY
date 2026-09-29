@@ -678,7 +678,113 @@ sequenceDiagram
 
 ---
 
-## 16. 附录：源码地图
+## 16. 六层漏斗逐层内容、工具清单与实测可用性
+
+> 本节为 2026-09-27 补录。第 3.2 节只写了「漏斗的结构」，本节补「每一层到底装了什么」，并对**工具能否真正使用**给出以实测为准的分级——凡标 ✅ 者均为本轮亲自跑出的证据，非文档转述。
+
+### 16.1 层定义与实现落点
+
+| 层 | 名称 | 门值 | 实现函数 | 内容服务 |
+|---|---|---|---|---|
+| L0 | 规则直通 | 无 | `l0()` | `l0SkillRouter.tryL0Skill`（9 条硬规则） |
+| L0.5 | 关键词快配 | `l05Pass=0.8`（`l05Auto=0.9` 且计划无 shell） | `l05()` | `l0SkillRouter.tryL05QuickMatch`（比 L2 manifest 的 keywords） |
+| L1 | 能力直调 | `l1Pass=0.6` | `l1()` | `l0SkillRouter.checkL1Capability`（4 项） |
+| L2 | RaaP 混合检索 | — | `l2()` | `toolRetrieval.universalMatch` + M16 竞争 + 消歧四策略 |
+| L3 | LLM 仲裁 | — | `l3()` | `toolRetrieval.llmFallback`（≥2 候选才上） |
+| L4 | 探索兜底 | — | `l4()` | `l0SkillRouter.buildExplorePlan` |
+
+编排核在 `src\kernel\funnel.ts`（`LAYER_ORDER` @ `:97`）；**每层默认实现在** `src\kernels\default\index.ts` 的 `createDefaultLayers()`；L0/L0.5/L1/L4 的具体内容在 `src\services\l0SkillRouter.ts`。
+
+### 16.2 L0 — 9 条硬编码规则（零 token 直达）
+
+每条规则 = 触发表 + **禁词表** + `buildPlan`；命中即跳过全部后续层。
+
+| # | 规则（域） | 触发要点 | 产出工具 |
+|---|---|---|---|
+| 1 | 文件格式转换（file） | 「转/导出/另存为」+ 目标格式；`.md\|.txt\|.html\|.csv` → `docx\|pdf\|xlsx` | `file_convert` / `read_file` / `llm_generate` / `shell_exec` |
+| 2 | 快速 Shell 命令（system） | 以 `ls\|dir\|pwd\|whoami\|date\|cat\|echo\|mkdir…` 开头；「运行/执行」（除 `rm\|del` 与 `npm\|node\|pip\|python\|git` 开头） | `shell_exec` |
+| 3 | 简单文本生成（creation） | 「写/生成/起草」+ 代码/函数/脚本/邮件/通知/公告/文案/总结 | `llm_generate` |
+| 4 | HTTP 请求（network） | `curl\|fetch\|get\|post\|请求\|访问\|下载` 开头，或输入含 URL | `http_request` |
+| 5 | 文件创建（file） | 「创建/新建/写/生成/保存」+ docx/word/txt/文档/文件 | `create_docx` / `file_write` |
+| 6 | 创建文件夹（file） | 「创建/新建/建」+ 文件夹/目录/folder | `create_directory` |
+| 7 | 简单查询（query） | 几点/什么时间/今天几号/天气/计算/算一下/等于多少 | `llm_generate`（`modelTier: nano`） |
+| 8 | 快速文件操作（file） | 「读取/查看/打开/显示/阅读」或 `cat\|type\|head\|tail` | `read_file` |
+| 9 | **图片按拍摄日期重命名**（file） | 「重命名/改名/更名/批量命名」+ 图片/照片/图像 | `rename_images_by_date` |
+
+**禁词表是这层的核心防线**（在 `skillRules[*].forbiddenPatterns`）——例如「文件创建」禁入 `列出\|清单\|有哪些\|查看\|找出\|转成\|转为`（防「列清单」被误判成「建文件」，即验收 Q14 那次误路由）；「图片重命名」禁入 `审查\|合规\|条款\|转换\|导出\|保存为`；「简单查询」禁入 `分析\|报告\|审查\|对比\|文档\|文件\|转换`。
+
+**两处「不伪造」的取舍已写进代码注释**：规则 1 与 9 在**抽不到真实路径**时，不再生成带 `input.<ext>` 占位符的假计划（曾导致计划跑到 step2 报「文件不存在（路径：input.9）」），而是产出一步「如实索要完整路径」的 `llm_generate`。
+
+> **文档滞后点**：`README.md` 与 `docs\最新口径.md` 均称 L0 有 **8 条**规则——现为 **9 条**（第 9 条为后加的「图片按拍摄日期重命名」）。
+
+### 16.3 L0.5 — 单步 L2 工具的「快配」
+
+`tryL05QuickMatch(input, allL2Manifests)`：拿输入逐字比对**所有 L2 manifest 的 `routing.keywords`**，按「命中率」排序；要求命中率 ≥0.4 且与第二名 margin ≥0.1；置信度 = `min(hitRatio × 1.5, 1.0)`，**≥0.8 才放行**；且**只接受单步形态**（`mode === 'direct'`，或 `dagPlan` 仅 1 步）——多步一律下沉 L2。命中后产出的是 `llm_generate` 单步计划。
+
+即 L0.5 的覆盖面 = L2 清单中 **6 个 `direct` 型工具**：文档翻译英文版、公告通知草稿、客户邮件撰写、PPT 大纲生成、政策文档问答、ND 审查清单。
+
+### 16.4 L1 — 4 项能力（`checkL1Capability`）
+
+| 能力 | nodeId | 判定方式 | 产出工具 |
+|---|---|---|---|
+| 文档 → PDF | `l1-doc-convert` | **确定性直调**（须输入含明确路径），不打分 | `file_convert` |
+| 图片处理（缩放/转格式/压缩/灰度） | `l1-image-ops` | **确定性直调**（须「提到图片」+「抽得出操作参数」两个条件同时成立） | `image_process` |
+| 模型网关（翻译/润色/总结/改写…） | `l1-model-gateway` | 关键词打分 ≥0.6 | `llm_generate` |
+| 知识检索（查知识库/检索…） | `l1-knowledge-feeder` | 关键词打分 ≥0.6 | `llm_generate` |
+
+**注意**：L1 只覆盖了 L1 六节点中的**两个**（模型网关、知识检索），另加两个后补的确定性能力节点。这正是 `最新口径.md` 判定「L1 近乎死层」的代码依据。
+
+### 16.5 L2 — RaaP 混合检索
+
+`buildToolIndex(mcpTools + allL2Manifests)` → `universalMatch`；反馈类输入（`没有\|找不到\|不对…`）直接跳过。三岔：命中 **MCP** → 歧义给候选 / 唯一则 `mcp-direct`；命中 **L2 manifest** → 非歧义走 `finalizeRaapPlan`，黄门歧义先试 M16 跨 pack 竞争（`competitiveMode` 开启时），否则走消歧四策略（展示候选 / 翻译确认 / 槽位填充 / 降级 L3）。
+
+L2 覆盖率 = **27 个 manifest**（`src\data\l2Manifests.ts`：**macro 20 / direct 6 / chain 1**）。名称清单：音视频处理、图片批量处理、文档转 PDF、合同风险审查、周报自动草稿、文档翻译英文版、财报风险一句话解读、竞品分析报告、公告通知草稿、报销单合规检查、条款对比助手、简历初筛助手、入职引导生成器、销售提案草稿、客户邮件撰写、会议纪要生成、PPT 大纲生成、Excel 数据摘要、政策文档问答、邮件自动分类、预算预测助手、ND 审查清单、KPI 报告生成、文件解读助手、文件创建器、考勤异常说明生成、离职交接清单生成。
+
+> **文档滞后点**：`README.md` / `最新口径.md` 称 L2 有 **20 个**工具——实为 **27 个**；`src\data\topology.ts` 的星图节点模板仍是 20 条，**与 `l2Manifests.ts` 不同步**。
+
+### 16.6 工具清单
+
+**原生常驻工具 9 个**（`src\services\nativeTools.ts`，声明「不得被检索过滤剔除」，保证 MCP 未连时仍可用）：
+`read_file`（:171）、`list_directory`（:182）、`file_write`（:194）、`file_move`（:206）、`rename_images_by_date`（:221）、`create_docx`（:237）、`file_convert`（:251）、`image_process`（:263）、`media_process`（:283）。
+
+**另有**：`shell_exec`、`http_request`、`llm_generate`、`knowledge_search`、`create_directory`（`nativeTools` 未登记但 L0 规则 6 在用）、以及 **MCP 工具**（目录 5 项：filesystem / memory / sequential-thinking / github / context7）。
+
+**主进程侧通道**（`electron\ipc-handlers.ts`，均实测存在）：`file:write`(:331)、`file:move`(:354)、`file:createDirectory`(:371)、`file:createDocx`(:385)、`file:list`(:414)、`doc:extractText`(:441)、`doc:convertToPdf`(:456)、`image:process`(:481)、`media:process`(:518)、`file:read`(:554)、`http:fetch`(:912)。
+
+### 16.7 实测可用性（2026-09-27 本机亲跑）
+
+**证据分三类**：
+- **E2E**：`npm run verify:*` 三条脚本，真起 Electron 跑**生产代码**（不是复刻实现）
+- **EXAM**：`exam-report.json`（ACCEPTANCE-SPEC v1.0，18 题）——**18/18 deliverable、零干预 13/18、平均 9.6s、59439 tokens**
+- **CDP**：连 Electron 渲染进程（`connect_url` + 9222）直接调 `window.electronAPI.*`
+
+| 工具 | 单测 | 端到端证据 | 判定 |
+|---|---|---|---|
+| `file_convert`（文档→PDF） | `l0ConvertSkillPath.spec` | **E2E `verify:pdf` PASS**：docx→pdf 31069B、md→pdf 23818B、负例（不支持格式）抛错且无产物；**EXAM** Q3/Q18 通过 | ✅ **可用（已实测）** |
+| `image_process` | `imageRouting.spec` | **E2E `verify:image` PASS**：4/4 缩放转 webp、压缩体积变小、部分失败如实回传、负例拒 heic | ✅ **可用（已实测）** |
+| `media_process` | — | **E2E `verify:media` PASS**：ffmpeg 61MB 就绪、转 webm、抽 mp3、出缩略图、CRF 压缩且探到源信息、裁剪、负例拒 docx | ✅ **可用（已实测）** |
+| `file_write` | `dualEngineValidator.spec`（审计分类） | **CDP 实测** success + 读回内容一致（"hello-holo"） | ✅ **可用（已实测）** |
+| `file_read` | `fileListing.spec`、`stepTopFiles.spec` | **CDP 实测** success + 内容一致；**EXAM** 多题数据类 | ✅ **可用（已实测）** |
+| `file_move` | `fileMoveDispatch.spec` | **CDP 实测** from→to success，且随后的 `fileList` 反映新状态 | ✅ **可用（已实测）** |
+| `create_directory` | — | **CDP 实测** success | ✅ **可用（已实测）** |
+| `create_docx` | `createDocxTool.spec` | **CDP 实测** success，且产物被 `fileRead` 识别为 **isBinary、8523B**（真 docx = ZIP 二进制） | ✅ **可用（已实测）** |
+| `list_directory` | `fileListing.spec`、`pickTopFileFromListing.spec` | **EXAM** Q14 真实列出桌面 7 个 .docx；**CDP** 实测 success | ✅ **可用（已实测）** |
+| `rename_images_by_date` | `imageRenameByDate.spec` | **EXAM** Q15 通过（曾长期失败的题） | ✅ **可用（已实测）** |
+| `http_request` | `dualEngineValidator.spec`（审计分类） | **CDP 实测** `httpbin.org/get` → 200 + 正常响应体 | ✅ **可用（已实测）** |
+| `shell_exec` | `shellSecurity` 系列（白名单/元字符） | **CDP 实测** `echo` → code 0 + 正确 stdout；`rm -rf /` → **被白名单拒绝**；`whoami` → **同样被拒** | ✅ **可用（已实测），但白名单很窄** |
+| MCP 工具（filesystem 等） | `mcpStore.spec` | **EXAM** Q16（route=`mcp-direct`）通过 | ✅ **可用（已实测）** |
+| `knowledge_search` | — | 未走通端到端（EXAM 无直接题；L2 manifest 里作步骤出现但未单独验证） | ⚠️ **未实测** |
+| `llm_generate` | 多处 | **EXAM** Q1/Q2/Q4/Q5/Q10/Q12/Q13 等大量通过 | ✅ **可用（已实测）** |
+
+**结论**：**原生 9 个工具全部 100% 走通端到端**（其中 3 个有独立 E2E 脚本背书，6 个由 CDP 直调实测，另有 EXAM 交叉印证）；`http_request` / `shell_exec` 亦实测可用。**唯一未实测的是 `knowledge_search`**（无独立端到端入口）。
+
+**两个必须一并说明的限定**：
+1. **`shell_exec` 的白名单很窄**——`whoami` 这种常见命令都被拒。这意味着「让模型用 shell 解决问题」的实际可用面远小于工具表的观感；验收考中 Q6 报销加法与 Q17 长乘法都是**模型自己算**（未走 shell），这既是白名单窄的结果，也是数值边界空缺的证据。
+2. **e2e 是手动脚本，不进 CI**——`verify:*` 需人手动跑（`test/e2e/**` 被 vitest 排除）。本节的三条 PASS 是本轮手动跑出的；若无人在提交前跑，native 链路回归不会被自动发现。此外 `test/e2e/` 下另有 3 个 spec（`launch`/`l0Skill`/`stress`）**既被 vitest 排除、又无 `verify:*` 引用**，属无运行入口的孤儿测试。
+
+---
+
+## 17. 附录：源码地图
 
 ```
 HoloStarmap/
@@ -737,7 +843,8 @@ HoloStarmap/
 
 ## 附：本文的证据强度声明
 
-- **已核验（本机 grep/read 复核）**：六层漏斗结构、星图残留两处、`vitest.config.ts` 排除规则、IPC 通道数、各目录文件数、`package.json`/`tsconfig.node.json` 内容。
+- **已核验（本机 grep/read 复核）**：六层漏斗结构、星图残留两处、`vitest.config.ts` 排除规则、IPC 通道数、各目录文件数、`package.json`/`tsconfig.node.json` 内容、L0 九条规则与 L1 四项能力的读码、L2 的 27 个 manifest 清单。
+- **本轮真机实测（2026-09-27，§16.7 的依据）**：`npm run verify:pdf` / `verify:image` / `verify:media` **三条 E2E 全部 PASS**（真起 Electron 跑生产代码）；CDP 连 Electron 渲染进程直调 `window.electronAPI` —— `createDirectory`/`fileWrite`/`fileRead`/`createDocx`/`fileMove`/`fileList`/`httpFetch`/`shellExec` **全部实测通过**（含 `rm -rf /` 被白名单拒绝的负例）；`exam-report.json`（ACCEPTANCE-SPEC v1.0）实测 **18/18 deliverable**、零干预 13/18、平均 9634ms、59439 tokens。
 - **来自子代理只读调研（未逐条回机复核）**：§3 各模块的内部实现细节、§5 各服务模块的行为契约、§12 领域包三层细节。
 - **来自项目文档（可能滞后）**：`docs/最新口径.md` 的机制判定、README 的基准数据。
 - **待核验**：`kernel/index.ts` 与 `kernelRegistry.route` 的双入口关系；`electron`/`electron-builder` 未入 `package.json` 是刻意还是遗漏。
