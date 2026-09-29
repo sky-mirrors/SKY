@@ -18,9 +18,12 @@ import {
   validateImportedVectors,
 } from '@/services/importValidation'
 import { applyImport } from '@/services/dataExporter'
+import { VECTOR_DIM } from '@/services/embedder'
 import type { ImportPreview } from '@/models'
 
 const write = vault.write as unknown as ReturnType<typeof vi.fn>
+/** 合法维度的向量（错误维度会被 D-1 校验拒掉） */
+const goodVec = () => new Array(VECTOR_DIM).fill(0.01)
 
 describe('D-1: 导入侧 schema 校验', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -35,6 +38,21 @@ describe('D-1: 导入侧 schema 校验', () => {
     it('baseUrl 非 http(s) 协议 → 拒绝', () => {
       expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl: 'file:///etc/passwd' }] }).ok).toBe(false)
       expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl: 'javascript:alert(1)' }] }).ok).toBe(false)
+    })
+    it('baseUrl 指向内网/保留地址 → 拒绝（D-1 强化：原先只验协议）', () => {
+      for (const baseUrl of [
+        'http://192.168.1.1', 'http://127.0.0.1:8080', 'http://localhost:11434',
+        'http://10.0.0.5/v1', 'http://169.254.1.1', 'https://[::1]/v1',
+      ]) {
+        expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl }] }).ok, baseUrl).toBe(false)
+      }
+    })
+    it('baseUrl 指向公网 IP/域名 → 通过', () => {
+      expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl: 'http://8.8.8.8:8080/v1' }] }).ok).toBe(true)
+      expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl: 'https://api.deepseek.com/v1' }] }).ok).toBe(true)
+    })
+    it('baseUrl 无法解析出 host → 拒绝（不静默放行）', () => {
+      expect(validateImportedApiConfig({ providers: [{ id: 'a', baseUrl: 'https://' }] }).ok).toBe(false)
     })
     it('provider 缺 id / id 非字符串 → 拒绝', () => {
       expect(validateImportedApiConfig({ providers: [{ baseUrl: 'https://x' }] }).ok).toBe(false)
@@ -60,25 +78,47 @@ describe('D-1: 导入侧 schema 校验', () => {
   describe('validateImportedVectors', () => {
     it('键带 holo-kb-chunks- 前缀且值为 ChunkRecord 数组 → 合法', () => {
       const r = validateImportedVectors({
-        'holo-kb-chunks-e1': JSON.stringify([{ text: 'hi', entryId: 'e1', chunkIndex: 0, vector: [0.1, 0.2], tokens: 2 }]),
+        'holo-kb-chunks-e1': JSON.stringify([{ text: 'hi', entryId: 'e1', chunkIndex: 0, vector: goodVec(), tokens: 2 }]),
       })
       expect(Object.keys(r.valid)).toEqual(['holo-kb-chunks-e1'])
       expect(r.rejected).toEqual([])
     })
-    it('非前缀键 → 落入 rejected', () => {
+    it('非前缀键 → 落入 rejected（含原因）', () => {
       const r = validateImportedVectors({ 'api-config': '{"x":1}' })
       expect(Object.keys(r.valid)).toEqual([])
-      expect(r.rejected).toEqual(['api-config'])
+      expect(r.rejected.map(x => x.key)).toEqual(['api-config'])
+      expect(r.rejected[0].reason).toBeTruthy()
     })
     it('值不可解析为数组 → rejected', () => {
       const r = validateImportedVectors({ 'holo-kb-chunks-e1': '{"not":"array"}' })
-      expect(r.rejected).toEqual(['holo-kb-chunks-e1'])
+      expect(r.rejected.map(x => x.key)).toEqual(['holo-kb-chunks-e1'])
     })
     it('数组元素缺 text / vector 非数值数组 → rejected', () => {
       const r = validateImportedVectors({
         'holo-kb-chunks-e1': JSON.stringify([{ entryId: 'e1', vector: ['x'] }]),
       })
-      expect(r.rejected).toEqual(['holo-kb-chunks-e1'])
+      expect(r.rejected.map(x => x.key)).toEqual(['holo-kb-chunks-e1'])
+    })
+    it('向量维度不符（非 384）→ rejected，且原因点明维度（D-1 强化：原先只看结构）', () => {
+      const r = validateImportedVectors({
+        'holo-kb-chunks-e1': JSON.stringify([{ text: 'hi', chunkIndex: 0, vector: [0.1, 0.2], tokens: 2 }]),
+      })
+      expect(r.rejected.map(x => x.key)).toEqual(['holo-kb-chunks-e1'])
+      expect(r.rejected[0].reason).toMatch(/维度|dimension/i)
+    })
+    it('缺 vector 的 chunk → rejected（无法参与检索，不静默入库）', () => {
+      const r = validateImportedVectors({
+        'holo-kb-chunks-e1': JSON.stringify([{ text: 'hi', chunkIndex: 0, tokens: 2 }]),
+      })
+      expect(r.rejected.map(x => x.key)).toEqual(['holo-kb-chunks-e1'])
+    })
+    it('不采信导入的 vectorIsPseudo —— 剥离该字段，交由本地 needsReembedding 重判（D-1 强化）', () => {
+      const r = validateImportedVectors({
+        'holo-kb-chunks-e1': JSON.stringify([{ text: 'hi', chunkIndex: 0, vector: goodVec(), tokens: 2, vectorIsPseudo: false }]),
+      })
+      expect(Object.keys(r.valid)).toEqual(['holo-kb-chunks-e1'])
+      const parsed = JSON.parse(r.valid['holo-kb-chunks-e1'])
+      expect(parsed[0].vectorIsPseudo).toBeUndefined()
     })
   })
 
@@ -90,6 +130,15 @@ describe('D-1: 导入侧 schema 校验', () => {
 
     it('畸形 api-config（providers 非数组）→ 抛错且不写 vault', async () => {
       const content = JSON.stringify({ manifest: { items: ['api-config'] }, 'api-config': { providers: { evil: true } } })
+      await expect(applyImport(content, previewOf('api-config', 'overwrite'))).rejects.toThrow()
+      expect(write).not.toHaveBeenCalled()
+    })
+
+    it('api-config 的 baseUrl 指向内网 → 抛错且不写 vault（D-1）', async () => {
+      const content = JSON.stringify({
+        manifest: { items: ['api-config'] },
+        'api-config': { providers: [{ id: 'a', baseUrl: 'http://192.168.1.1/v1', apiKey: '***' }] },
+      })
       await expect(applyImport(content, previewOf('api-config', 'overwrite'))).rejects.toThrow()
       expect(write).not.toHaveBeenCalled()
     })

@@ -19,5 +19,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["electron/**/*.ts", "electron/**/*.d.ts", "src/services/llmTimeouts.ts"]
+  "include": ["electron/**/*.ts", "electron/**/*.d.ts", "src/services/llmTimeouts.ts", "src/services/privateHost.ts"]
 }

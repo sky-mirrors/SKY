@@ -40,6 +40,9 @@ import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
 import { tierTimeoutFor, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '../src/services/llmTimeouts'
 // LLM-ABORT：非流式 LLM IPC 请求的取消注册表（渲染侧 requestId → 主进程 AbortController）
 import { registerLlmRequest, abortLlmRequest, releaseLlmRequest } from './llmAbortRegistry'
+// D-1：私网/保留地址判定抽到 src/services/privateHost.ts（零 node 依赖），
+// 与本进程原定义逐字一致——抽出的目的是让渲染层导入校验共用同一口径
+import { isPrivateHostname, isPrivateIPv4, isPrivateIPv6 } from '../src/services/privateHost'
 
 // F-8 修复：主进程侧路径模板展开的**单一入口**。
 // 亲验结论（2026-09-27 快照 §十二）：展开此前只在渲染层 macroExecutor.resolveFilePath
@@ -119,45 +122,9 @@ function chunkText(text: string, chunkSize: number): string[] {
   return chunks.filter(c => c.trim().length > 0)
 }
 
-// P0-3 修复：SSRF 防护覆盖全部私网/保留地址段（IPv4 + IPv6 字面量）
-export function isPrivateHostname(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  if (host === 'localhost') return true
-  const version = isIP(host)
-  if (version === 4) return isPrivateIPv4(host)
-  if (version === 6) return isPrivateIPv6(host)
-  return false
-}
-
-function isPrivateIPv4(ip: string): boolean {
-  const parts = ip.split('.').map(Number)
-  if (parts.length !== 4 || parts.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return true
-  const [a, b] = parts
-  if (a === 0 || a === 10 || a === 127) return true
-  if (a === 169 && b === 254) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  if (a === 192 && b === 168) return true
-  if (a === 192 && (b === 0 || b === 2)) return true
-  if (a === 198 && (b === 18 || b === 19)) return true
-  if (a === 198 && b === 51) return true
-  if (a === 203 && b === 0) return true
-  if (a === 100 && b >= 64 && b <= 127) return true
-  if (a >= 224) return true
-  return false
-}
-
-function isPrivateIPv6(ip: string): boolean {
-  const lower = ip.toLowerCase()
-  if (lower === '::1' || lower === '::') return true
-  if (lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd')) return true
-  if (lower.startsWith('100::')) return true
-  if (lower.startsWith('2001:db8:')) return true
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
-  if (mapped) return isPrivateIPv4(mapped[1])
-  const nat64 = lower.match(/^64:ff9b::(\d+\.\d+\.\d+\.\d+)$/)
-  if (nat64) return isPrivateIPv4(nat64[1])
-  return false
-}
+// P0-3/D-1：私网/保留地址判定已移至共享叶子模块 src/services/privateHost.ts
+// （零 node 依赖，渲染层导入校验与主进程 isHostAllowed/safeFetch 共用同一口径）。
+// 原实现逐字搬迁，行为不变；这里的 `isIP` 仅供下方"非字面量域名"分支与 safeFetch 使用。
 
 // P0-3 修复：非字面量域名必须 DNS 解析后逐地址判定，堵死 nip.io/localtest.me 等解析绕过
 async function isHostAllowed(hostname: string): Promise<{ allowed: boolean; reason?: string }> {

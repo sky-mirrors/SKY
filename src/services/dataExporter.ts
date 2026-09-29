@@ -224,7 +224,7 @@ export async function applyImport(fileContent: string, preview: ImportPreview): 
     } else if (item.category === 'vectors') {
       const r = validateImportedVectors(section)
       if (r.rejected.length > 0) {
-        throw new Error(`导入校验失败（vectors）：${r.rejected.length} 个条目结构非法（首个：${r.rejected[0]}）`)
+        throw new Error(`导入校验失败（vectors）：${r.rejected.length} 个条目结构非法（首个：${r.rejected[0].key} —— ${r.rejected[0].reason}）`)
       }
     }
   }
