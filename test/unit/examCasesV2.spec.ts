@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createExamRunner, type ExamRunnerDeps } from '@/exam/examRunner'
-import { EXAM_CASES_V2, V2_FIXTURES, type ExamCaseV2 } from '@/exam/examCasesV2'
+import { EXAM_CASES_V2, V2_EXTRA_CASES, V2_FIXTURES, type ExamCaseV2 } from '@/exam/examCasesV2'
 import type { ExamCase } from '@/exam/examCases'
 import { globalBus } from '@/kernel/bus'
 
@@ -20,6 +20,19 @@ describe('EXAM_CASES_V2 · 结构', () => {
       expect(c.judgeHint, c.id).toBeTruthy()
       expect(c.assertions.length, c.id).toBeGreaterThan(0)
     }
+  })
+
+  // 2026-09-30 追加：上一轮写「扩展批」时漏了接入 EXAM_CASES_V2（文件被写坏后重建），
+  // 而既有的 `length >= 25` 断言对「漏接入」完全无感 —— 回滚本步它仍全绿。
+  // 这条钉住「扩展批真在题库里」，回滚 `...V2_EXTRA_CASES` 即变红。
+  it('扩展批（V2_EXTRA_CASES）已真正接入全量题库（31 + 19 = 50）', () => {
+    const ids = new Set(EXAM_CASES_V2.map(c => c.id))
+    const extraIds = V2_EXTRA_CASES.map(c => c.id)
+    expect(extraIds.length).toBe(19)
+    for (const id of extraIds) {
+      expect(ids.has(id), `${id} 未接入 EXAM_CASES_V2`).toBe(true)
+    }
+    expect(EXAM_CASES_V2.length).toBe(V2_EXTRA_CASES.length + 31)
   })
 
   it('六个分类都有题（路由/媒体/边界/诚实/安全/多轮）', () => {
