@@ -19,7 +19,7 @@ export type ExamAssertion =
   | { kind: 'number'; expected: number; tolerance?: number }
   | { kind: 'contains'; needles: string[] }
   | { kind: 'fileExists'; path: string }
-  | { kind: 'dirPattern'; dir: string; pattern: string }
+  | { kind: 'dirPattern'; dir: string; pattern: string; mode?: 'every' | 'some' }
   // 2026-09-30（V2 题库引入）：**硬约束"不许出现"** —— 用于假完成/编造类负例。
   // 正向断言（contains/fileExists）证不了"没编造"，必须能断言"回复里不得出现某种串"。
   | { kind: 'notContains'; needles: string[] }

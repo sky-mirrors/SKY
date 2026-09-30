@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { createExamRunner, extractNumbers, parseJudgeReply, type ExamRunnerDeps } from '@/exam/examRunner'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { createPinia, setActivePinia } from 'pinia'
+import { createExamRunner, createDefaultExamDeps, extractNumbers, parseJudgeReply, type ExamRunnerDeps } from '@/exam/examRunner'
 import type { ExamCase } from '@/exam/examCases'
 import { globalBus } from '@/kernel/bus'
 
@@ -229,5 +234,93 @@ describe('examRunner 考试流程（注入依赖）', () => {
     expect(report!.judgePromptVersion).toBe('EXAM_JUDGE_PROMPT_V1')
     expect(report!.notes.some(n => n.includes('指纹缓存未隔离'))).toBe(true)
     expect(report!.notes.some(n => n.includes('record-cost 照常记账'))).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// dirPattern · every / some 两态（2026-09-30 Wave 1）
+//
+// 背景：dirMatches 生成的脚本用 `f.every(x => re.test(x))`——要求目录内**每个**
+// 文件都匹配。V1 Q15（批量重命名）依赖这个语义：只有残留 img0.jpg 未被改名时
+// 才判 NO，这是该题的鉴别力来源（RUNBOOK §一 明文「要求目录内每个文件都匹配」）。
+//
+// 但 V2 的产物类断言按「目录里出现了某产物」的意图写（judgeHint 亦如此声明），
+// 而源文件与产物共存是常态 ⇒ every 恒假。故给 dirPattern 加可选 mode（缺省 every），
+// V2 产物类断言显式写 some。本组测试钉住两态各自的行为，以及 V1 缺省不被放宽。
+//
+// 取值路径刻意走真实的 createDefaultExamDeps()（而非手写等价逻辑），
+// 由 stub 的 shellExec 把生成的 command 解析后真跑 node——mock 不掩盖接线。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('dirPattern · mode（every 缺省 / some 显式）', () => {
+  let tmpRoots: string[] = []
+
+  function makeDir(files: string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'dirmatch-'))
+    tmpRoots.push(dir)
+    for (const f of files) writeFileSync(join(dir, f), 'x')
+    return dir
+  }
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    tmpRoots = []
+    vi.stubGlobal('window', {
+      electronAPI: {
+        // 真实执行 shellExec 收到的 command：从 `node -e "<script>" "<dir>" "<pattern>"`
+        // 剥离出 script 与两个参数，再用 execFileSync 直跑（绕开 Windows cmd 引号规则
+        // 的干扰——那是环境问题，不是本改动要测的东西）。
+        shellExec: async ({ command }: { command: string }) => {
+          const m = /^node -e "([\s\S]*)" "([^"]*)" "([^"]*)"$/.exec(command)
+          if (!m) return { stdout: '' }
+          const out = execFileSync(process.execPath, ['-e', m[1], m[2], m[3]], { encoding: 'utf8' })
+          return { stdout: out }
+        },
+        vaultRead: vi.fn().mockResolvedValue(null),
+        vaultWrite: vi.fn().mockResolvedValue(undefined),
+        vaultDelete: vi.fn().mockResolvedValue(undefined),
+        vaultList: vi.fn().mockResolvedValue([])
+      }
+    })
+  })
+
+  afterEach(() => {
+    for (const d of tmpRoots) rmSync(d, { recursive: true, force: true })
+    vi.unstubAllGlobals()
+  })
+
+  it('some：源文件与产物共存时判真（V2-M01 的真实形态）', async () => {
+    const dir = makeDir(['sample.jpg', 'sample-200.webp'])
+    const deps = createDefaultExamDeps()
+    expect(await deps.dirMatches(dir, '\\.webp$', 'some')).toBe(true)
+    // 同一目录下 every 判假——这正是原缺陷
+    expect(await deps.dirMatches(dir, '\\.webp$', 'every')).toBe(false)
+  })
+
+  it('every（缺省）：全匹配才判真——V1 Q15 的鉴别力不得被放宽', async () => {
+    const dir = makeDir(['20191207-01.jpg'])
+    const deps = createDefaultExamDeps()
+    expect(await deps.dirMatches(dir, '^\\d{8}-\\d{2}\\.(jpg|jpeg|png)$')).toBe(true)
+    // 残留一个未改名的源文件 ⇒ 必须判假（Q15 的判据）
+    writeFileSync(join(dir, 'img0.jpg'), 'x')
+    expect(await deps.dirMatches(dir, '^\\d{8}-\\d{2}\\.(jpg|jpeg|png)$')).toBe(false)
+  })
+
+  it('assertion 上的 mode 原样透传给 deps.dirMatches（缺省时传 undefined）', async () => {
+    const seen: Array<string | undefined> = []
+    const deps = makeFakeDeps({ reply: '产物已生成' })
+    deps.dirMatches = async (_dir: string, _pattern: string, mode?: string) => {
+      seen.push(mode)
+      return true
+    }
+    const runner = createExamRunner(deps)
+    await runner.run({
+      ...fastTiming, timeoutMsPerQuestion: 5000,
+      cases: [
+        makeCase({ assertions: [{ kind: 'dirPattern', dir: 'D:\\photos', pattern: '\\.webp$', mode: 'some' }] }),
+        makeCase({ id: 'T2', assertions: [{ kind: 'dirPattern', dir: 'D:\\out', pattern: 'a$' }] })
+      ]
+    })
+    expect(seen).toEqual(['some', undefined])
   })
 })

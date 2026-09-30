@@ -78,7 +78,7 @@ export interface ExamRunnerDeps {
   getState(): { isProcessing: boolean; paused: boolean; traceId: string; messages: { role: string; content: string; timestamp: number }[] }
   judge(userPrompt: string): Promise<string>
   fileExists(path: string): Promise<boolean | null>
-  dirMatches(dir: string, pattern: string): Promise<boolean | null>
+  dirMatches(dir: string, pattern: string, mode?: 'every' | 'some'): Promise<boolean | null>
 }
 
 export interface ExamRunOptions {
@@ -184,11 +184,16 @@ export function createDefaultExamDeps(): ExamRunnerDeps {
         return null
       }
     },
-    dirMatches: async (dir, pattern) => {
+    dirMatches: async (dir, pattern, mode) => {
       try {
         const api = (window as unknown as { electronAPI?: { shellExec?: (args: { command: string }) => Promise<{ stdout?: string }> } }).electronAPI
         if (!api?.shellExec) return null
-        const script = "const fs=require('fs');const f=fs.readdirSync(process.argv[1]);const re=new RegExp(process.argv[2],'i');console.log(f.length>0&&f.every(x=>re.test(x))?'EXAM_YES':'EXAM_NO')"
+        // mode 缺省 every（V1 语义，勿放宽）：要求目录内**每个**文件都匹配 ——
+        // V1 Q15 批量重命名题靠它捕获「残留未改名的源文件」（RUNBOOK §一）。
+        // V2 的产物类断言按「目录里出现了某产物」的意图写，源文件与产物共存是常态，
+        // 故显式传 'some'（存在即算）。
+        const quantifier = mode === 'some' ? 'some' : 'every'
+        const script = `const fs=require('fs');const f=fs.readdirSync(process.argv[1]);const re=new RegExp(process.argv[2],'i');console.log(f.length>0&&f.${quantifier}(x=>re.test(x))?'EXAM_YES':'EXAM_NO')`
         const result = await api.shellExec({ command: `node -e "${script}" "${dir}" "${pattern}"` })
         const out = String(result.stdout || '')
         if (out.includes('EXAM_YES')) return true
@@ -252,7 +257,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
       return deps.fileExists(a.path)
     }
     if (a.kind === 'dirPattern') {
-      return deps.dirMatches(a.dir, a.pattern)
+      return deps.dirMatches(a.dir, a.pattern, a.mode)
     }
     if (a.kind === 'notContains') {
       // 2026-09-30：负向硬断言——回复里**不得**出现这些串（用于假完成/编造类负例）。

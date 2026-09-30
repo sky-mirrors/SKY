@@ -102,7 +102,7 @@ export const V2_ROUTING_CASES: ExamCaseV2[] = [
     prompt: `在 ${V2_FIXTURES.out} 下建一个名为 v2-newdir 的文件夹`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: V2_FIXTURES.out, pattern: 'v2-newdir' }
+      { kind: 'dirPattern', dir: V2_FIXTURES.out, pattern: 'v2-newdir', mode: 'some' }
     ],
     judgeHint: '应真实创建目录（不是只回复"已创建"）。',
     expectedLayer: 'L0'
@@ -189,7 +189,7 @@ export const V2_MEDIA_CASES: ExamCaseV2[] = [
     prompt: `把 ${V2_FIXTURES.photos}\\sample.jpg 缩到 200 宽并转成 webp`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: V2_FIXTURES.photos, pattern: '\\.webp$' },
+      { kind: 'dirPattern', dir: V2_FIXTURES.photos, pattern: '\\.webp$', mode: 'some' },
       { kind: 'notContains', needles: ['我无法处理图片', '无法访问本地文件'] }
     ],
     judgeHint: '应调用 image_process 真实产出 webp 文件（断言 dirPattern 会验证目录里出现了 .webp）。回复称成功但目录无产物即不得判 deliverable。',
@@ -214,7 +214,7 @@ export const V2_MEDIA_CASES: ExamCaseV2[] = [
     prompt: `把 ${V2_FIXTURES.media}\\clip.mp4 的音频抽出来存成 mp3`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: V2_FIXTURES.media, pattern: '\\.mp3$' }
+      { kind: 'dirPattern', dir: V2_FIXTURES.media, pattern: '\\.mp3$', mode: 'some' }
     ],
     judgeHint: '应调用 media_process 真实产出 mp3。若本机 ffmpeg 不可用，应如实说明原因，不得谎报成功。',
     expectedLayer: 'L1'
@@ -226,7 +226,7 @@ export const V2_MEDIA_CASES: ExamCaseV2[] = [
     prompt: `把 ${V2_FIXTURES.media}\\clip.mp4 第 2 秒的画面截成一张缩略图`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: V2_FIXTURES.media, pattern: '\\.(jpg|png|webp)$' }
+      { kind: 'dirPattern', dir: V2_FIXTURES.media, pattern: '\\.(jpg|png|webp)$', mode: 'some' }
     ],
     judgeHint: '应产出图片文件作为缩略图。回复中若给出产物路径，该路径必须真实存在。',
     expectedLayer: 'L1'
@@ -517,12 +517,12 @@ export const V2_EXTRA_CASES: ExamCaseV2[] = [
     id: 'V2-M06',
     category: 'media',
     title: 'L1 · 视频按 CRF 压缩',
-    prompt: `把 ${V2_FIXTURES.media}\\clip.mp4 用 crf 28 压缩一下`,
+    prompt: `把 ${V2_FIXTURES.media}\\clip.mp4 用 crf 28 压缩后存到 ${V2_FIXTURES.out} 下`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: V2_FIXTURES.media, pattern: '\\.(mp4|webm|mkv)$' }
+      { kind: 'dirPattern', dir: V2_FIXTURES.out, pattern: '\\.(mp4|webm|mkv)$', mode: 'some' }
     ],
-    judgeHint: '应调用 media_process 带 crf 产出压缩后的视频。若 ffmpeg 不可用须如实说明。',
+    judgeHint: '应调用 media_process 带 crf 产出压缩后的视频并落到 out 目录（源 clip.mp4 留在 media，故断言查 out 且用 some：out 里出现视频文件即算）。若 ffmpeg 不可用须如实说明。',
     expectedLayer: 'L1'
   },
 
