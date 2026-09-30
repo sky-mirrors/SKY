@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { watch } from 'vue'
 import { vault } from '@/vault'
+import { EXAM_CASES } from '@/exam/examCases'
+import { EXAM_CASES_V2 } from '@/exam/examCasesV2'
 
 // 可控假 runner：createExamRunner 被 mock，run 内改写注入的 progress 对象
 const { createExamRunnerMock } = vi.hoisted(() => {
@@ -210,3 +212,64 @@ describe('EXAM-1/EXAM-6：examStore（考试状态迁 Pinia + reactive 进度 + 
   })
 })
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wave 2（2026-09-30）：题库册别透传
+//
+// 此前 startExam 从不传 cases，runner 落回默认 EXAM_CASES（V1 18 题）——
+// 写好的 V2 题库（50 题）因此没有任何生产入口。这两条钉住册别确实传到位：
+// 回滚 `cases: casesBySet[caseSet]` 这一句即变红。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('题库册别 · startExam 透传 cases', () => {
+  // 本 describe 与文件上方那个是平行的顶层 describe，它自带的 beforeEach/afterEach
+  // 不会套用到这里——不补下面这组，store 状态会跨 use-case 泄漏（activeCaseSet 残留）。
+  beforeEach(() => {
+    vault.clearCache()
+    vi.stubGlobal('window', {
+      electronAPI: {
+        vaultRead: vi.fn().mockResolvedValue(null),
+        vaultWrite: vi.fn().mockResolvedValue(undefined),
+        vaultDelete: vi.fn().mockResolvedValue(undefined),
+        vaultList: vi.fn().mockResolvedValue([])
+      }
+    })
+    setActivePinia(createPinia())
+    createExamRunnerMock.mockReset()
+  })
+  it('选 v2 时 run 收到 EXAM_CASES_V2（50 题）', async () => {
+    const examStore = useExamStore()
+    const { runMock } = installFakeRunner('done', makeReport())
+
+    examStore.startExam(true, 'v2')
+    await flushAsync()
+
+    const arg = runMock.mock.calls[0][0] as { cases?: unknown[] }
+    expect(arg.cases).toBe(EXAM_CASES_V2)
+    expect(arg.cases!.length).toBe(50)
+    expect(examStore.activeCaseSet).toBe('v2')
+  })
+
+  it('缺省为 v1 —— 历轮 18 题成绩的可比性不受影响', async () => {
+    const examStore = useExamStore()
+    const { runMock } = installFakeRunner('done', makeReport())
+
+    expect(examStore.activeCaseSet).toBe('v1')
+    examStore.startExam(true)
+    await flushAsync()
+
+    const arg = runMock.mock.calls[0][0] as { cases?: unknown[] }
+    expect(arg.cases).toBe(EXAM_CASES)
+    expect(arg.cases!.length).toBe(18)
+  })
+
+  it('显式传 v1 与缺省等价', async () => {
+    const examStore = useExamStore()
+    const { runMock } = installFakeRunner('done', makeReport())
+
+    examStore.startExam(true, 'v1')
+    await flushAsync()
+
+    expect((runMock.mock.calls[0][0] as { cases?: unknown[] }).cases).toBe(EXAM_CASES)
+  })
+})

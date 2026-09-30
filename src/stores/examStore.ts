@@ -7,7 +7,23 @@ import {
   type ExamReport,
   type ExamRunner
 } from '@/exam/examRunner'
+import { EXAM_CASES, type ExamCase } from '@/exam/examCases'
+import { EXAM_CASES_V2 } from '@/exam/examCasesV2'
 import { vault } from '@/vault'
+
+/** 题库册别：V1 固定回归集（18 题，ACCEPTANCE-SPEC v1.0 基线）/ V2 扩展集（50 题）。 */
+export type ExamCaseSet = 'v1' | 'v2'
+
+const casesBySet: Record<ExamCaseSet, ExamCase[]> = {
+  v1: EXAM_CASES,
+  v2: EXAM_CASES_V2
+}
+
+/** 题库册别元信息（UI 用）。estMinutes 由 V1 的 18 题 ≈ 40 分钟线性外推，仅作提示。 */
+export const EXAM_CASE_SETS: readonly { id: ExamCaseSet; label: string; count: number; estMinutes: number }[] = [
+  { id: 'v1', label: 'V1 固定集', count: EXAM_CASES.length, estMinutes: 40 },
+  { id: 'v2', label: 'V2 扩展集', count: EXAM_CASES_V2.length, estMinutes: 110 }
+]
 
 const EXAM_NS = 'exam'
 const EXAM_REPORT_KEY = 'holo-exam-report'
@@ -37,6 +53,8 @@ export const useExamStore = defineStore('exam', () => {
   const progress = reactive<ExamProgress>(emptyProgress())
   const runner = ref<ExamRunner | null>(null)
   const fixtureReady = ref(false)
+  /** 本次/下次开考用的题库册别（默认 V1，保持历轮 18 题成绩的可比性）。 */
+  const activeCaseSet = ref<ExamCaseSet>('v1')
   const lastPersistedAt = ref(0)
   const persistError = ref('')
 
@@ -69,12 +87,13 @@ export const useExamStore = defineStore('exam', () => {
     } catch { /* 损坏数据忽略，保持 idle */ }
   }
 
-  function startExam(fixture: boolean): void {
+  function startExam(fixture: boolean, caseSet: ExamCaseSet = activeCaseSet.value): void {
     if (progress.phase === 'running') return
     fixtureReady.value = fixture
+    activeCaseSet.value = caseSet
     const r = createExamRunner(createDefaultExamDeps(), { progress })
     runner.value = r
-    void r.run({ fixtureReady: fixture })
+    void r.run({ fixtureReady: fixture, cases: casesBySet[caseSet] })
       .then(report => {
         // 完成即落盘：done / cancelled / error 三态均带 report（run 内部已收口 phase）
         if (report) void persistReport(report)
@@ -118,6 +137,7 @@ export const useExamStore = defineStore('exam', () => {
   return {
     progress,
     hasRunner,
+    activeCaseSet,
     fixtureReady,
     lastPersistedAt,
     persistError,

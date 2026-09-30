@@ -124,7 +124,14 @@
               <input type="checkbox" v-model="examStore.fixtureReady" />
               桌面考试素材已就位（HoloExam 目录，见考试手册）
             </label>
-            <button class="wb-rt-candidate-btn" @click="startExam">开始考试（18 题，约 40 分钟）</button>
+            <label class="wb-rt-exam-check">
+              题库
+              <select v-model="examStore.activeCaseSet" class="wb-rt-exam-select">
+                <option v-for="s in examCaseSets" :key="s.id" :value="s.id">{{ s.label }}·{{ s.count }} 题</option>
+              </select>
+            </label>
+            <button class="wb-rt-candidate-btn" @click="startExam">开始考试（{{ activeCaseSetMeta.label }} · {{ activeCaseSetMeta.count }} 题，约 {{ activeCaseSetMeta.estMinutes }} 分钟）</button>
+            <div class="wb-rt-candidate-hint">V2 会在 photos/media 留下产物，之后跑 V1 前请按手册复位（两套题库分轮跑）</div>
             <div class="wb-rt-candidate-hint">考试期间请勿在对话框手动输入；暂停点出现时在确认条上正常裁决</div>
           </template>
           <template v-else>
@@ -224,7 +231,7 @@ import { useApiStore } from '@/domains/api'
 import { useDebugStore } from '@/domains/debug'
 import { useHotplugStore } from '@/stores/hotplugStore'
 import { useSoakStore } from '@/stores/soakStore'
-import { useExamStore } from '@/stores/examStore'
+import { EXAM_CASE_SETS, useExamStore } from '@/stores/examStore'
 import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
 import type { ProbeSnapshot } from '@/models'
 
@@ -310,7 +317,11 @@ async function exportSoakReport(): Promise<void> {
 // ===== EXAM-5：验收考试卡（状态在 examStore——EXAM-1/EXAM-6：模式切换不孤儿化，进度 reactive） =====
 const examExporting = ref(false)
 const examExportLabel = ref('导出成绩单')
-const examExportPath = ref('')
+  const examExportPath = ref('')
+  const examCaseSets = EXAM_CASE_SETS
+  const activeCaseSetMeta = computed(() =>
+    examCaseSets.find(s => s.id === examStore.activeCaseSet) ?? examCaseSets[0]
+  )
 
 const examPhaseLabel = computed(() => {
   const phase = examStore.progress.phase
@@ -330,7 +341,7 @@ const examPhaseTagClass = computed(() => {
 })
 
 function startExam(): void {
-  examStore.startExam(examStore.fixtureReady)
+  examStore.startExam(examStore.fixtureReady, examStore.activeCaseSet)
 }
 
 async function exportExamReport(): Promise<void> {
