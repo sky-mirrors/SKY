@@ -757,6 +757,15 @@ export function tryL05QuickMatch(
     if (matchedKws.length === 0) continue
 
     const hitRatio = matchedKws.length / kws.length
+    // 2026-09-30：**此处分母是表长，与 L1 的 conf、L2 的 keywordMatchScoreGeneric 同源，但刻意不归一化**。
+    // 三条理由（已核）：
+    //   ① 本函数的 hitRatio 不只用于过门——它还是**跨 manifest 的排序键**（下面 sort）与 margin 的基数。
+    //      不同 manifest 表长不同，归一化会**改变跨候选的排序**，影响面远大于 L1（L1 是逐条规则独立判定）；
+    //   ② 本函数系数是 `×1.5`（L1 是 `×2`）：归一化后单命中 = 1/3 → conf 0.5，**反而低于门 0.6**，
+    //      即照搬 L1 的修法会**收紧**而不是放宽；
+    //   ③ 现状经校准实测（`test/unit/l05QuickMatch.spec.ts` 的「门值校准基线」）：门 0.6 下
+    //      24 条标注输入放行 7 条、**零误配**——即实际形态是"需命中 2+ 词"，严格但可用。
+    // 结论：保持原式。若将来要动，必须**重新校准**并覆盖跨候选排序的用例。
     scores.push({ manifest: m, hitCount: matchedKws.length, hitRatio, matchedKws })
   }
 
