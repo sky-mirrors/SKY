@@ -124,11 +124,17 @@ rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
   && cp -p /c/Users/Administrator/Desktop/HoloExam/photos_backup/sample.jpg \
            /c/Users/Administrator/Desktop/HoloExam/photos/
 
-# 两册都建议清空 out\ 与 media\ 的产物：
+# 两册都建议清空 out\ 、media\ 与 docs\ 的**产物**（源文件保留）：
 rm -rf /c/Users/Administrator/Desktop/HoloExam/out/*
 rm -f  /c/Users/Administrator/Desktop/HoloExam/media/clip.mp3 \
        /c/Users/Administrator/Desktop/HoloExam/media/*.png \
-       /c/Users/Administrator/Desktop/HoloExam/media/*.jpg
+       /c/Users/Administrator/Desktop/HoloExam/media/*.jpg \
+       /c/Users/Administrator/Desktop/HoloExam/media/clip-out.mp4
+
+# docs\：只留 5 个源文件。**这一步不能省** —— R13 的断言是 fileExists(docs\data.csv)、
+# R02 是 fileExists(docs\sample.txt)，若上轮产物残留，这些断言会恒真（假阳性）。
+cd /c/Users/Administrator/Desktop/HoloExam/docs \
+  && for f in *; do case "$f" in notes.md|sample.docx|data.xlsx|expense.txt|empty.txt) ;; *) rm -f "$f";; esac; done
 ```
 
 > **交叉污染（重要）**：V2 的 M01/M05 往 `photos\` 写产物，M03/M04 往 `media\` 写产物；
@@ -160,3 +166,51 @@ V2 中 **R05/M01/M03/M04/M06** 显式用 `some`；**M05 保持 `every`**——�
 
 及格线口径（可交付 ≥80% / 零干预 ≥60% / 平均耗时 <2min）按 §三 同口径套用，但
 **V2 的成绩不与 V1 的历史成绩直接对比**——两册题目构成不同。
+
+### 8.5 实测记录（2026-09-30 首考）
+
+同一环境（Ollama qwen2.5:3b、本机 CPU）连考两册，成绩单落 `docs/exam-reports/`：
+
+| 指标 | V2（首考，50 题） | V1（同日回归，18 题） | 及格线 |
+|---|---|---|---|
+| 可交付率 | **36.7%**（18/50） | **100%**（17/18） | ≥80% |
+| 零干预率 | 18.0%（9/50） | 52.9%（9/17） | ≥60% |
+| 平均耗时 | 31.5s | 53.0s | <120s |
+| 判卷错误 | 1 | 0 | — |
+| 跳过（素材缺失） | 0 | 0 | — |
+
+存档：`docs/exam-reports/2026-09-30-v2-first.json`、`docs/exam-reports/2026-09-30-v1-regression.json`
+（未覆盖项目根的 `exam-report.json`——那是 §七 复考的 V1 成绩单）。
+
+**结论**：V2 **NO-GO**（可交付与零干预双线未过）。V1 可交付线**首次达标**，较 §七 复考的
+44.4% 大幅提升；唯一失败是 Q14 `status=timeout`（409s，超 5 分钟上限，`replyExcerpt` 为空）。
+
+**V2 分类通过率**（哪一类在拖后腿）：
+
+| 分类 | 题数 | 通过 | 硬断言失败 |
+|---|---|---|---|
+| routing | 17 | 5 | 5 |
+| media | 6 | 3 | 1 |
+| edge | 10 | 6 | 0 |
+| honesty | 7 | 2 | 0 |
+| security | 5 | 2 | 1 |
+| **multiturn** | **5** | **0** | **2** |
+
+多轮类 0/5 全挂，是最集中的缺口；honesty 2/7 次之（该类的负向断言专打"假完成"，模型仍越界）。
+
+**读这两份成绩单时必须打折的两个干扰项**：
+
+1. **failureStage 会被「考官裁决」污染**。`examRunner.inferFailureStage` 的顺序里，
+   `interventions > 0` 直接判为 `planning`。本次 V2 有 41/50 题干预数 > 0（34 题 1 次、7 题 2 次），
+   所以 26 个 `planning` 归因里多数并非真的计划失败。**看失败幕先看 `interventions`**——
+   干预 > 0 的题，其幕不可信（§三 已声明失败幕是启发式、需人工复核）。
+2. **零干预率对裁决节奏敏感**。本轮由自动化看护逐条点击确认条（V2 点 25 次、V1 点 13 次），
+   每次暂停点都计入该题干预数。这两份零干预率是"考官及时裁决"口径下的值，
+   与"放着不管任其超时"不是一回事，跨轮比较时须口径一致。
+
+**未查项（留给下一轮）**：
+- Q14 超时根因未定位。它断言集为空、纯靠判卷，且回复为空——猜测与列目录耗时有关
+  （桌面文件量大），但也可能是循环，需看对话历史才能定性。
+- V2-M06 本轮把产物写成了 `media\clip-out.mp4`，而题干要求"存到 out 下"，断言按 out 查故判否。
+  模型是没读懂要求还是执行偏差，需看 `replyExcerpt` 才能定性——这条也顺带说明：
+  **改题干引导产物位置是有效手段，但不是万能的**。
