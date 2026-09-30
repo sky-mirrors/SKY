@@ -129,6 +129,42 @@ export function extractImageOp(input: string): {
   return op
 }
 
+/**
+ * 第三波·媒体能力（2026-09-30）：从自然语言里抽出**可确定执行**的音视频操作。
+ * 与 extractImageOp 同款契约：抽不到任何一项就返回空对象，由调用方决定直调还是下沉（不猜意图）。
+ * 参数名对齐 buildMediaProcessArgs 的接受面（format / crf / start / duration / thumbnailAt / width）。
+ */
+export function extractMediaOp(input: string): {
+  format?: string
+  crf?: number
+  start?: number
+  duration?: number
+  thumbnailAt?: number
+  width?: number
+} {
+  const op: ReturnType<typeof extractMediaOp> = {}
+
+  const fmt = input.match(/(?:转(?:成|为|换为)?|导出(?:成|为)?|保存(?:成|为)?|转换(?:成|为)?)\s*(mp4|webm|gif|mp3|wav|aac|m4a|flac|ogg)\b/i)
+  if (fmt) op.format = fmt[1].toLowerCase()
+
+  const crf = input.match(/(?:crf|质量)\s*(?:为|到|设为|改成)?\s*(\d{1,2})\b/i)
+  if (crf) op.crf = Number(crf[1])
+
+  const thumb = input.match(/(?:在|第)\s*(\d+(?:\.\d+)?)\s*秒\s*(?:处)?\s*(?:出|截|抽|生成)?\s*(?:一张)?\s*(?:缩略图|封面)/)
+  if (thumb) op.thumbnailAt = Number(thumb[1])
+
+  const start = input.match(/(?:从|自)\s*(?:第)?\s*(\d+(?:\.\d+)?)\s*秒\s*(?:开始|起)/)
+  if (start) op.start = Number(start[1])
+
+  const dur = input.match(/(?:裁剪|截取|持续|时长)\s*(?:到|为)?\s*(\d+(?:\.\d+)?)\s*秒/)
+  if (dur) op.duration = Number(dur[1])
+
+  const w = input.match(/(?:宽(?:度)?|width)\s*(?:到|为|至|设为|改成)?\s*(\d{2,5})/i)
+  if (w) op.width = Number(w[1])
+
+  return op
+}
+
 function extractTargetFormat(input: string): string | null {  const m = input.match(/(?:转|到|为|成|输出|导出|保存|转换)\s*[.】]?\s*(docx|pdf|txt|md|xlsx|html|json|csv)/i)
   return m ? m[1].toLowerCase() : null
 }
@@ -748,6 +784,42 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
           intent: `处理图片 ${imgSrc}`,
           steps: [
             { step: 1, description: '图片处理（应用内 sharp）', tool: 'image_process', params: flat, expectedOutput: '处理后的图片路径' }
+          ],
+          isExploration: false
+        }
+      }
+    }
+  }
+
+  // 第三波·媒体能力（2026-09-30 补）：音视频转码/压缩/裁剪/出缩略图是**确定性**能力
+  // （应用内 ffmpeg 直调，经 IPC media:process）。`l1-media-ops` 此前登记在 L1_CAPABILITIES
+  // 且被 l2-media-process-v1 引用为 requiredL1，却没有任何路由出口——与 doc-convert/image-ops
+  // 两个同族的后补确定性能力不一致，此处补齐。
+  // 与 image-ops 同款准入：① 提到音视频；② 抽得到明确操作参数。缺任一条就交给下游（不抢答）。
+  const mentionsMedia = /(视频|音频|音轨|录音|\.(?:mp4|mov|mkv|webm|avi|mp3|wav|aac|m4a|ogg|flac))/i.test(input)
+  if (mentionsMedia) {
+    const mediaSrc = extractFilePath(input)
+    const mediaOp = extractMediaOp(input)
+    const hasOp = !!(mediaOp.format || mediaOp.crf !== undefined || mediaOp.start !== undefined
+      || mediaOp.duration !== undefined || mediaOp.thumbnailAt !== undefined || mediaOp.width !== undefined)
+    if (mediaSrc && hasOp) {
+      debugLog('[L1 Check] 命中：音视频处理（确定性能力直调）')
+      const flat: Record<string, string> = { inputs: mediaSrc }
+      if (mediaOp.format) flat.format = mediaOp.format
+      if (mediaOp.crf !== undefined) flat.crf = String(mediaOp.crf)
+      if (mediaOp.start !== undefined) flat.start = String(mediaOp.start)
+      if (mediaOp.duration !== undefined) flat.duration = String(mediaOp.duration)
+      if (mediaOp.thumbnailAt !== undefined) flat.thumbnailAt = String(mediaOp.thumbnailAt)
+      if (mediaOp.width !== undefined) flat.width = String(mediaOp.width)
+      return {
+        canHandle: true,
+        nodeId: 'l1-media-ops',
+        nodeName: '音视频处理',
+        confidence: 0.9,
+        plan: {
+          intent: `处理音视频 ${mediaSrc}`,
+          steps: [
+            { step: 1, description: '音视频处理（应用内 ffmpeg）', tool: 'media_process', params: flat, expectedOutput: '处理后的媒体文件路径' }
           ],
           isExploration: false
         }

@@ -727,12 +727,13 @@ sequenceDiagram
 
 即 L0.5 的覆盖面 = L2 清单中 **6 个 `direct` 型工具**：文档翻译英文版、公告通知草稿、客户邮件撰写、PPT 大纲生成、政策文档问答、ND 审查清单。
 
-### 16.4 L1 — 6 项能力（`checkL1Capability`）
+### 16.4 L1 — 9 个路由出口（`checkL1Capability`）
 
 | 能力 | nodeId | 判定方式 | 产出工具 |
 |---|---|---|---|
 | 文档 → PDF | `l1-doc-convert` | **确定性直调**（须输入含明确路径），不打分 | `file_convert` |
 | 图片处理（缩放/转格式/压缩/灰度） | `l1-image-ops` | **确定性直调**（须「提到图片」+「抽得出操作参数」两个条件同时成立） | `image_process` |
+| 音视频处理（转码/压缩/裁剪/出缩略图） | `l1-media-ops` | **确定性直调**（须「提到音视频」+「抽得出操作参数」两个条件同时成立） | `media_process` |
 | 模型网关（翻译/润色/总结/改写…） | `l1-model-gateway` | 关键词打分 ≥0.6 | `llm_generate` |
 | 知识检索（查知识库/检索…） | `l1-knowledge-feeder` | 关键词打分 ≥0.6 | `llm_generate` |
 | 任务翻译官（拆解/执行步骤…） | `l1-task-translator` | 关键词打分 ≥0.6 | `l1-task-translator`（经 macroExecutor 分派到 handler） |
@@ -740,7 +741,9 @@ sequenceDiagram
 | 工作区记忆体（还记得/之前聊过…） | `l1-workspace-memory` | 关键词打分 ≥0.6 | `l1-workspace-memory`（同上） |
 | 流水线搭建台（编排/流水线…） | `l1-pipeline-builder` | 关键词打分 ≥0.6 | `l1-pipeline-builder`（同上） |
 
-**注意**：L1 覆盖 L1 六节点**全部六个**（模型网关、知识检索、任务翻译官、结果美化师、工作区记忆体、流水线搭建台），另加两个后补的确定性能力节点（doc-convert / image-ops）。
+**注意**：L1 覆盖 L1 六节点**全部六个**（模型网关、知识检索、任务翻译官、结果美化师、工作区记忆体、流水线搭建台），另加三个后补的确定性能力节点（doc-convert / image-ops / media-ops）。
+
+> **2026-09-30 补 `l1-media-ops`**：它此前**登记在 `l1Capabilities.ts` 的权威能力表、且被 `l2-media-process-v1` 引用为 `requiredL1`，却没有任何路由出口**——与同族的 `doc-convert`/`image-ops` 不一致（那两个都有出口）。本次按 `image-ops` 同款口径补上：`extractMediaOp` 抽 `format/crf/start/duration/thumbnailAt/width`，`checkL1Capability` 在「提到音视频 + 抽得到参数 + 有明确路径」三条同时成立时直调 `media_process`；缺任一条即下沉（L2 的 `l2-media-process-v1` manifest 仍是它的归宿）。测试见 `test/unit/mediaRouting.spec.ts`。
 
 > **2026-09-30 补齐**：此前 L1 只覆盖六节点中的**两个**，是 `最新口径.md` 判定「L1 近乎死层」的代码依据。本次补齐了 task-translator / result-beautifier / workspace-memory / pipeline-builder 四条路由规则（`l0SkillRouter.ts` 的 `l1Rules`）——四个节点此前在**执行侧有 handler**（`pipelineExecutor.ts:159-162`）而**路由侧无入口**，属「半接」。关键词表刻意保持 2-3 词短表：confidence 公式 `min(matchedKw / keywords.length × 2, 0.9)` 下，长表会让单次命中低于 0.6 门而永不触发。测试见 `test/unit/l1Routing.spec.ts`。详见 `docs/漏斗前四层盘点与L1补齐.md`。
 
