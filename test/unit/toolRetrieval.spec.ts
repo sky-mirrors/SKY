@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
+  computeDynamicThreshold,
+  recordScore,
+  __resetScoreHistoryForTest,
   keywordMatchScore,
   raapMatch,
   universalMatch,
@@ -108,6 +113,41 @@ describe('manifestFingerprint', () => {
       routing: { ...m1.routing, retrievalSummary: '生成月报总结' }
     })
     expect(manifestFingerprint(m1)).not.toBe(manifestFingerprint(m2))
+  })
+})
+
+describe('computeDynamicThreshold · 分数池（2026-09-30 幸存者偏差修复）', () => {
+  beforeEach(() => { __resetScoreHistoryForTest() })
+
+  it('池样本 < 10 → 回落 fallback（冷启动/每次重启后的实际状态：池是内存态、无持久化）', () => {
+    for (let i = 0; i < 9; i++) recordScore(0.9, 'keyword')
+    expect(computeDynamicThreshold(0.6, 0.6, 'keyword')).toBe(0.6)
+  })
+
+  it('池只含高分（旧实现的幸存者偏差）会把动态阈值抬高；含真实分布的低分时更低', () => {
+    // 旧实现只在"命中分支"记录 → 池里全是通过的分数
+    for (let i = 0; i < 60; i++) recordScore(0.80 + (i % 20) / 100, 'keyword') // 0.80-0.99
+    const biased = computeDynamicThreshold(0.6, 0.6, 'keyword')
+
+    __resetScoreHistoryForTest()
+    // 修复后：决策前就记录 → 池含被拒的低分，代表真实分布
+    for (let i = 0; i < 60; i++) recordScore(0.20 + (i % 60) / 100, 'keyword') // 0.20-0.79
+    const realistic = computeDynamicThreshold(0.6, 0.6, 'keyword')
+
+    expect(biased).toBeGreaterThan(realistic)
+  })
+  it('接线：recordScore 在决策**之前**调用、且不在 hit 分支内（幸存者偏差修复的直接断言）', () => {
+    // 上面两条测的是 computeDynamicThreshold 本身的行为，**证伪不了"调用位置错"**；
+    // 这条直接读源码钉住位置——回滚到"只在 hit 分支记录"会立刻红。
+    const src = readFileSync(join(process.cwd(), 'src/services/toolRetrieval.ts'), 'utf-8')
+    // 按行精确比对（行尾可能是 CRLF，不用 \n 字面量）；缩进 2 空格 = 函数体顶层（决策前），
+    // 旧实现是 4 空格（hit/moderate 分支内）——回滚会立刻红。
+    const lines = src.split(/\r?\n/)
+    const kwIdx = lines.findIndex(l => l.trim() === "recordScore(top1KwScore, 'keyword')")
+    expect(kwIdx).toBeGreaterThan(-1)
+    expect(lines[kwIdx]).toBe("  recordScore(top1KwScore, 'keyword')")
+    expect(lines[kwIdx + 1]).toBe("  recordScore(top1VecScore, 'vector')")
+    expect(lines.some(l => l === "    recordScore(top1KwScore, 'keyword')")).toBe(false)
   })
 })
 

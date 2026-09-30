@@ -794,6 +794,11 @@ L2 覆盖率 = **27 个 manifest**（`src\data\l2Manifests.ts`：**macro 20 / di
 > **验证边界（重要）**：本次实测环境的 embedder 加载失败（网络），向量走的是伪向量 ⇒ **向量侧行为未经真实验证**；关键词侧的结论与环境无关（纯字符串匹配）。L2 端到端命中率（14 条样本 0/14 → 1/14）**不能代表生产**——生产环境有真实向量时会显著不同。该改动的生产效果需在有 embedder 的环境（实机/考试）复核。
 > 回归测试：`test/unit/toolRetrieval.spec.ts` 的「表长不再惩罚覆盖广度」——已实测**回滚分母即变红**（`expected 0.125 ... 0.333`，红来自被测层）。
 
+> **2026-09-30 RaaP 机制检查（另两处发现）**：
+> **① 分数池的幸存者偏差（已修）**：`computeDynamicThreshold` 用历史分数池（p5/p50/p95）算自适应阈值，但 `recordScore` 原本**只在命中分支调用**（hit / moderate 两处）——池里只进"通过的"高分，p50/p95 因此偏高，动态阈值**越用越严**（正反馈）。已把采样点提前到**决策之前**（每次匹配记录 top1 的 kw/vec 分），池才代表真实分布。接线由源码级断言钉住（`toolRetrieval.spec.ts`），已实测**模拟旧位置即变红**。
+> **② 该池无持久化（未改，记在案）**：`_kwScoreHistory` / `_vecScoreHistory` 是模块级内存数组，每次重启清零 ⇒ `pool.length < 10` 时一律回落 fallback 阈值（0.6/0.9），即**冷启动期动态阈值从不生效**。与 G-13「指纹缓存重启即失忆」同型。
+> **③ 无问题的部分（已核）**：RRF 融合用**排名**而非分数（`contrib = 1/(k+i+1)`），对分数尺度鲁棒；`feedback:get-weight` 由 `src/domains/feedback/handlers.ts:9` 注册，**生产有**（测试环境未加载 domains 才报 `no handler`，属测试基建差异）。门控常量（green 0.95 / vec-ambiguous 0.55 / margin 0.10）仍未校准（G-15 范围）。
+
 > **文档滞后点**：`README.md` / `最新口径.md` 称 L2 有 **20 个**工具——实为 **27 个**；`src\data\topology.ts` 的星图节点模板仍是 20 条，**与 `l2Manifests.ts` 不同步**。
 
 ### 16.6 工具清单

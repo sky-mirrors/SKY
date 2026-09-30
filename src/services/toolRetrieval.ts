@@ -513,13 +513,21 @@ const _kwScoreHistory: ScoreRecord[] = []
 const _vecScoreHistory: ScoreRecord[] = []
 const SCORE_HISTORY_MAX = 200
 
-function recordScore(score: number, type: 'keyword' | 'vector'): void {
+function recordScoreImpl(score: number, type: 'keyword' | 'vector'): void {
   const pool = type === 'keyword' ? _kwScoreHistory : _vecScoreHistory
   pool.push({ score, timestamp: Date.now(), type })
   if (pool.length > SCORE_HISTORY_MAX) pool.shift()
 }
 
-function computeDynamicThreshold(baseThreshold: number, fallback: number, type: 'keyword' | 'vector'): number {
+// 2026-09-30：导出以便单测（池是模块级状态，无法从外部观察）。
+// 测试用重置函数参照 writeGate.resetWriteGrantCache 的先例。
+export const recordScore = recordScoreImpl
+export function __resetScoreHistoryForTest(): void {
+  _kwScoreHistory.length = 0
+  _vecScoreHistory.length = 0
+}
+
+export function computeDynamicThreshold(baseThreshold: number, fallback: number, type: 'keyword' | 'vector'): number {
   const pool = type === 'keyword' ? _kwScoreHistory : _vecScoreHistory
   if (pool.length < 10) return fallback
   const scores = pool.map(s => s.score).sort((a, b) => a - b)
@@ -688,9 +696,16 @@ export async function universalMatch(
   const hasStrongSignal = top1KwScore >= dynKwHigh || top1VecScore >= dynVecHigh
   const hasModerateSignal = top1KwScore >= 0.3 || top1VecScore >= VECTOR_AMBIGUOUS_LOW
 
+  // 2026-09-30：分数池的采样点从「命中分支」提前到「决策之前」。
+  // 原实现只在 hit 分支 recordScore —— 池里只进"通过的"高分（**幸存者偏差**），
+  // computeDynamicThreshold 的 p50/p95 因此偏高，动态阈值**越用越严**（正反馈）。
+  // 改在决策前统一记录 top1 的两个分数，池才代表真实分布。
+  // （另注：该池是模块级内存数组、无持久化 ⇒ 每次重启回落到 fallback 阈值，
+  //   与 G-13「指纹缓存重启即失忆」同型；本轮不改，记在案。）
+  recordScore(top1KwScore, 'keyword')
+  recordScore(top1VecScore, 'vector')
+
   if (hasStrongSignal && margin >= MARGIN_THRESHOLD) {
-    recordScore(top1KwScore, 'keyword')
-    recordScore(top1VecScore, 'vector')
     const gate: 'green' | 'yellow' = (top1KwScore >= dynGreenGate || top1VecScore >= dynGreenGate) ? 'green' : 'yellow'
     const isAmbiguous = gate === 'yellow'
     debugLog(`[Universal] RRF融合命中: ${top1.item.name} (rrf=${top1.rrfScore.toFixed(4)}, kw=${top1KwScore.toFixed(4)}, vec=${top1VecScore.toFixed(4)}, margin=${margin.toFixed(4)}, gate=${gate})`)
@@ -700,8 +715,6 @@ export async function universalMatch(
   }
 
   if (hasStrongSignal && margin < MARGIN_THRESHOLD) {
-    recordScore(top1KwScore, 'keyword')
-    recordScore(top1VecScore, 'vector')
     debugLog(`[Universal] RRF高置信但margin小(margin=${margin.toFixed(4)})，判定模糊: ${top1.item.name}`)
     const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' as const }
     storeRouteCache(userInput, idxHash, result)
@@ -709,8 +722,6 @@ export async function universalMatch(
   }
 
   if (hasModerateSignal) {
-    recordScore(top1KwScore, 'keyword')
-    recordScore(top1VecScore, 'vector')
     if (margin >= MARGIN_THRESHOLD) {
       debugLog(`[Universal] RRF中等置信唯一(margin=${margin.toFixed(4)}): ${top1.item.name}`)
       const result = { item: top1.item, confidence: Math.max(top1KwScore, top1VecScore), matchMethod: top1.method as 'vector' | 'keyword' | 'keyword+vector', isAmbiguous: true, candidates, gate: 'yellow' as const }
