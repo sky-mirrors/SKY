@@ -73,6 +73,17 @@ describe('L1 端到端验收：真实漏斗（createDefaultLayers，不 mock l0S
     })
   }
 
+  it('「把 A.mp4 转成 webm」→ 漏斗停在 L1，产出 media_process（2026-09-30 补的 l1-media-ops 出口）', async () => {
+    const outcome = await route('把 C:\\clips\\a.mp4 转成 webm')
+    expect(outcome.kind).toBe('plan')
+    expect(outcome.source).toBe('L1')
+    if (outcome.kind === 'plan') {
+      expect(outcome.plan.steps).toHaveLength(1)
+      expect(outcome.plan.steps[0].tool).toBe('media_process')
+      expect(outcome.plan.needs).toContain('l1-media-ops')
+    }
+  })
+
   it('负例：「帮我写周报」不落在 L1 新节点（应继续下沉）', async () => {
     const outcome = await route('帮我写周报')
     if (outcome.kind === 'plan' && outcome.source === 'L1') {
