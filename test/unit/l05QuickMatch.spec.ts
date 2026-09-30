@@ -85,19 +85,72 @@ describe('tryL05QuickMatch · 准入机制', () => {
   })
 })
 
-describe('tryL05QuickMatch · 对现网 27 个 manifest 的实测覆盖（2026-09-30 记录）', () => {
-  it('典型自然语言输入能命中（降门后记录）', () => {
-    const inputs = [
-      '把这份中文文档翻译成英文版',
-      '帮我起草一份公司公告通知',
-      '给客户写一封跟进邮件',
-      '帮我生成一个PPT大纲',
-      '公司的年假政策是怎么规定的',
-      '帮我审一下这份保密协议ND条款'
-    ]
-    const hits = inputs.filter(i => tryL05QuickMatch(i, l2Manifests) !== null)
-    // 记录：内层硬门在时实测 6 中 1；移除后 6 中 6。这里不断言具体数字（门值仍待校准 G-15），
-    // 只断言"至少能命中一个"——若某天门值收紧到全不中，说明这层又失效，测试会红。
-    expect(hits.length).toBeGreaterThanOrEqual(1)
+describe('tryL05QuickMatch · 门值校准基线（2026-09-30 实测）', () => {
+  // 校准方法与数据：24 条标注输入（10 条期望命中某个单步 manifest，14 条负样本——
+  // 含 6 条"含 manifest 关键词但形态不同"的对抗样本：竞品分析/合同风险/邮件分类/
+  // 财报总结/会议纪要 均为 macro|chain，及一条两个单步 manifest 混搭）。扫门值的实测：
+  //
+  //   t ≤ 0.60 → 放行 7/24，正确 7/10，错配 0，误报 0/14
+  //   t ≥ 0.65 → 放行 1/24（断崖：conf 是离散值，最小非零档即 0.6）
+  //   t = 0.90 → 放行 0/24（彻底死层）
+  //
+  // 结论：0.60 是"放行全部通过基本过滤的候选"的下界，且在本样本集上**零误配**；
+  // 再高就会把 hitRatio=0.4 那一档全部挡掉（旧门 0.8 即如此，实测覆盖率 ~8%）。
+  // 本 describe 把这个不变量钉住——若将来门值/公式改动引入误配，这里会红。
+  const LABELED: Array<[string, string | null]> = [
+    ['把这份中文文档翻译成英文版', '文档翻译英文版'],
+    ['帮我起草一份公司公告通知', '公告通知草稿'],
+    ['给客户写一封跟进邮件', '客户邮件撰写'],
+    ['帮我生成一个PPT大纲', 'PPT大纲生成'],
+    ['公司的年假政策是怎么规定的', '政策文档问答'],
+    ['帮我审一下这份保密协议ND条款', 'ND审查清单'],
+    ['这段内容帮我译成英文', '文档翻译英文版'],
+    ['写个公告说说下周团建', '公告通知草稿'],
+    ['给张总发封邮件跟一下项目进度', '客户邮件撰写'],
+    ['来个PPT的大纲', 'PPT大纲生成'],
+    // 负样本：应下沉（不下沉到 L0.5）
+    ['帮我生成本周周报草稿', null],
+    ['检查这张报销单是否合规', null],
+    ['对比这两份合同的差异条款', null],
+    ['把 C:\\a.txt 复制到 C:\\b.txt', null],
+    ['今天天气怎么样', null],
+    ['帮我写一个快速排序函数', null],
+    ['列出桌面的所有 docx 文件', null],
+    ['把这份 pdf 转成 txt', null],
+    ['帮我写一份竞品分析报告', null],
+    ['总结一下这份合同的风险条款', null],
+    ['把这几封邮件分类整理一下', null],
+    ['给这份财报做个一句话总结', null],
+    ['帮我做个会议纪要', null],
+    ['帮我生成PPT大纲并翻译成英文', null]
+  ]
+
+  it('门值 0.6 下：放行的候选全部正确，负样本一条都不放行（零误配）', () => {
+    const PASS = 0.6
+    let falsePositive = 0
+    let wrongManifest = 0
+    let correct = 0
+    for (const [input, expect] of LABELED) {
+      const r = tryL05QuickMatch(input, l2Manifests)
+      const passed = r !== null && r.confidence >= PASS
+      if (!passed) continue
+      if (expect === null) falsePositive++
+      else if (r!.manifest.identity.name === expect) correct++
+      else wrongManifest++
+    }
+    expect(falsePositive).toBe(0)
+    expect(wrongManifest).toBe(0)
+    expect(correct).toBeGreaterThanOrEqual(7) // 实测 7；若掉说明门值/公式收紧了
+  })
+
+  it('门值抬到 0.65 会断崖：放行数骤降（证明 0.6→0.8 的旧门等价于死层）', () => {
+    const countAt = (t: number) =>
+      LABELED.filter(([i]) => {
+        const r = tryL05QuickMatch(i, l2Manifests)
+        return r !== null && r.confidence >= t
+      }).length
+    expect(countAt(0.6)).toBeGreaterThan(countAt(0.65))
+    expect(countAt(0.65)).toBeLessThanOrEqual(1)
   })
 })
+
