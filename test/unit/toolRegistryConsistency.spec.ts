@@ -26,10 +26,15 @@ describe('原生工具名单一致性（防漂移）', () => {
     expect(SIDE_EFFECT_TOOLS.has('rename_images_by_date')).toBe(true)
   })
 
-  it('派生集 = 常驻工具 ∪ 4 个非常驻 dispatch 工具（成员集行为保持）', () => {
+  it('派生集 = 常驻工具 ∪ 8 个非常驻 dispatch 工具（成员集行为保持）', () => {
     for (const n of ['create_directory', 'http_request', 'llm_generate', 'knowledge_search']) {
       expect(DISPATCH_NATIVE.has(n)).toBe(true)
     }
-    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 4)
+    // 2026-09-30 L1 深化：四个 L1 能力工具（计划步骤直接挂 l1-*，经 macroExecutor 分派到
+    // pipelineExecutor 的 handler）也须在可 dispatch 名单里，否则 isAllNative 快路径不认。
+    for (const n of ['l1-task-translator', 'l1-result-beautifier', 'l1-workspace-memory', 'l1-pipeline-builder']) {
+      expect(DISPATCH_NATIVE.has(n)).toBe(true)
+    }
+    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 8)
   })
 })

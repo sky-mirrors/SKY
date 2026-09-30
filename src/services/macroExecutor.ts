@@ -1,4 +1,4 @@
-import { L2ToolManifest, L2DagStep, ProbeSnapshot, ProbeSource, DagCheckpoint } from '@/models'
+import { L2ToolManifest, L2DagStep, ProbeSnapshot, ProbeSource, DagCheckpoint, ModelGatewayAdapter } from '@/models'
 import { globalBus } from '@/kernel/bus'
 import { extractEntities, extractEntitiesAll, shouldTrigger, runFactGuardV2, type FactGuardV2Result } from './factGuard'
 import { route as smartRoute, getHistoricalTokenAvg } from '@/services/smartRouter'
@@ -149,6 +149,41 @@ export async function callToolDirectWithTier(
   // fail-closed：确认链断裂 / 抛错 / 用户未表态，一律按拒绝处理，绝不放行写操作。
   if (!(await requestWriteApproval(fullName, args))) {
     return `${fullName}: ⚠️ 用户拒绝执行（未做任何改动）`
+  }
+
+  // ===== L1 能力直调（2026-09-30 深化）=====
+  // L1 层（l0SkillRouter.checkL1Capability）对六节点产出的计划步骤直接挂 `l1-*` 工具名；
+  // 此处把它分派到 pipelineExecutor 的 NodeHandler 注册表——不在本模块重抄一份能力实现。
+  // 动态 import 保持两模块解耦（pipelineExecutor 不反向依赖 macroExecutor，无循环）。
+  if (fullName.startsWith('l1-')) {
+    const { getHandler } = await import('./pipelineExecutor')
+    const handler = getHandler(fullName)
+    if (!handler) throw new Error(`L1 handler 未注册: ${fullName}`)
+    const { knowledgeAdapter } = await import('./knowledgeBase')
+    const { memoryAdapter } = await import('./memory')
+    const gateway = globalBus.request<ModelGatewayAdapter>('llm:get-gateway', {})
+    const l1Abort = new AbortController()
+    if (externalSignal) {
+      if (externalSignal.aborted) l1Abort.abort()
+      else externalSignal.addEventListener('abort', () => l1Abort.abort(), { once: true })
+    }
+    const out = await handler.run({
+      input: args,
+      signal: l1Abort.signal,
+      onProgress: () => { /* 进度呈现由调用方（dialogStore 原生快路径）负责 */ },
+      gateway,
+      memory: memoryAdapter,
+      knowledge: knowledgeAdapter,
+      ...(traceId ? { traceId } : {})
+    })
+    // 输出归一化：与 pipelineExecutor 的执行收口同口径（response 字符串优先 → 单 key → JSON）。
+    if (typeof out.response === 'string') return out.response
+    const keys = Object.keys(out)
+    if (keys.length === 1) {
+      const sole = out[keys[0]]
+      return typeof sole === 'string' ? sole : JSON.stringify(out)
+    }
+    return JSON.stringify(out)
   }
 
   if (fullName === 'file_write') {

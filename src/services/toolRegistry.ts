@@ -17,7 +17,14 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   'create_directory',
   'http_request',
   'llm_generate',
-  'knowledge_search'
+  'knowledge_search',
+  // L1 能力直调（2026-09-30）：四节点的计划步骤直接挂这些工具名，由 macroExecutor 的
+  // L1 分派转 pipelineExecutor 的 NodeHandler。必须登记进本表 —— 否则 confirmPlan 的
+  // isAllNative 快路径判「非全原生」，计划落进模型循环（多花 token 且行为分叉）。
+  'l1-task-translator',
+  'l1-result-beautifier',
+  'l1-workspace-memory',
+  'l1-pipeline-builder'
 ])
 
 // MCP 工具名形如 {serverId}___{toolName}

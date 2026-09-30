@@ -731,14 +731,16 @@ sequenceDiagram
 | 图片处理（缩放/转格式/压缩/灰度） | `l1-image-ops` | **确定性直调**（须「提到图片」+「抽得出操作参数」两个条件同时成立） | `image_process` |
 | 模型网关（翻译/润色/总结/改写…） | `l1-model-gateway` | 关键词打分 ≥0.6 | `llm_generate` |
 | 知识检索（查知识库/检索…） | `l1-knowledge-feeder` | 关键词打分 ≥0.6 | `llm_generate` |
-| 任务翻译官（拆解/执行步骤…） | `l1-task-translator` | 关键词打分 ≥0.6 | `llm_generate` |
-| 结果美化师（排版/美化/渲染…） | `l1-result-beautifier` | 关键词打分 ≥0.6 | `llm_generate` |
-| 工作区记忆体（还记得/之前聊过…） | `l1-workspace-memory` | 关键词打分 ≥0.6 | `llm_generate` |
-| 流水线搭建台（编排/流水线…） | `l1-pipeline-builder` | 关键词打分 ≥0.6 | `llm_generate` |
+| 任务翻译官（拆解/执行步骤…） | `l1-task-translator` | 关键词打分 ≥0.6 | `l1-task-translator`（经 macroExecutor 分派到 handler） |
+| 结果美化师（排版/美化/渲染…） | `l1-result-beautifier` | 关键词打分 ≥0.6 | `l1-result-beautifier`（同上） |
+| 工作区记忆体（还记得/之前聊过…） | `l1-workspace-memory` | 关键词打分 ≥0.6 | `l1-workspace-memory`（同上） |
+| 流水线搭建台（编排/流水线…） | `l1-pipeline-builder` | 关键词打分 ≥0.6 | `l1-pipeline-builder`（同上） |
 
 **注意**：L1 覆盖 L1 六节点**全部六个**（模型网关、知识检索、任务翻译官、结果美化师、工作区记忆体、流水线搭建台），另加两个后补的确定性能力节点（doc-convert / image-ops）。
 
 > **2026-09-30 补齐**：此前 L1 只覆盖六节点中的**两个**，是 `最新口径.md` 判定「L1 近乎死层」的代码依据。本次补齐了 task-translator / result-beautifier / workspace-memory / pipeline-builder 四条路由规则（`l0SkillRouter.ts` 的 `l1Rules`）——四个节点此前在**执行侧有 handler**（`pipelineExecutor.ts:159-162`）而**路由侧无入口**，属「半接」。关键词表刻意保持 2-3 词短表：confidence 公式 `min(matchedKw / keywords.length × 2, 0.9)` 下，长表会让单次命中低于 0.6 门而永不触发。测试见 `test/unit/l1Routing.spec.ts`。详见 `docs/漏斗前四层盘点与L1补齐.md`。
+
+> **2026-09-30 深化（接执行侧能力）**：四节点的计划步骤不再统一挂 `llm_generate`，而是直接挂各自的 `l1-*` 工具名；`macroExecutor.callToolDirectWithTier` 新增 L1 分派——`getHandler(name)` 取 `pipelineExecutor` 注册表里的 handler，构造 `NodeHandlerContext`（gateway 经 `llm:get-gateway`、memory/knowledge adapter）后真实执行，输出按 `response` 字符串 → 单 key → JSON 归一化（与 `pipelineExecutor` 的收口同口径）。四个 `l1-*` 已登记进 `toolRegistry.NATIVE_TOOL_NAMES`，保证 `confirmPlan` 的 `isAllNative` 快路径认得它们（否则计划落模型循环）。测试见 `test/unit/l1HandlerDispatch.spec.ts`。
 
 ### 16.5 L2 — RaaP 混合检索
 

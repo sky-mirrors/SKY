@@ -66,7 +66,8 @@ describe('L1 端到端验收：真实漏斗（createDefaultLayers，不 mock l0S
       expect(outcome.source).toBe('L1')
       if (outcome.kind === 'plan') {
         expect(outcome.plan.steps).toHaveLength(1)
-        expect(outcome.plan.steps[0].tool).toBe('llm_generate')
+        // 计划步骤挂该能力自己的工具名（l1-*），执行时经 macroExecutor 分派到执行侧 handler
+        expect(outcome.plan.steps[0].tool).toBe(nodeId)
         expect(outcome.plan.needs).toContain(nodeId)
       }
     })

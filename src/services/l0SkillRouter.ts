@@ -680,49 +680,73 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     }
   }
 
-  const l1Rules: { nodeId: string; nodeName: string; keywords: string[]; forbidden: string[] }[] = [
+  const l1Rules: {
+    nodeId: string
+    nodeName: string
+    keywords: string[]
+    forbidden: string[]
+    /** 计划步骤挂的工具名；`l1-*` 由 macroExecutor 的 L1 分派路由到 pipelineExecutor 的 NodeHandler 注册表 */
+    tool: string
+    buildParams: (input: string) => Record<string, string>
+  }[] = [
     {
       nodeId: 'l1-model-gateway',
       nodeName: '模型网关',
       keywords: ['翻译', '生成文本', '写一段', '帮我写', '改写', '润色', '总结一下', '概括'],
-      forbidden: ['文档', '文件', 'docx', '报告', '审查', '风险', '合同', '竞品', '周报', '会议纪要', 'xlsx', 'ppt']
+      forbidden: ['文档', '文件', 'docx', '报告', '审查', '风险', '合同', '竞品', '周报', '会议纪要', 'xlsx', 'ppt'],
+      tool: 'llm_generate',
+      buildParams: (input) => ({ prompt: input })
     },
     {
       nodeId: 'l1-knowledge-feeder',
       nodeName: '知识检索',
       keywords: ['搜索知识', '查知识库', '检索', '知识库', '查一下'],
-      forbidden: ['文档', '文件', '创建', '新建', '写文件', '审查']
+      forbidden: ['文档', '文件', '创建', '新建', '写文件', '审查'],
+      tool: 'llm_generate',
+      buildParams: (input) => ({ prompt: input })
     },
     // ---- 2026-09-30 补齐：L1_TOOLS 声明六节点，此前路由层只认上面两个（+2 个确定性能力）----
     // task-translator / pipeline-builder / workspace-memory / result-beautifier 在执行侧均有
-    // handler（pipelineExecutor.ts:159-162）却无路由入口，属「半接」；此处补上路由可达性。
+    // handler（pipelineExecutor.ts 的 registerHandler）却无路由入口，属「半接」；此处补上路由可达性。
     //
     // 【关键词表必须短】confidence 公式 = min(matchedKw / keywords.length × 2, 0.9)：
     // 每表 3 词时单次命中即 0.667 ≥ 门 0.6；若堆到 9-10 词，单命中只有 0.2，规则将永不触发。
     // 故每条只放 2-3 个高辨识度词，配合 forbidden 挡住 L2 高频域词防劫持。
+    //
+    // 【2026-09-30 深化】这四个节点不再统一挂 `llm_generate`——直接挂各自的 `l1-*` 工具名，
+    // 执行时经 macroExecutor 的 L1 分派调用 pipelineExecutor 里已注册的对应 handler，
+    // 让「补上的工具」名副其实（此前仅可路由，产出与普通 llm_generate 无差别）。
     {
       nodeId: 'l1-task-translator',
       nodeName: '任务翻译官',
       keywords: ['拆解', '执行步骤', '任务分解'],
-      forbidden: ['文档', '文件', 'docx', '合同', '审查', '风险', '报告', '周报', 'xlsx', 'ppt', '表格', '清单']
+      forbidden: ['文档', '文件', 'docx', '合同', '审查', '风险', '报告', '周报', 'xlsx', 'ppt', '表格', '清单'],
+      tool: 'l1-task-translator',
+      buildParams: (input) => ({ input })
     },
     {
       nodeId: 'l1-result-beautifier',
       nodeName: '结果美化师',
       keywords: ['排版', '美化', '渲染成'],
-      forbidden: ['创建', '新建', '写文件', '删除', '移动', '审查', '合同', '风险', '周报', '会议纪要']
+      forbidden: ['创建', '新建', '写文件', '删除', '移动', '审查', '合同', '风险', '周报', '会议纪要'],
+      tool: 'l1-result-beautifier',
+      buildParams: (input) => ({ content: input, format: 'html' })
     },
     {
       nodeId: 'l1-workspace-memory',
       nodeName: '工作区记忆体',
       keywords: ['还记得', '之前聊过', '历史记录'],
-      forbidden: ['创建', '新建', '写入', '删除', '审查', '合同']
+      forbidden: ['创建', '新建', '写入', '删除', '审查', '合同'],
+      tool: 'l1-workspace-memory',
+      buildParams: () => ({})
     },
     {
       nodeId: 'l1-pipeline-builder',
       nodeName: '流水线搭建台',
       keywords: ['编排', '流水线', '自动化流程'],
-      forbidden: ['审查', '合同', '报告', '风险']
+      forbidden: ['审查', '合同', '报告', '风险'],
+      tool: 'l1-pipeline-builder',
+      buildParams: (input) => ({ task: input })
     }
   ]
 
@@ -745,7 +769,7 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
         plan: {
           intent: input.substring(0, 60),
           steps: [
-            { step: 1, description: `${rule.nodeName}处理`, tool: 'llm_generate', params: { prompt: input }, expectedOutput: '处理结果' }
+            { step: 1, description: `${rule.nodeName}处理`, tool: rule.tool, params: rule.buildParams(input), expectedOutput: '处理结果' }
           ],
           isExploration: false
         }

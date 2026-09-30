@@ -51,16 +51,19 @@ describe('checkL1Capability · L1 六节点路由覆盖', () => {
       expect(r.confidence).toBeGreaterThanOrEqual(0.6)
     })
 
-    it('每个新节点产出的计划都是可执行的 llm_generate 单步', () => {
-      for (const input of [
-        '把这个需求拆解一下，给我执行步骤',
-        '把这段内容排版一下',
-        '你还记得我们之前聊过的项目吗',
-        '帮我把这个任务编排成流水线'
-      ]) {
+    it('每个新节点的计划步骤直接挂其执行侧工具（l1-*，2026-09-30 深化）', () => {
+      const cases: Array<[string, string]> = [
+        ['把这个需求拆解一下，给我执行步骤', 'l1-task-translator'],
+        ['把这段内容排版一下', 'l1-result-beautifier'],
+        ['你还记得我们之前聊过的项目吗', 'l1-workspace-memory'],
+        ['帮我把这个任务编排成流水线', 'l1-pipeline-builder']
+      ]
+      for (const [input, tool] of cases) {
         const r = checkL1Capability(input)
         expect(r.plan?.steps).toHaveLength(1)
-        expect(r.plan?.steps[0].tool).toBe('llm_generate')
+        // 产出必须挂该能力自己的工具名（而非统一 llm_generate）——执行时由 macroExecutor
+        // 的 l1-* 分派路由到 pipelineExecutor 的 NodeHandler 注册表
+        expect(r.plan?.steps[0].tool).toBe(tool)
       }
     })
   })
