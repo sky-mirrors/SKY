@@ -900,12 +900,9 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     {
       nodeId: 'l1-model-gateway',
       nodeName: '模型网关',
-      // 2026-09-30 缩表：原 8 词（翻译/生成文本/写一段/帮我写/改写/润色/总结一下/概括）。
-      // conf = min(命中数 / 表长 × 2, 0.9) 中**分母就是表长**，8 词表单次命中只有 0.25，
-      // 永远过不了 0.6 门——校准实测「帮我翻译一下这段话」这类最普通的请求都进不来。
-      // 缩到 3 个高辨识度词后单命中即 0.667 ≥ 门。被去掉的多是宽词（"帮我写""写一段"），
-      // 它们本就该走 L0 规则 3 或 L2，不该在 L1 抢。
-      keywords: ['翻译', '润色', '总结'],
+      // 2026-09-30：分母改为 min(表长,3) 后，表长不再惩罚覆盖广度 → 恢复同义表达。
+      // 仍**不放宽词**（"帮我写""写一段"）：它们该走 L0 规则 3 或 L2，入表会抢路由。
+      keywords: ['翻译', '润色', '总结', '概括', '改写', '生成文本'],
       forbidden: ['文档', '文件', 'docx', '报告', '审查', '风险', '合同', '竞品', '周报', '会议纪要', 'xlsx', 'ppt'],
       tool: 'llm_generate',
       buildParams: (input) => ({ prompt: input })
@@ -913,8 +910,8 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     {
       nodeId: 'l1-knowledge-feeder',
       nodeName: '知识检索',
-      // 2026-09-30 缩表：原 5 词 → 3 词（同上：5 词表单命中 0.4 < 0.6 门）。
-      keywords: ['检索', '知识库', '查一下'],
+      // 2026-09-30：同 model-gateway——表长不再惩罚覆盖，恢复同义表达。
+      keywords: ['检索', '知识库', '查一下', '搜索知识'],
       forbidden: ['文档', '文件', '创建', '新建', '写文件', '审查'],
       tool: 'llm_generate',
       buildParams: (input) => ({ prompt: input })
@@ -971,7 +968,13 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     if (hasForbidden) continue
 
     const matchedKwCount = rule.keywords.filter(kw => inputLower.includes(kw)).length
-    const confidence = Math.min(matchedKwCount / rule.keywords.length * 2, 0.9)
+    // 2026-09-30：分母由「表长」改为 min(表长, 3)。原式 `命中数 / 表长 × 2` 让**表越长越难命中**——
+    // 8 词表单次命中只有 0.25，永远过不了 0.6 门（实测「改写这段文字」因此漏接，缩表的代价即丢同义表达）。
+    // 以 3 词为满分基准后：命中 1 个即 0.667 ≥ 门，表长不再惩罚覆盖广度；3 词及以下的表行为完全不变。
+    // **代价与约束**：表可以列更多同义词，故表内只放"该能力专属、不与他层抢"的中高辨识度词；
+    // 宽词（"帮我写""写一段"）仍不得入表——它们该走 L0 规则 3 或 L2。
+    const denom = Math.min(rule.keywords.length, 3)
+    const confidence = Math.min(matchedKwCount / denom * 2, 0.9)
 
     if (confidence >= 0.6) {
       debugLog(`[L1 Check] 命中：${rule.nodeName}（置信${(confidence * 100).toFixed(0)}%）`)

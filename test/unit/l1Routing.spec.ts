@@ -109,13 +109,21 @@ describe('L1 门值校准基线 · l1Pass = 0.6', () => {
   const LABELED: Array<[string, string]> = [
     ['帮我翻译一下这段话并润色改写', 'l1-model-gateway'],
     ['帮我把这段话润色一下', 'l1-model-gateway'],
+    ['把这段话翻译成英文', 'l1-model-gateway'],
+    ['帮我总结一下这段内容', 'l1-model-gateway'],
+    // 回归样本：缩表时删掉 '改写' 导致此输入漏接（实测）；改为"以 3 词为满分基准"的
+    // 分母后表可容纳更多同义词，此条恢复命中。
+    ['改写这段文字', 'l1-model-gateway'],
     ['检索知识库里的内容', 'l1-knowledge-feeder'],
+    ['检索一下知识库', 'l1-knowledge-feeder'],
     ['把这个需求拆解一下，给我执行步骤', 'l1-task-translator'],
     ['把这个任务分解成几步', 'l1-task-translator'],
     ['把这段内容排版一下', 'l1-result-beautifier'],
     ['这段输出美化一下', 'l1-result-beautifier'],
+    ['把输出渲染成好看的格式', 'l1-result-beautifier'],
     ['你还记得我们之前聊过的项目吗', 'l1-workspace-memory'],
     ['之前聊过的需求是什么', 'l1-workspace-memory'],
+    ['历史记录里有没有提过这个项目', 'l1-workspace-memory'],
     ['帮我把这个任务编排成流水线', 'l1-pipeline-builder'],
     ['把这几步串成自动化流程', 'l1-pipeline-builder']
   ]
@@ -146,7 +154,7 @@ describe('L1 门值校准基线 · l1Pass = 0.6', () => {
     }
   })
 
-  it('置信度下限：单次命中即过门（conf = min(matchedKw/keywords×2, 0.9) ≥ 0.6）', () => {
+  it('置信度下限：单次命中即过门（conf = min(命中数 / min(表长,3) × 2, 0.9) ≥ 0.6）', () => {
     // 3 词表命中 1 个 → 0.667 ≥ 0.6 ✓（这是"关键词表必须短"那条约束的量化依据）
     const r = checkL1Capability('把这个需求拆解一下')
     expect(r.nodeId).toBe('l1-task-translator')
