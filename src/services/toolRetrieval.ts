@@ -512,19 +512,59 @@ interface ScoreRecord {
 const _kwScoreHistory: ScoreRecord[] = []
 const _vecScoreHistory: ScoreRecord[] = []
 const SCORE_HISTORY_MAX = 200
+const SCORE_HISTORY_KEY = 'raap-score-history'
+let _scoreWriteTick = 0
+
+// 2026-09-30：分数池持久化（原为纯内存 ⇒ 每次重启清零、pool.length<10 一律回落 fallback
+// 阈值，动态阈值在冷启动期从不生效；与 G-13「指纹缓存重启即失忆」同型）。
+// 只存分数数值，恢复时补上 timestamp/type——ScoreRecord 的时间戳不参与阈值计算。
+function loadScoreHistory(): void {
+  try {
+    const raw = vault.readCache('tool', SCORE_HISTORY_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as { keyword?: unknown; vector?: unknown }
+    const take = (v: unknown): number[] =>
+      Array.isArray(v) ? v.filter((n): n is number => typeof n === 'number' && Number.isFinite(n)).slice(-SCORE_HISTORY_MAX) : []
+    const now = Date.now()
+    for (const s of take(parsed?.keyword)) _kwScoreHistory.push({ score: s, timestamp: now, type: 'keyword' })
+    for (const s of take(parsed?.vector)) _vecScoreHistory.push({ score: s, timestamp: now, type: 'vector' })
+  } catch {
+    // 坏数据/无权限一律不阻塞启动——退化为"无历史"，即旧行为
+  }
+}
+
+function saveScoreHistory(): void {
+  try {
+    vault.writeThrough('tool', SCORE_HISTORY_KEY, JSON.stringify({
+      keyword: _kwScoreHistory.map(r => r.score),
+      vector: _vecScoreHistory.map(r => r.score)
+    }))
+  } catch {
+    debugLog('[RaaP] 分数池持久化失败，仅存于内存')
+  }
+}
 
 function recordScoreImpl(score: number, type: 'keyword' | 'vector'): void {
   const pool = type === 'keyword' ? _kwScoreHistory : _vecScoreHistory
   pool.push({ score, timestamp: Date.now(), type })
   if (pool.length > SCORE_HISTORY_MAX) pool.shift()
+  // 节流：每 10 次记录落一次盘（每次匹配都写会过于频繁）
+  if (++_scoreWriteTick >= 10) {
+    _scoreWriteTick = 0
+    saveScoreHistory()
+  }
 }
 
+// 启动时恢复（模块加载即执行；失败退化为无历史）
+loadScoreHistory()
+
 // 2026-09-30：导出以便单测（池是模块级状态，无法从外部观察）。
-// 测试用重置函数参照 writeGate.resetWriteGrantCache 的先例。
+// 测试用重置函数参照 writeGate.resetWriteGrantCache 的先例；**只清内存**，不动持久化。
 export const recordScore = recordScoreImpl
 export function __resetScoreHistoryForTest(): void {
   _kwScoreHistory.length = 0
   _vecScoreHistory.length = 0
+  _scoreWriteTick = 0
 }
 
 export function computeDynamicThreshold(baseThreshold: number, fallback: number, type: 'keyword' | 'vector'): number {

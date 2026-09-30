@@ -202,6 +202,20 @@ describe('keywordMatchScore', () => {
     expect(sLong).toBeGreaterThanOrEqual(0.3)
   })
 
+  it('门控尺度自洽（2026-09-30 分母归一化后）：单命中过中信号线 0.3、双命中过强信号线 0.6', () => {
+    // universalMatch 的门控用绝对阈值：hasModerateSignal = kw >= 0.3、hasStrongSignal = kw >= 0.6。
+    // 这两条线只有在「分数尺度固定」时才有意义——分母归一化前长表单命中 0.125 永远够不到 0.3，
+    // 门控形同虚设。归一化后尺度固定：命中 1 个 = 1/3 ≈ 0.333、2 个 = 2/3 ≈ 0.667。
+    const m = makeManifest({
+      routing: { targetRoles: [], triggerKeywords: [], confidence: 0.9, keywords: ['周报', '总结', '汇报', '报告', '统计', '汇总'], retrievalSummary: '', userSummary: '' }
+    })
+    const one = keywordMatchScore('帮我写周报', m)
+    const two = keywordMatchScore('帮我写周报总结', m)
+    expect(one).toBeGreaterThanOrEqual(0.3)  // 中信号 → 进入消歧流程
+    expect(one).toBeLessThan(0.6)
+    expect(two).toBeGreaterThanOrEqual(0.6)  // 强信号 → 可直接取候选
+  })
+
   it('P1-D5：禁词命中直接归零——列查类输入不得路由到文件创建器', () => {
     const m = makeManifest({
       routing: {
