@@ -1000,10 +1000,12 @@ export async function executeStep(
         onSideEffect?.(step.step, step.tool, 'create', fileMatch[1])
       }
     }
-    // P1-D2：原生写文件工具纳入副作用记录（供产物核验闸门比对用户要求）
-    if (step.tool === 'file_write' || step.tool === 'create_docx') {
-      const writePath = String(resolvedArgs.filePath || resolvedArgs.path || '')
-      if (writePath) onSideEffect?.(step.step, step.tool, 'create', writePath)
+    // P1-D2 → 2026-09-30 扩展：产出型工具全覆盖。原实现只登记 file_write / create_docx，
+    // 导致 file_move / file_copy / file_convert / image_process 的产物不被核验看见
+    // ⇒ deliverableCheck 误报「未产生任何文件产物」并注入误导文案（V2-R04 实测）。
+    // 路径抽取见文件末尾的 extractProducedArtifacts（各工具返回值格式不同）。
+    for (const p of extractProducedArtifacts(step.tool, result, resolvedArgs)) {
+      onSideEffect?.(step.step, step.tool, 'create', p)
     }
     if (step.tool === 'read_file') {
       const path = String(resolvedArgs.path || resolvedArgs.file_path || '')
@@ -1750,4 +1752,65 @@ export function resolveDirectPrompt(
   }
   const prompt = fillCompiledPrompt(compiled, variables)
   return { prompt, maxTokens: manifest.execution.directCall.maxTokens }
+}
+
+/**
+ * 从产出型工具的返回值里抽出产物路径（供 onSideEffect → deliverableCheck 核验）。
+ *
+ * 为什么必须看返回值而非入参：各工具的产物路径来源不同——
+ *   file_move / file_copy → 返回串的「→ <to>」
+ *   file_convert          → 「已生成 PDF: <path>（N 字节，源文件: …）」
+ *   image_process         → 「<path>（WxH, N 字节, fmt）」可多条，以「；」分隔
+ *   file_write / create_docx → 「文件已写入: <path>」（入参亦可兜底）
+ *
+ * 原实现只认 shell_exec(writeFileSync) / file_write / create_docx 三类，其余产出型
+ * 工具一律不登记 ⇒ producedArtifacts 为空 ⇒ conformanceCheck 误报
+ * 「未产生任何文件产物」并注入误导文案（V2-R04 实测：模型确实做了重命名，
+ * 回复却因该注入而自相矛盾，被判 not-deliverable）。
+ *
+ * 只读工具（read_file / list_directory）与纯生成工具（llm_generate）返回空数组——
+ * 不得凭空造产物。
+ */
+export function extractProducedArtifacts(
+  tool: string,
+  result: unknown,
+  args: Record<string, unknown> = {}
+): string[] {
+  const text = typeof result === 'string' ? result : ''
+  const out: string[] = []
+  const push = (p: unknown) => {
+    const s = String(p ?? '').trim()
+    if (s && !s.includes('{{')) out.push(s)   // 未绑定的槽位占位符不算产物
+  }
+
+  switch (tool) {
+    case 'file_move':
+    case 'file_copy': {
+      const m = /→\s*(.+?)\s*$/.exec(text)
+      if (m) push(m[1])
+      else push(args.to ?? args.target ?? args.newPath ?? args.dest)
+      break
+    }
+    case 'file_convert': {
+      const m = /已生成 PDF:\s*(.+?)（/.exec(text)
+      if (m) push(m[1])
+      else if (!/failed|missing/i.test(text)) push(args.target ?? args.to ?? args.outPath)
+      break
+    }
+    case 'image_process': {
+      for (const m of text.matchAll(/([A-Za-z]:\\[^（(；;\r\n]+?)（\d+x\d+/g)) push(m[1])
+      break
+    }
+    case 'file_write':
+    case 'create_docx': {
+      const m = /(?:文件已写入|已写入|已创建):\s*(.+?)(?:（|$)/.exec(text)
+      if (m) push(m[1])
+      else push(args.filePath ?? args.path)
+      break
+    }
+    default:
+      break   // 只读/无产物工具：不登记
+  }
+
+  return Array.from(new Set(out))
 }

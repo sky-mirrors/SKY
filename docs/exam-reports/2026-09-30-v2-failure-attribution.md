@@ -80,3 +80,31 @@ V2 触发的 **25 次确认条几乎全是 `plan-confirm-bar`**（计划确认�
 3. **位置遵循**（3 次同型）——值得看成提示词/输出契约问题单独处理。
 
 **本文只做归因，未改任何代码。**
+
+---
+
+## 修复记录（2026-09-30，本次）
+
+已按上面优先级 ① 落地：
+
+- 新增纯函数 `extractProducedArtifacts(tool, result, args)`（`src/services/macroExecutor.ts` 末尾）——
+  从**工具返回值**抽产物路径。之所以必须看返回值：各工具来源不同——`file_move`/`file_copy`
+  在「→ to」、`file_convert` 在「已生成 PDF: <path>」、`image_process` 在「<path>（WxH, …）」。
+- `executeStep` 的副作用登记改为调用它（原先是两处 `step.tool === …` 字符串匹配，只覆盖
+  `file_write`/`create_docx`）⇒ `producedArtifacts` 现在看得见这些工具的产物，
+  `conformanceCheck` 不再误报「未产生任何文件产物」。
+- 只读/纯生成工具（`read_file` / `list_directory` / `llm_generate`）仍返回空数组，不凭空造产物。
+
+验证：`test/unit/producedArtifacts.spec.ts` 8 条（先 RED 后 GREEN；覆盖 file_move / file_copy /
+file_convert / image_process / file_write，以及「失败返回值不产出路径」「只读工具不登记」）；
+全量 **179 文件 / 2501 测试通过**；`tsc -b tsconfig.node.json --force && tsc --noEmit` 0 错。
+
+**未修**（保持原状）：
+- 优先级 ②「位置遵循」（R01 / R05 / M06 同型 3 次）——属输出契约/提示词层面。
+- 优先级 ③「plan 层占比高」（零干预率低的主因）——动路由要谨慎。
+
+**附带发现（环境敏感测试）**：`test/unit/apiStore.timerDispose.spec.ts` 的第三条用例
+（「API not ready 应抛异常」）在 **Ollama 运行时必然超时失败**，停掉即通过（本次做了判据实验：
+停前 1 failed / 停后 3 passed）。原因是 `providerChain` 会探测本地端口，探测成功后守卫路径
+不再抛异常。**跑全量前若开着 Ollama，这一个失败是环境噪声，不是回归**——但反过来说，
+该文件缺少对「本地 provider 存在」这一前提的隔离，值得单独修。
