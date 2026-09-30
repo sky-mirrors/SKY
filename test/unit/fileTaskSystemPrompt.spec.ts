@@ -112,3 +112,46 @@ describe('文件类任务提示：全路径走查（三处 payload 都要带）'
     expect(branch).toContain('omitShell')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-09-30 新增三段约束（V2 首考归因的对应修复）
+//
+// 归因证据：docs/exam-reports/2026-09-30-v2-failure-attribution.md
+//   - 位置错 3 次同型：R01 存 docs 而非 out、R05 建到 Desktop、M06 落 media——
+//     三道题都明确要求「存到 out 下」却没遵守 ⇒ 加【输出位置】
+//   - 格式冒充 2 次：H01 要 PPT 给了 docx、S03 要 .bat 给了 .bat.docx ⇒ 加【格式不具备时】
+//   - 输出内部结构：R09 把工具调用链 JSON 直接吐给用户 ⇒ 加【输出形态】
+// ─────────────────────────────────────────────────────────────────────────────
+describe('文件类任务 system 提示：2026-09-30 新增的三段约束', () => {
+  const PROFILE = 'C:\\Users\\Administrator'
+  const DESKTOP = 'C:\\Users\\Administrator\\Desktop'
+
+  it('【输出位置】明确指定位置的产物不得改存默认桌面或源目录', () => {
+    const t = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(t).toContain('【输出位置】')
+    expect(t).toContain('必须落在该目录')
+    expect(t).toContain('不得改用默认桌面')
+    expect(t).toMatch(/目录不存在|先建/)
+  })
+
+  it('【格式不具备时】要求如实说明，不得用另一种格式冒充', () => {
+    const t = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(t).toContain('【格式不具备时】')
+    expect(t).toContain('如实说明做不到')
+    expect(t).toContain('冒充')
+  })
+
+  it('【输出形态】不得把工具调用链/计划对象/思考过程吐给用户', () => {
+    const t = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
+    expect(t).toContain('【输出形态】')
+    expect(t).toContain('工具调用链')
+    expect(t).toMatch(/JSON/)
+  })
+
+  it('omitShell 变体下三段同样存在（两条分支都要带）', () => {
+    const t = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP, omitShell: true })
+    expect(t).toContain('【输出位置】')
+    expect(t).toContain('【格式不具备时】')
+    expect(t).toContain('【输出形态】')
+  })
+})
