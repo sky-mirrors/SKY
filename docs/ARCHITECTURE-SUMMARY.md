@@ -686,7 +686,7 @@ sequenceDiagram
 
 | 层 | 名称 | 门值 | 实现函数 | 内容服务 |
 |---|---|---|---|---|
-| L0 | 规则直通 | 无 | `l0()` | `l0SkillRouter.tryL0Skill`（9 条硬规则） |
+| L0 | 规则直通 | 无 | `l0()` | `l0SkillRouter.tryL0Skill`（10 条硬规则） |
 | L0.5 | 关键词快配 | `l05Pass=0.8`（`l05Auto=0.9` 且计划无 shell） | `l05()` | `l0SkillRouter.tryL05QuickMatch`（比 L2 manifest 的 keywords） |
 | L1 | 能力直调 | `l1Pass=0.6` | `l1()` | `l0SkillRouter.checkL1Capability`（4 项） |
 | L2 | RaaP 混合检索 | — | `l2()` | `toolRetrieval.universalMatch` + M16 竞争 + 消歧四策略 |
@@ -695,14 +695,14 @@ sequenceDiagram
 
 编排核在 `src\kernel\funnel.ts`（`LAYER_ORDER` @ `:97`）；**每层默认实现在** `src\kernels\default\index.ts` 的 `createDefaultLayers()`；L0/L0.5/L1/L4 的具体内容在 `src\services\l0SkillRouter.ts`。
 
-### 16.2 L0 — 9 条硬编码规则（零 token 直达）
+### 16.2 L0 — 10 条硬编码规则（零 token 直达）
 
 每条规则 = 触发表 + **禁词表** + `buildPlan`；命中即跳过全部后续层。
 
 | # | 规则（域） | 触发要点 | 产出工具 |
 |---|---|---|---|
 | 1 | 文件格式转换（file） | 「转/导出/另存为」+ 目标格式；`.md\|.txt\|.html\|.csv` → `docx\|pdf\|xlsx` | `file_convert` / `read_file` / `llm_generate` / `shell_exec` |
-| 2 | 快速 Shell 命令（system） | 以 `ls\|dir\|pwd\|whoami\|date\|cat\|echo\|mkdir…` 开头；「运行/执行」（除 `rm\|del` 与 `npm\|node\|pip\|python\|git` 开头） | `shell_exec` |
+| 2 | 快速 Shell 命令（system） | 以 `ls\|dir\|pwd\|whoami\|date\|cat\|type\|echo\|mkdir\|cp\|copy` 开头；「运行/执行」；`npm\|node\|pip\|python\|git` 开头 | `shell_exec` |
 | 3 | 简单文本生成（creation） | 「写/生成/起草」+ 代码/函数/脚本/邮件/通知/公告/文案/总结 | `llm_generate` |
 | 4 | HTTP 请求（network） | `curl\|fetch\|get\|post\|请求\|访问\|下载` 开头，或输入含 URL | `http_request` |
 | 5 | 文件创建（file） | 「创建/新建/写/生成/保存」+ docx/word/txt/文档/文件 | `create_docx` / `file_write` |
@@ -710,12 +710,16 @@ sequenceDiagram
 | 7 | 简单查询（query） | 几点/什么时间/今天几号/天气/计算/算一下/等于多少 | `llm_generate`（`modelTier: nano`） |
 | 8 | 快速文件操作（file） | 「读取/查看/打开/显示/阅读」或 `cat\|type\|head\|tail` | `read_file` |
 | 9 | **图片按拍摄日期重命名**（file） | 「重命名/改名/更名/批量命名」+ 图片/照片/图像 | `rename_images_by_date` |
+| 10 | **文件移动重命名**（file，2026-09-30 加） | 「移动/移到/挪到」或「重命名/改名/更名」+ 能同时抽出的真实 from/to 路径 | `file_move` |
 
-**禁词表是这层的核心防线**（在 `skillRules[*].forbiddenPatterns`）——例如「文件创建」禁入 `列出\|清单\|有哪些\|查看\|找出\|转成\|转为`（防「列清单」被误判成「建文件」，即验收 Q14 那次误路由）；「图片重命名」禁入 `审查\|合规\|条款\|转换\|导出\|保存为`；「简单查询」禁入 `分析\|报告\|审查\|对比\|文档\|文件\|转换`。
+**禁词表是这层的核心防线**（在 `skillRules[*].forbiddenPatterns`）——例如「文件创建」禁入 `列出\|清单\|有哪些\|查看\|找出\|转成\|转为`（防「列清单」被误判成「建文件」，即验收 Q14 那次误路由）；「图片重命名」禁入 `审查\|合规\|条款\|转换\|导出\|保存为`；「简单查询」禁入 `分析\|报告\|审查\|对比\|文档\|文件\|转换`；规则 10 禁入图片类词（与规则 9 划清）与域词（审查/合同/报告…，避免抢 L2 manifest）。
 
-**两处「不伪造」的取舍已写进代码注释**：规则 1 与 9 在**抽不到真实路径**时，不再生成带 `input.<ext>` 占位符的假计划（曾导致计划跑到 step2 报「文件不存在（路径：input.9）」），而是产出一步「如实索要完整路径」的 `llm_generate`。
+**三处「不伪造」的取舍已写进代码注释**：规则 1、9、10 在**抽不到真实路径**时，不再生成假计划（规则 1 曾伪造 `input.<ext>` 占位符，导致计划跑到 step2 报「文件不存在（路径：input.9）」）——规则 1/9 产出一步「如实索要完整路径」的 `llm_generate`，规则 10 直接返回 `null` 下沉（它没有更合适的兜底形态）。
 
-> **文档滞后点**：`README.md` 与 `docs\最新口径.md` 均称 L0 有 **8 条**规则——现为 **9 条**（第 9 条为后加的「图片按拍摄日期重命名」）。
+> **文档滞后点**：`README.md` 与 `docs\最新口径.md` 均称 L0 有 **8 条**规则——现为 **10 条**（第 9 条为「图片按拍摄日期重命名」，第 10 条为 2026-09-30 补的「文件移动重命名」）。`README.md:118` 另称「7 built-in patterns」，同属滞后。
+>
+> **2026-09-30 修正（规则 2）**：触发词移除了 `mv\|move\|rm\|del`——shell 白名单（`electron\shell-security.ts:4-16` 定义；`isShellCommandAllowed` 在 `:436-444` 按**词边界前缀**匹配 `trimmed === base \|\| trimmed.startsWith(base + ' ')`）不含这些命令，命中只会产出**必被拒绝**的计划（`命令不在白名单中`，exit -1）。「移动/重命名」改由规则 10 走 `file_move`（IPC 直连 fs，绕开 shell 白名单）；删除类**不设直达**，与 `writeGate` 的写授权边界取向一致。
+> 同源未修（超出本次范围）：规则 2 的 `^(npm|node|pip|python|git)\s+` 里 `node`/`python`/`git` 同样不在白名单（`npm install`/`pip install` 才在）。
 
 ### 16.3 L0.5 — 单步 L2 工具的「快配」
 
@@ -851,7 +855,7 @@ HoloStarmap/
 
 ## 附：本文的证据强度声明
 
-- **已核验（本机 grep/read 复核）**：六层漏斗结构、星图残留两处、`vitest.config.ts` 排除规则、IPC 通道数、各目录文件数、`package.json`/`tsconfig.node.json` 内容、L0 九条规则与 L1 四项能力的读码、L2 的 27 个 manifest 清单。
+- **已核验（本机 grep/read 复核）**：六层漏斗结构、星图残留两处、`vitest.config.ts` 排除规则、IPC 通道数、各目录文件数、`package.json`/`tsconfig.node.json` 内容、L0 规则与 L1 四项能力的读码、L2 的 27 个 manifest 清单。（2026-09-30 补第 10 条 L0 规则后，L0 口径为 10 条。）
 - **本轮真机实测（2026-09-27，§16.7 的依据）**：`npm run verify:pdf` / `verify:image` / `verify:media` **三条 E2E 全部 PASS**（真起 Electron 跑生产代码）；CDP 连 Electron 渲染进程直调 `window.electronAPI` —— `createDirectory`/`fileWrite`/`fileRead`/`createDocx`/`fileMove`/`fileList`/`httpFetch`/`shellExec` **全部实测通过**（含 `rm -rf /` 被白名单拒绝的负例）；`exam-report.json`（ACCEPTANCE-SPEC v1.0）实测 **18/18 deliverable**、零干预 13/18、平均 9634ms、59439 tokens。
 - **来自子代理只读调研（未逐条回机复核）**：§3 各模块的内部实现细节、§5 各服务模块的行为契约、§12 领域包三层细节。
 - **来自项目文档（可能滞后）**：`docs/最新口径.md` 的机制判定、README 的基准数据。

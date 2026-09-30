@@ -235,4 +235,67 @@ describe('l0SkillRouter', () => {
       expect(plan!.steps[0].tool).toBe('create_directory')
     })
   })
+
+  // ===== 2026-09-30：补 file_move 的全漏斗空洞 + 收窄 shell 规则触发词 =====
+  describe('文件移动重命名（新增规则，补 file_move 空洞）', () => {
+    it('两个绝对路径：移动 → 单步 file_move', async () => {
+      const plan = await tryL0Skill('把 C:\\Users\\x\\Desktop\\a.txt 移到 C:\\Users\\x\\Desktop\\b.txt')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps).toHaveLength(1)
+      expect(plan!.steps[0].tool).toBe('file_move')
+      expect(plan!.steps[0].params.from).toBe('C:\\Users\\x\\Desktop\\a.txt')
+      expect(plan!.steps[0].params.to).toBe('C:\\Users\\x\\Desktop\\b.txt')
+    })
+
+    it('同目录重命名（to 为裸文件名）→ 解析到源文件所在目录', async () => {
+      const plan = await tryL0Skill('把 C:\\Users\\x\\Desktop\\a.txt 重命名为 b.txt')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('file_move')
+      expect(plan!.steps[0].params.from).toBe('C:\\Users\\x\\Desktop\\a.txt')
+      expect(plan!.steps[0].params.to).toBe('C:\\Users\\x\\Desktop\\b.txt')
+    })
+
+    it('抽不到完整路径 → 不产出 file_move（下沉，不伪造）', async () => {
+      const plan = await tryL0Skill('把这个文件移动一下')
+      const wentToMove = plan?.steps.some(s => s.tool === 'file_move') ?? false
+      expect(wentToMove).toBe(false)
+    })
+
+    it('与规则 9 划清：图片按拍摄日期重命名仍走 rename_images_by_date', async () => {
+      // 带绝对路径，规则 9 才会产出 rename_images_by_date（无路径时它产出澄清计划）
+      const plan = await tryL0Skill('把 C:\\Users\\x\\Desktop\\photos 文件夹里的图片按拍摄日期重命名')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('rename_images_by_date')
+      expect(plan!.steps[0].tool).not.toBe('file_move')
+    })
+
+    it('域词禁入：合同/条款类不产出 file_move', async () => {
+      const plan = await tryL0Skill('把这份合同的条款移动到附录')
+      const wentToMove = plan?.steps.some(s => s.tool === 'file_move') ?? false
+      expect(wentToMove).toBe(false)
+    })
+  })
+
+  // 缺口 2 回归：shell 白名单（electron/shell-security.ts:4-16 定义 + :436-444 词边界
+  // 前缀匹配 isShellCommandAllowed）不含 mv / move / ren / del / rm —— L0 不得再为这些
+  // 命令产出必被拒绝的 shell_exec 计划（exit -1）。
+  describe('缺口 2 回归：白名单外命令不得产出 shell_exec', () => {
+    it('mv 不再产出 shell_exec', async () => {
+      const plan = await tryL0Skill('mv C:\\a.txt C:\\b.txt')
+      const wentToShell = plan?.steps.some(s => s.tool === 'shell_exec') ?? false
+      expect(wentToShell).toBe(false)
+    })
+
+    it('del 不再产出 shell_exec', async () => {
+      const plan = await tryL0Skill('del C:\\a.txt')
+      const wentToShell = plan?.steps.some(s => s.tool === 'shell_exec') ?? false
+      expect(wentToShell).toBe(false)
+    })
+
+    it('白名单内命令仍走 shell_exec（ls，防误伤）', async () => {
+      const plan = await tryL0Skill('ls -la')
+      expect(plan).not.toBeNull()
+      expect(plan!.steps[0].tool).toBe('shell_exec')
+    })
+  })
 })

@@ -59,6 +59,43 @@ function extractDirPath(input: string): string | null {
 }
 
 /**
+ * 2026-09-30：为 L0「文件移动重命名」规则抽 from/to 两个路径。
+ *
+ * **只接受能同时确定两者的情形**——抽不全返回 null 下沉给下游，不伪造路径
+ * （与规则 1「拿不到真实路径就不产出必失败的假计划」同款原则，见本文件 :222 注释）。
+ * 两种形态：
+ *   - 两个绝对路径：`把 <A> 移到 <B>` → { from: A, to: B }
+ *   - 同目录改名：`<A> 重命名为 b.txt`（to 无目录段）→ { from: A, to: <A 的目录>\b.txt }
+ */
+function extractMovePaths(input: string): { from: string; to: string } | null {
+  const abs: string[] = []
+  for (const m of input.matchAll(/([A-Za-z]:\\[^\s"'，。；、！？（）()【】]+)/g)) {
+    abs.push(m[1].replace(/[\\/]+$/, ''))
+  }
+
+  if (abs.length >= 2) {
+    const [from, to] = abs
+    if (!from || !to || from === to) return null
+    return { from, to }
+  }
+
+  if (abs.length === 1) {
+    const from = abs[0]
+    const dir = from.replace(/[\\/][^\\/]*$/, '')   // 去掉文件名，取所在目录
+    if (!dir || dir === from) return null
+    const m = input.match(/(?:重命名为|改名为|更名为|重命名成|改名成)\s*["'「『]?([^"'」』\s\\/:*?<>|]{1,60})/i)
+    if (m) {
+      const name = m[1].trim()
+      if (name && !name.includes('\\') && !name.includes('/')) {
+        return { from, to: `${dir}\\${name}` }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * 第二波·图像能力：从自然语言里抽出**可确定执行**的图像操作。
  * 抽不到任何一项就返回空对象——由调用方决定是"直调"还是交给下游层（不猜用户意图）。
  */
@@ -301,7 +338,11 @@ const skillRules: L0SkillRule[] = [
     name: '快速Shell命令',
     domain: 'system',
     triggerPatterns: [
-      /^(ls|dir|pwd|whoami|date|hostname|cat|type|echo|mkdir|cp|copy|mv|move|rm|del)\b/i,
+      // 2026-09-30：移除 mv|move|rm|del —— shell 白名单（electron/shell-security.ts:4-16 定义，
+      // isShellCommandAllowed :436-444 按词边界前缀匹配）不含这些命令，命中只会产出必被拒的
+      // 计划（exit -1）。「移动/重命名」改由本文件末尾的「文件移动重命名」规则走 file_move；
+      // 删除类不设直达（与 writeGate 的写授权边界取向一致，保留在模型回路里经确认条走）。
+      /^(ls|dir|pwd|whoami|date|hostname|cat|type|echo|mkdir|cp|copy)\b/i,
       /^运行\s+/,
       /^执行\s+/,
       /^(npm|node|pip|python|git)\s+/
@@ -521,6 +562,40 @@ const skillRules: L0SkillRule[] = [
           tool: 'rename_images_by_date',
           params: { dir },
           expectedOutput: '重命名清单（旧名 → 新名）'
+        }],
+        isExploration: false
+      }
+    }
+  },
+  {
+    // 2026-09-30：补 file_move 的**全漏斗空洞**。此前「移动/重命名文件」在 L0/L1/L2 三层
+    // 都没有通道，只能靠模型在工具回路里自选 file_move——Q15 实测模型因看不到该工具改用
+    // shell_exec，而 shell 白名单不含 ren/move（退出码 -1、0 文件改名、两轮考试连续复现，
+    // 见 fileTaskSystemPrompt.ts:17-21）。那次只补了系统提示词，没补漏斗层通道；此处补上。
+    name: '文件移动重命名',
+    domain: 'file',
+    triggerPatterns: [
+      /(移动|移到|挪到)/,
+      /(重命名|改名|更名)/
+    ],
+    forbiddenPatterns: [
+      // 与规则 9 划清：涉及图片的「按拍摄日期重命名」归规则 9
+      /(图片|照片|图像|截图|\.jpe?g|\.png|\.webp|tiff?)/i,
+      // 域词交给 L2（避免抢 manifest）
+      /(审查|合规|条款|合同|风险|报告|周报|竞品|财报|KPI|预算|摘要|翻译|排版)/
+    ],
+    async buildPlan(input: string): Promise<L0DirectPlan | null> {
+      // 抽不到完整的 from/to 就返回 null 下沉——不伪造路径（fail-closed）
+      const paths = extractMovePaths(input)
+      if (!paths) return null
+      return {
+        intent: `移动/重命名：${paths.from} → ${paths.to}`,
+        steps: [{
+          step: 1,
+          description: '移动/重命名文件（IPC 直连 fs，不经 shell 白名单）',
+          tool: 'file_move',
+          params: { from: paths.from, to: paths.to },
+          expectedOutput: paths.to
         }],
         isExploration: false
       }
