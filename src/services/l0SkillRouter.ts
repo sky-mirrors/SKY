@@ -405,6 +405,11 @@ const skillRules: L0SkillRule[] = [
       /^(ls|dir|pwd|whoami|date|hostname|cat|type|echo|mkdir|cp|copy)\b/i,
       /^运行\s+/,
       /^执行\s+/,
+      // 2026-09-30 实测（test/unit/shellAllowlist.spec.ts）：本支里 `npm install` / `pip install`
+      // 会被白名单放行，而 `git` / `python` / `node`（裸 node，非 `node -e`）**全部 DENY**——
+      // 即这三个会产出"必失败计划"。**刻意不收窄**：它们没有原生替代能力（不像 `mv` 有
+      // `file_move`），收窄只会让请求下沉给模型去解释或编造，比"诚实的白名单拒绝"更差。
+      // 若将来为它们加了原生替代，再一并移除。
       /^(npm|node|pip|python|git)\s+/
     ],
     forbiddenPatterns: [
