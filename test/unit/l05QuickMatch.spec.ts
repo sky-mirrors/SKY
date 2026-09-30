@@ -152,5 +152,17 @@ describe('tryL05QuickMatch · 门值校准基线（2026-09-30 实测）', () => 
     expect(countAt(0.6)).toBeGreaterThan(countAt(0.65))
     expect(countAt(0.65)).toBeLessThanOrEqual(1)
   })
+
+  it('l05Auto(0.9) 观察：本标注集内无 conf ≥ 0.9 的命中 → 自动执行门几乎不触发', () => {
+    const high = LABELED.filter(([i]) => {
+      const r = tryL05QuickMatch(i, l2Manifests)
+      return r !== null && r.confidence >= 0.9
+    })
+    // conf ≥ 0.9 需 hitRatio ≥ 0.6（命中六成关键词），自然语言罕见——实测 0 例。
+    // 这是**保守取舍而非缺陷**：L0.5 命中后仍需用户确认才执行（l05Auto 是风险门），
+    // 不触发不造成功能损失。此断言是提醒点：若门值/公式改动让这一档大量出现，需重新评估
+    // 自动执行面是否过大。
+    expect(high.length).toBeLessThanOrEqual(1)
+  })
 })
 

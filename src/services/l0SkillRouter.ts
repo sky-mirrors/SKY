@@ -900,7 +900,12 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     {
       nodeId: 'l1-model-gateway',
       nodeName: '模型网关',
-      keywords: ['翻译', '生成文本', '写一段', '帮我写', '改写', '润色', '总结一下', '概括'],
+      // 2026-09-30 缩表：原 8 词（翻译/生成文本/写一段/帮我写/改写/润色/总结一下/概括）。
+      // conf = min(命中数 / 表长 × 2, 0.9) 中**分母就是表长**，8 词表单次命中只有 0.25，
+      // 永远过不了 0.6 门——校准实测「帮我翻译一下这段话」这类最普通的请求都进不来。
+      // 缩到 3 个高辨识度词后单命中即 0.667 ≥ 门。被去掉的多是宽词（"帮我写""写一段"），
+      // 它们本就该走 L0 规则 3 或 L2，不该在 L1 抢。
+      keywords: ['翻译', '润色', '总结'],
       forbidden: ['文档', '文件', 'docx', '报告', '审查', '风险', '合同', '竞品', '周报', '会议纪要', 'xlsx', 'ppt'],
       tool: 'llm_generate',
       buildParams: (input) => ({ prompt: input })
@@ -908,7 +913,8 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
     {
       nodeId: 'l1-knowledge-feeder',
       nodeName: '知识检索',
-      keywords: ['搜索知识', '查知识库', '检索', '知识库', '查一下'],
+      // 2026-09-30 缩表：原 5 词 → 3 词（同上：5 词表单命中 0.4 < 0.6 门）。
+      keywords: ['检索', '知识库', '查一下'],
       forbidden: ['文档', '文件', '创建', '新建', '写文件', '审查'],
       tool: 'llm_generate',
       buildParams: (input) => ({ prompt: input })

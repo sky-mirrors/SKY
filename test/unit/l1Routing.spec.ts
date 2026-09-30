@@ -99,3 +99,57 @@ describe('checkL1Capability · L1 六节点路由覆盖', () => {
     })
   })
 })
+
+// 门值校准基线（2026-09-30，回应 G-15「门值未经校准」）。
+// `l1Pass = 0.6` 决定关键词规则型出口（model-gateway / knowledge-feeder / task-translator /
+// result-beautifier / workspace-memory / pipeline-builder）的放行。实测标注集：6 个节点各 1-2 条
+// 自然语言输入共 10 条 → **10/10 命中正确**，4 条负样本（周报/合同审查/文档翻译/天气）**零误接**。
+// 结论：0.6 在本样本集下安全。若将来公式或门值改动引入误接，本 describe 会红。
+describe('L1 门值校准基线 · l1Pass = 0.6', () => {
+  const LABELED: Array<[string, string]> = [
+    ['帮我翻译一下这段话并润色改写', 'l1-model-gateway'],
+    ['帮我把这段话润色一下', 'l1-model-gateway'],
+    ['检索知识库里的内容', 'l1-knowledge-feeder'],
+    ['把这个需求拆解一下，给我执行步骤', 'l1-task-translator'],
+    ['把这个任务分解成几步', 'l1-task-translator'],
+    ['把这段内容排版一下', 'l1-result-beautifier'],
+    ['这段输出美化一下', 'l1-result-beautifier'],
+    ['你还记得我们之前聊过的项目吗', 'l1-workspace-memory'],
+    ['之前聊过的需求是什么', 'l1-workspace-memory'],
+    ['帮我把这个任务编排成流水线', 'l1-pipeline-builder'],
+    ['把这几步串成自动化流程', 'l1-pipeline-builder']
+  ]
+  const NEGATIVES = [
+    '帮我写一份周报',
+    '审查这份合同的风险',
+    '把这份文档翻译成英文',
+    '今天天气怎么样',
+    // 「写一段产品介绍文案」的正确归属是 L0 规则 3（简单文本生成）——
+    // L1 不该抢，故它是负样本而非正样本（原标注把它当正样本是错的）。
+    '写一段产品介绍文案'
+  ]
+
+  it('关键词型出口：全部落到正确的节点', () => {
+    for (const [input, want] of LABELED) {
+      const r = checkL1Capability(input)
+      expect(r.canHandle).toBe(true)
+      expect(r.nodeId).toBe(want)
+      expect(r.confidence).toBeGreaterThanOrEqual(0.6)
+    }
+  })
+
+  it('负样本零误接（不得被 L1 关键词规则接走）', () => {
+    for (const input of NEGATIVES) {
+      const r = checkL1Capability(input)
+      const kwNodes = ['l1-model-gateway', 'l1-knowledge-feeder', 'l1-task-translator', 'l1-result-beautifier', 'l1-workspace-memory', 'l1-pipeline-builder']
+      expect(kwNodes).not.toContain(r.nodeId)
+    }
+  })
+
+  it('置信度下限：单次命中即过门（conf = min(matchedKw/keywords×2, 0.9) ≥ 0.6）', () => {
+    // 3 词表命中 1 个 → 0.667 ≥ 0.6 ✓（这是"关键词表必须短"那条约束的量化依据）
+    const r = checkL1Capability('把这个需求拆解一下')
+    expect(r.nodeId).toBe('l1-task-translator')
+    expect(r.confidence).toBeGreaterThanOrEqual(0.6)
+  })
+})

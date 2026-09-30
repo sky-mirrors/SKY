@@ -771,6 +771,10 @@ sequenceDiagram
 
 **注意**：L1 覆盖 L1 六节点**全部六个**（模型网关、知识检索、任务翻译官、结果美化师、工作区记忆体、流水线搭建台），另加三个后补的确定性能力节点（doc-convert / image-ops / media-ops）。
 
+> **2026-09-30 二次修正（关键词表缩表）+ 门值校准**：`conf = min(命中数 / **表长** × 2, 0.9)` 的**分母就是关键词表长度**——表越长越难命中。实测 `l1-model-gateway` 原 8 词表（翻译/生成文本/写一段/帮我写/改写/润色/总结一下/概括）**单次命中只有 0.25**，「帮我翻译一下这段话」这种最普通的请求都过不了 0.6 门；`l1-knowledge-feeder` 原 5 词表单命中 0.4 同样过不了。**缩表**：model-gateway → `['翻译','润色','总结']`、knowledge-feeder → `['检索','知识库','查一下']`（3 词表下单命中即 0.667 ≥ 门）。被去掉的多是宽词（"帮我写""写一段"），它们本就该走 L0 规则 3 或 L2。
+> **`l1Pass = 0.6` 校准**：标注集（6 个关键词型节点各 1-2 条自然语言输入 + 5 条负样本）实测**全部落到正确节点、负样本零误接**。校准基线固化为 `l1Routing.spec.ts` 的「L1 门值校准基线」describe。
+> **`l05Auto`（0.9）校准观察**：L0.5 命中样本中**无 conf ≥ 0.9**（该档需命中六成关键词，自然语言罕见）⇒ 自动执行门**几乎不触发**。这是**保守取舍而非缺陷**——不触发不造成功能损失（命中后仍需用户确认），故保持 0.9。记录在 `l05QuickMatch.spec.ts`。
+
 > **2026-09-30 补 `l1-media-ops`**：它此前**登记在 `l1Capabilities.ts` 的权威能力表、且被 `l2-media-process-v1` 引用为 `requiredL1`，却没有任何路由出口**——与同族的 `doc-convert`/`image-ops` 不一致（那两个都有出口）。本次按 `image-ops` 同款口径补上：`extractMediaOp` 抽 `format/crf/start/duration/thumbnailAt/width`，`checkL1Capability` 在「提到音视频 + 抽得到参数 + 有明确路径」三条同时成立时直调 `media_process`；缺任一条即下沉（L2 的 `l2-media-process-v1` manifest 仍是它的归宿）。测试见 `test/unit/mediaRouting.spec.ts`。
 
 > **2026-09-30 补齐**：此前 L1 只覆盖六节点中的**两个**，是 `最新口径.md` 判定「L1 近乎死层」的代码依据。本次补齐了 task-translator / result-beautifier / workspace-memory / pipeline-builder 四条路由规则（`l0SkillRouter.ts` 的 `l1Rules`）——四个节点此前在**执行侧有 handler**（`pipelineExecutor.ts:159-162`）而**路由侧无入口**，属「半接」。关键词表刻意保持 2-3 词短表：confidence 公式 `min(matchedKw / keywords.length × 2, 0.9)` 下，长表会让单次命中低于 0.6 门而永不触发。测试见 `test/unit/l1Routing.spec.ts`。详见 `docs/漏斗前四层盘点与L1补齐.md`。
