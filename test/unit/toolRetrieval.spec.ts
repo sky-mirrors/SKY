@@ -144,6 +144,24 @@ describe('keywordMatchScore', () => {
     expect(score).toBeGreaterThan(0)
   })
 
+  it('2026-09-30：表长不再惩罚覆盖广度——长表单命中不再跌破中信号线', () => {
+    // 原式 hits/表长：8 词表命中 1 个 = 0.125，**低于门控的「中信号」线 0.3**（见 universalMatch
+    // 的 hasModerateSignal），于是关键词侧完全不产生信号、L2 实际只靠向量（实测日志：
+    // `关键词Top3: 文档转 PDF=0.1667` 而正确答案被 `中等置信且margin小` 拒绝指派）。
+    // 分母改为 min(表长, 3) 后单命中即 1/3 ≈ 0.333。
+    const long = makeManifest({
+      routing: { targetRoles: [], triggerKeywords: [], confidence: 0.9, keywords: ['周报', '总结', '汇报', '报告', '统计', '汇总', '简报', '纪要'], retrievalSummary: '', userSummary: '' }
+    })
+    const short = makeManifest({
+      routing: { targetRoles: [], triggerKeywords: [], confidence: 0.9, keywords: ['周报', '总结', '汇报'], retrievalSummary: '', userSummary: '' }
+    })
+    const sLong = keywordMatchScore('帮我写周报', long)
+    const sShort = keywordMatchScore('帮我写周报', short)
+    // 单命中时，长表与短表同分，且都过中信号线（3 词及以下的表行为不变）
+    expect(sLong).toBeCloseTo(sShort, 5)
+    expect(sLong).toBeGreaterThanOrEqual(0.3)
+  })
+
   it('P1-D5：禁词命中直接归零——列查类输入不得路由到文件创建器', () => {
     const m = makeManifest({
       routing: {

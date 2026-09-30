@@ -377,7 +377,15 @@ function keywordMatchScoreGeneric(userInput: string, keywords: string[], userSum
     }
   }
 
-  let score = keywords.length > 0 ? hits / keywords.length : 0
+  // 2026-09-30：分母由「表长」改为 min(表长, 3) —— 与 L1 的 conf 公式同款修法（同一系统性缺陷的第 3 处）。
+  // 原式让**表越长越难命中**：6 词表命中 1 个 = 0.1667、11 词表 = 0.0909，**全部低于门控的
+  // 「中信号」线 0.3**（见下方 hasModerateSignal），于是关键词侧**完全不产生信号**、L2 实际只靠向量。
+  // 实测日志（2026-09-30）：`[Universal] 关键词Top3: 文档转 PDF=0.1667 合同风险审查=0.1667`，
+  // 而正确答案的向量分高达 0.58 仍被 `中等置信且margin小` 拒绝指派。
+  // 以 3 词为满分基准后：单命中 0.333（过中信号）、双命中 0.667（过强信号 0.6）；
+  // 3 词及以下的表行为完全不变（分母仍是自身）。上界 clamp 到 1（原式天然 ≤1，改后需显式约束）。
+  const denom = Math.min(keywords.length, 3)
+  let score = keywords.length > 0 ? Math.min(hits / denom, 1) : 0
   const createWords = ['创建', '新建', '写', '生成', '保存']
   const docWords = ['文档', '文件', 'docx', 'word', 'txt', 'pdf']
   const hasCreate = createWords.some(w => inputSegs.includes(w) || inputLower.includes(w))
