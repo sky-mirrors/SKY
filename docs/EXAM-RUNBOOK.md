@@ -17,15 +17,7 @@ C:\Users\Administrator\Desktop\HoloExam\
 └── photos_backup\        # Q15 的规范素材源（img0..img3.jpg，各自保留原始 mtime）
 ```
 
-**每轮开考前复位 `photos\`（必须，别省）**：Q15 会把图片改名成 `YYYYMMDD-NN.jpg` 并**留在原目录**——若不清空就直接 `cp` 拷回，历次改名结果会**逐轮累积**（目录混入 `20191207-08.jpg` 等残留），既污染 Q15 的目录硬断言（`^\\d{8}-\\d{2}\\.(jpg|jpeg|png)# 验收考试执行手册（EXAM 批交付）
-
-> 配套规格：[ACCEPTANCE-SPEC.md](./ACCEPTANCE-SPEC.md)（及格线 v1 定死：可交付 ≥80% / 零干预 ≥60% / 平均耗时 <2min）。
-> 考试器：`src/exam/examRunner.ts`，题库 `src/exam/examCases.ts`，入口在工作台 RuntimePanel「验收考试」卡。
-
-## 一、开考前准备
-
-1. **确认模型就绪**：Ollama serve 已启动（`ollama serve`），qwen2.5:3b 可用（或按当时浸泡配置的模型）。
- 要求**目录内每个文件**都匹配），也让清单失真。复位命令（Git Bash；`cp -p` 保留原始 mtime，日期才有区分度）：
+**每轮开考前复位 `photos\`（必须，别省）**：Q15 会把图片改名成 `YYYYMMDD-NN.jpg` 并**留在原目录**——若不清空就直接 `cp` 拷回，历次改名结果会**逐轮累积**（目录混入 `20191207-08.jpg` 等残留），既污染 Q15 的目录硬断言（`^\\d{8}-\\d{2}\\.(jpg|jpeg|png)` 要求**目录内每个文件**都匹配），也让清单失真。复位命令（Git Bash；`cp -p` 保留原始 mtime，日期才有区分度）：
 
 ```bash
 rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
