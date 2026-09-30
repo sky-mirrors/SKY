@@ -85,3 +85,86 @@ rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
 - **手术题 4/4**（`../surgical-report-reexam.json`）：偏好注入 PASS（106 token 简洁周报 vs 隔离对照 670 token 冗长）、会话归属 PASS（响应落原会话/新会话零污染/持久化落地）、重复任务×2 = 第二次语义缓存命中 2s 秒回（非隐式蒸馏，符合 G-16 范围声明）。
 - **新发现 EXAM-6**：考试器完成后 UI 冻结显示「执行中」（progress 普通对象绕过 Vue 响应性），需点面板内其他响应式控件（如「导出浸泡报告」）强制重渲染才能刷出成绩单；成绩单仅存内存，刷新/切模式即丢。已入册 LIFECYCLE-GAPS.md，与 EXAM-1 同批修。
 - **事故记录**：首考成绩单被复考导出覆盖（同路径 exam-report.json），首考关键指标以 LIFECYCLE-GAPS.md 与 surgical-report.json 存档为准。
+
+## 八、V2 扩展题库（50 题，2026-09-30 接入）
+
+> 出处：`src/exam/examCasesV2.ts`。与 V1（18 题）**并存、互补，不替代**——V1 仍是
+> ACCEPTANCE-SPEC v1.0 的对照基线，历轮成绩可比性依赖它。入口在工作台 RuntimePanel
+> 考试卡的「题库」下拉（缺省 V1）。
+
+### 8.1 素材清单
+
+在 §一 的 V1 素材之外，V2 另需下列素材——不就位则 25 处 `requiresFixture` 题被跳过
+并从分母剔除（成绩单会如实注明跳过数，但那样的分数不代表 V2 真实水平）：
+
+```
+C:\Users\Administrator\Desktop\HoloExam\
+├── docs\                 # 新增
+│   ├── notes.md          # 多题共用：转 docx/xlsx/pdf、复制、列 md、多轮改写（含小标题）
+│   ├── sample.docx       # R02：docx → txt
+│   ├── data.xlsx         # R13：xlsx → csv（3 行销售数据）
+│   ├── expense.txt       # R16：报销合规检查（含 2480 元超限且未附发票的条目）
+│   └── empty.txt         # E08：空文件，必须恰为 0 字节
+├── media\                # 新增
+│   └── clip.mp4          # 4 秒、含音视频轨：M03 抽音轨 / M04 取第 2 秒画面 / M06 crf 压缩
+├── out\                  # 新增：产物落盘目录（空目录即可）
+└── photos\
+    └── sample.jpg        # 新增（640×480）：M01 缩到 200 宽转 webp / M05 压缩质量 60
+```
+
+素材可用仓库内脚本重建：`node docs/exam-fixtures/make-fixtures.cjs`（幂等，只写上述路径）。
+
+### 8.2 每轮开考前的复位（V2 同样必须）
+
+V2 的 photos/media 题会把产物留在**源目录**，与 V1 Q15 的目录断言冲突，故每轮前复位：
+
+```bash
+# 跑 V1 前：photos 必须是 img0..img3.jpg（Q15 要求目录内**每个**文件都匹配 ^\d{8}-\d{2}\.
+# 故此时不能有 sample.jpg）：
+rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
+  && cp -p /c/Users/Administrator/Desktop/HoloExam/photos_backup/img*.jpg \
+           /c/Users/Administrator/Desktop/HoloExam/photos/
+
+# 跑 V2 前：photos 需含 sample.jpg（img0..img3 可留，均为图片，不碍 M05）：
+rm -f /c/Users/Administrator/Desktop/HoloExam/photos/* \
+  && cp -p /c/Users/Administrator/Desktop/HoloExam/photos_backup/img*.jpg \
+           /c/Users/Administrator/Desktop/HoloExam/photos/ \
+  && cp -p /c/Users/Administrator/Desktop/HoloExam/photos_backup/sample.jpg \
+           /c/Users/Administrator/Desktop/HoloExam/photos/
+
+# 两册都建议清空 out\ 与 media\ 的产物：
+rm -rf /c/Users/Administrator/Desktop/HoloExam/out/*
+rm -f  /c/Users/Administrator/Desktop/HoloExam/media/clip.mp3 \
+       /c/Users/Administrator/Desktop/HoloExam/media/*.png \
+       /c/Users/Administrator/Desktop/HoloExam/media/*.jpg
+```
+
+> **交叉污染（重要）**：V2 的 M01/M05 往 `photos\` 写产物，M03/M04 往 `media\` 写产物；
+> 而 V1 Q15 要求 `photos\` 内全部匹配改名模式。**两套题库必须分轮跑**，跑完 V2 想跑 V1 时
+> 必须执行上面的 V1 复位，否则 Q15 会因残留 `sample.jpg` / `.webp` 而判假。
+
+### 8.3 断言口径：dirPattern 的 mode
+
+`dirPattern` 由 `examRunner.ts` 的 `dirMatches` 执行，其脚本对目录内文件名做**量词**判定：
+
+| mode | 语义 | 用在何处 |
+|---|---|---|
+| `every`（缺省） | 目录内**每个**文件都必须匹配模式 | V1 Q15：改名后目录内应全为新名，残留 `img0.jpg` 即判假 |
+| `some` | 目录内**存在**匹配文件即算 | V2 产物类断言：源文件与产物共存是常态 |
+
+V2 中 **R05/M01/M03/M04/M06** 显式用 `some`；**M05 保持 `every`**——若把 M05 也改成
+`some`，源文件 `sample.jpg` 本身即匹配 `\.(jpg|jpeg|webp|png)$`，断言会**恒真**、丧失鉴别力。
+
+给 V2 增改断言时先自问一句：**源文件本身能匹配该模式吗？**
+- 能匹配 ⇒ 用 `some` 会恒真（等于没断言）
+- 源文件与产物必然共存 ⇒ 用 `every` 会恒假（等于必挂）
+
+### 8.4 规模与耗时
+
+| 册别 | 题数 | 依赖素材的题 | 预估耗时 |
+|---|---|---|---|
+| V1 固定集 | 18 | 4 | 约 40 分钟（见 §一） |
+| V2 扩展集 | 50 | 25 | 约 110 分钟（按题数线性外推，仅供排期参考） |
+
+及格线口径（可交付 ≥80% / 零干预 ≥60% / 平均耗时 <2min）按 §三 同口径套用，但
+**V2 的成绩不与 V1 的历史成绩直接对比**——两册题目构成不同。
