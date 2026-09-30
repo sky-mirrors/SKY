@@ -692,6 +692,37 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
       nodeName: '知识检索',
       keywords: ['搜索知识', '查知识库', '检索', '知识库', '查一下'],
       forbidden: ['文档', '文件', '创建', '新建', '写文件', '审查']
+    },
+    // ---- 2026-09-30 补齐：L1_TOOLS 声明六节点，此前路由层只认上面两个（+2 个确定性能力）----
+    // task-translator / pipeline-builder / workspace-memory / result-beautifier 在执行侧均有
+    // handler（pipelineExecutor.ts:159-162）却无路由入口，属「半接」；此处补上路由可达性。
+    //
+    // 【关键词表必须短】confidence 公式 = min(matchedKw / keywords.length × 2, 0.9)：
+    // 每表 3 词时单次命中即 0.667 ≥ 门 0.6；若堆到 9-10 词，单命中只有 0.2，规则将永不触发。
+    // 故每条只放 2-3 个高辨识度词，配合 forbidden 挡住 L2 高频域词防劫持。
+    {
+      nodeId: 'l1-task-translator',
+      nodeName: '任务翻译官',
+      keywords: ['拆解', '执行步骤', '任务分解'],
+      forbidden: ['文档', '文件', 'docx', '合同', '审查', '风险', '报告', '周报', 'xlsx', 'ppt', '表格', '清单']
+    },
+    {
+      nodeId: 'l1-result-beautifier',
+      nodeName: '结果美化师',
+      keywords: ['排版', '美化', '渲染成'],
+      forbidden: ['创建', '新建', '写文件', '删除', '移动', '审查', '合同', '风险', '周报', '会议纪要']
+    },
+    {
+      nodeId: 'l1-workspace-memory',
+      nodeName: '工作区记忆体',
+      keywords: ['还记得', '之前聊过', '历史记录'],
+      forbidden: ['创建', '新建', '写入', '删除', '审查', '合同']
+    },
+    {
+      nodeId: 'l1-pipeline-builder',
+      nodeName: '流水线搭建台',
+      keywords: ['编排', '流水线', '自动化流程'],
+      forbidden: ['审查', '合同', '报告', '风险']
     }
   ]
 

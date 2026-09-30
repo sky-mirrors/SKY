@@ -723,7 +723,7 @@ sequenceDiagram
 
 即 L0.5 的覆盖面 = L2 清单中 **6 个 `direct` 型工具**：文档翻译英文版、公告通知草稿、客户邮件撰写、PPT 大纲生成、政策文档问答、ND 审查清单。
 
-### 16.4 L1 — 4 项能力（`checkL1Capability`）
+### 16.4 L1 — 6 项能力（`checkL1Capability`）
 
 | 能力 | nodeId | 判定方式 | 产出工具 |
 |---|---|---|---|
@@ -731,8 +731,14 @@ sequenceDiagram
 | 图片处理（缩放/转格式/压缩/灰度） | `l1-image-ops` | **确定性直调**（须「提到图片」+「抽得出操作参数」两个条件同时成立） | `image_process` |
 | 模型网关（翻译/润色/总结/改写…） | `l1-model-gateway` | 关键词打分 ≥0.6 | `llm_generate` |
 | 知识检索（查知识库/检索…） | `l1-knowledge-feeder` | 关键词打分 ≥0.6 | `llm_generate` |
+| 任务翻译官（拆解/执行步骤…） | `l1-task-translator` | 关键词打分 ≥0.6 | `llm_generate` |
+| 结果美化师（排版/美化/渲染…） | `l1-result-beautifier` | 关键词打分 ≥0.6 | `llm_generate` |
+| 工作区记忆体（还记得/之前聊过…） | `l1-workspace-memory` | 关键词打分 ≥0.6 | `llm_generate` |
+| 流水线搭建台（编排/流水线…） | `l1-pipeline-builder` | 关键词打分 ≥0.6 | `llm_generate` |
 
-**注意**：L1 只覆盖了 L1 六节点中的**两个**（模型网关、知识检索），另加两个后补的确定性能力节点。这正是 `最新口径.md` 判定「L1 近乎死层」的代码依据。
+**注意**：L1 覆盖 L1 六节点**全部六个**（模型网关、知识检索、任务翻译官、结果美化师、工作区记忆体、流水线搭建台），另加两个后补的确定性能力节点（doc-convert / image-ops）。
+
+> **2026-09-30 补齐**：此前 L1 只覆盖六节点中的**两个**，是 `最新口径.md` 判定「L1 近乎死层」的代码依据。本次补齐了 task-translator / result-beautifier / workspace-memory / pipeline-builder 四条路由规则（`l0SkillRouter.ts` 的 `l1Rules`）——四个节点此前在**执行侧有 handler**（`pipelineExecutor.ts:159-162`）而**路由侧无入口**，属「半接」。关键词表刻意保持 2-3 词短表：confidence 公式 `min(matchedKw / keywords.length × 2, 0.9)` 下，长表会让单次命中低于 0.6 门而永不触发。测试见 `test/unit/l1Routing.spec.ts`。详见 `docs/漏斗前四层盘点与L1补齐.md`。
 
 ### 16.5 L2 — RaaP 混合检索
 
