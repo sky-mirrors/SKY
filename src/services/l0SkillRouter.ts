@@ -775,13 +775,19 @@ export function tryL05QuickMatch(
     ? Math.min(top.hitRatio * 1.5, 1.0)
     : 0
 
-  if (confidence >= 0.8) {
-    debugLog(`[L0.5] 快速匹配命中：${top.manifest.identity.name}（关键词${top.matchedKws.join(',')}，置信${(confidence * 100).toFixed(0)}%）`)
+  // 2026-09-30：移除此处硬编码的 `confidence >= 0.8` 门。它有两个问题：
+  //   ① 把过门线钉死在 hitRatio ≥ 0.533——实测让 L0.5 对典型输入只有 ~8% 命中（近死层）；
+  //   ② **遮蔽上层配置面**：funnel 的 `l05Pass` gate（可经 vault config/holo-funnel-gates 覆盖）
+  //      只能"抬高"门槛，调低永不生效——低于 0.8 的候选在本函数就已 return null。
+  // 现在本函数只做「基本过滤」（hitRatio ≥ 0.4 + margin ≥ 0.1，即 confidence > 0），
+  // 过门判定统一交给 funnel 的 `l05Pass`（默认见 DEFAULT_FUNNEL_GATES）。
+  if (confidence > 0) {
+    debugLog(`[L0.5] 快配候选：${top.manifest.identity.name}（关键词${top.matchedKws.join(',')}，置信${(confidence * 100).toFixed(0)}%）`)
     return { manifest: top.manifest, confidence, matchedKeywords: top.matchedKws }
   }
 
   if (top.hitRatio >= 0.3) {
-    debugLog(`[L0.5] 候选${top.manifest.identity.name}置信不足(${(confidence * 100).toFixed(0)}%)，交给RaaP`)
+    debugLog(`[L0.5] 候选${top.manifest.identity.name}命中率不足(${(top.hitRatio * 100).toFixed(0)}%)，交给RaaP`)
   }
 
   return null

@@ -98,4 +98,11 @@ describe('L0 用户级验收：移动/重命名走 file_move 快车道', () => {
       expect(outcome.plan.steps[0].tool).toBe('file_copy')
     }
   })
+
+  it('L0.5 快配（2026-09-30 降门后）：典型输入能停在 L0.5，不再穿透到 L2/L4', async () => {
+    // 降门前该输入是"候选置信不足 60%"→ 交 RaaP；移除内层硬门 + l05Pass 0.8→0.6 后应停在 L0.5。
+    const outcome = await route('帮我生成一个PPT大纲')
+    expect(outcome.kind).toBe('plan')
+    expect(outcome.source).toBe('L0.5')
+  })
 })

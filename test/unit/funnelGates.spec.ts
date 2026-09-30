@@ -7,11 +7,12 @@ import { DEFAULT_FUNNEL_GATES } from '@/kernel/funnel'
 // G-15（2026-09-25 修复）：门值此前永远等于 funnel.ts 的硬编码常量（FunnelConfig.gates 支持覆盖，
 // 但没有任何生产调用方传入）。本模块是配置通道——可调 + 可观测，且坏配置 fail-safe 回退默认。
 describe('漏斗门值配置 · funnelGates', () => {
-  it('未配置时逐字节等于默认（0.8 / 0.9 / 0.6，不改变既有行为）', () => {
+  it('未配置时逐字节等于默认（0.6 / 0.9 / 0.6）', () => {
     expect(parseFunnelGates(null)).toEqual(DEFAULT_FUNNEL_GATES)
     expect(parseFunnelGates(undefined)).toEqual(DEFAULT_FUNNEL_GATES)
     expect(FUNNEL_GATE_DEFAULTS).toEqual(DEFAULT_FUNNEL_GATES)
-    expect(FUNNEL_GATE_DEFAULTS.l05Pass).toBe(0.8)
+    // 2026-09-30：l05Pass 由 0.8 降到 0.6（L0.5 内层硬门移除后，本 gate 成为唯一过门判定点）
+    expect(FUNNEL_GATE_DEFAULTS.l05Pass).toBe(0.6)
     expect(FUNNEL_GATE_DEFAULTS.l05Auto).toBe(0.9)
     expect(FUNNEL_GATE_DEFAULTS.l1Pass).toBe(0.6)
   })

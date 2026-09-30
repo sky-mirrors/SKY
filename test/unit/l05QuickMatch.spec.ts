@@ -10,10 +10,13 @@ import type { L2ToolManifest } from '@/models'
  * **零真实覆盖** —— 任何门值/公式改动都没有保护网。本文件钉住**机制**（准入条件），
  * 而不是钉死具体个案：个案会随门值校准（G-15：门值均未经校准）而变，机制不该变。
  *
- * 机制（`l0SkillRouter.ts:732` 起）：
+ * 机制（`l0SkillRouter.ts` 的 `tryL05QuickMatch`）：
  *   ① hitRatio = 命中关键词数 / 该 manifest 关键词总数，须 ≥ 0.4；
  *   ② 与第二名的 hitRatio 差（margin）须 ≥ 0.1；
- *   ③ confidence = min(hitRatio × 1.5, 1.0) 须 ≥ 0.8 —— **这一条最严，等价于 hitRatio ≥ 0.533**；
+ *   ③ confidence = min(hitRatio × 1.5, 1.0)（① ② 任一不满足则为 0）——本函数只做这道**基本过滤**；
+ *      **是否放行由 funnel 的 `l05Pass`（默认 0.6）决定**。2026-09-30 移除了内层的硬门
+ *      `confidence >= 0.8`：它把过门线钉死在 hitRatio ≥ 0.533，且遮蔽了该 gate 的配置面
+ *      （调低永不生效）；
  *   ④ 只接受单步形态（mode === 'direct'，或 dagPlan 仅 1 步）。
  */
 
@@ -43,10 +46,13 @@ describe('tryL05QuickMatch · 准入机制', () => {
     expect(r!.confidence).toBeGreaterThanOrEqual(0.8)
   })
 
-  it('置信门等价于 hitRatio ≥ 0.533：hitRatio = 0.4（conf 0.6）→ 不命中', () => {
-    // 5 个关键词命中 2 个 → hitRatio 0.4 → conf 0.6 < 0.8
+  it('内层只做基本过滤（hitRatio ≥ 0.4 + margin ≥ 0.1）：hitRatio 0.4 → 返回候选（conf 0.6）', () => {
+    // 2026-09-30：内层硬门 `confidence >= 0.8` 已移除——它把过门线钉在 hitRatio ≥ 0.533，
+    // 且**遮蔽 funnel 的 l05Pass 配置面**（调低永不生效）。现在是否放行由 `l05Pass` 决定。
     const m = makeManifest({ id: 'm2', name: '临界工具', keywords: ['甲', '乙', '丙', '丁', '戊'], mode: 'direct' })
-    expect(tryL05QuickMatch('甲和乙', [m])).toBeNull()
+    const r = tryL05QuickMatch('甲和乙', [m])
+    expect(r).not.toBeNull()
+    expect(r!.confidence).toBeCloseTo(0.6, 5)
   })
 
   it('hitRatio 0.333（1/3，conf 0.5）→ 不命中', () => {
@@ -80,7 +86,7 @@ describe('tryL05QuickMatch · 准入机制', () => {
 })
 
 describe('tryL05QuickMatch · 对现网 27 个 manifest 的实测覆盖（2026-09-30 记录）', () => {
-  it('典型自然语言输入的命中是少数（记录现状，非期望值——门值待校准 G-15）', () => {
+  it('典型自然语言输入能命中（降门后记录）', () => {
     const inputs = [
       '把这份中文文档翻译成英文版',
       '帮我起草一份公司公告通知',
@@ -90,10 +96,8 @@ describe('tryL05QuickMatch · 对现网 27 个 manifest 的实测覆盖（2026-0
       '帮我审一下这份保密协议ND条款'
     ]
     const hits = inputs.filter(i => tryL05QuickMatch(i, l2Manifests) !== null)
-    // 记录：实测 6 个针对 direct 型的输入中仅少数命中（本轮测得 1 个）。
-    // 这里不断言具体数字（会随门值校准而变），只断言"确实能命中至少一个"——
-    // 若某天门值收紧到连一个都不中，说明这层已彻底失效，测试会红。
+    // 记录：内层硬门在时实测 6 中 1；移除后 6 中 6。这里不断言具体数字（门值仍待校准 G-15），
+    // 只断言"至少能命中一个"——若某天门值收紧到全不中，说明这层又失效，测试会红。
     expect(hits.length).toBeGreaterThanOrEqual(1)
-    expect(hits.length).toBeLessThan(inputs.length)
   })
 })

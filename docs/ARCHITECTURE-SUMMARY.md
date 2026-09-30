@@ -176,7 +176,7 @@ HoloStarmap 的目标不是「一个聊天应用」，而是「一个能被**第
 
 **是什么**：一条六层嵌套路由的**编排器**。只持有 `LAYER_ORDER`、门值（`FunnelGates`）、钩子插桩点、降级、以及两道门的位置；每层的默认实现由内核插件注入，可被 override 钩子替换。
 
-当前门值（`DEFAULT_FUNNEL_GATES`）：`l05Pass=0.8`、`l05Auto=0.9`、`l1Pass=0.6`。
+当前门值（`DEFAULT_FUNNEL_GATES`）：`l05Pass=0.6`、`l05Auto=0.9`、`l1Pass=0.6`。（`l05Pass` 于 2026-09-30 由 0.8 降到 0.6，见 §16.3。）
 
 层产出（`LayerResult`）是一个判别联合：`plan`（带分值的计划，过门评估）/ `candidates`（多候选待仲裁）/ `intent-confirm` / `slot-fill` / `mcp-direct` / `miss`（降级到下一层）。
 
@@ -482,7 +482,7 @@ titlebar（品牌 + 调试探针/压测/规则审核入口 + 主题 + 通知 + �
 ```
 
 - **L0**：内置硬规则零 token 直达；
-- **L0.5**：关键词快配（门值 0.8 过门 / 0.9 自动执行，且自动执行还需「计划无 shell」）；
+- **L0.5**：关键词快配（门值 0.6 过门 / 0.9 自动执行，且自动执行还需「计划无 shell」；0.6 于 2026-09-30 由 0.8 降下）；
 - **L1**：单节点能力直调；
 - **L2**：manifest 混合检索（项目认定的**主力层**）；
 - **L3**：小模型仲裁多候选；
@@ -687,7 +687,7 @@ sequenceDiagram
 | 层 | 名称 | 门值 | 实现函数 | 内容服务 |
 |---|---|---|---|---|
 | L0 | 规则直通 | 无 | `l0()` | `l0SkillRouter.tryL0Skill`（10 条硬规则） |
-| L0.5 | 关键词快配 | `l05Pass=0.8`（`l05Auto=0.9` 且计划无 shell） | `l05()` | `l0SkillRouter.tryL05QuickMatch`（比 L2 manifest 的 keywords） |
+| L0.5 | 关键词快配 | `l05Pass=0.6`（`l05Auto=0.9` 且计划无 shell） | `l05()` | `l0SkillRouter.tryL05QuickMatch`（比 L2 manifest 的 keywords） |
 | L1 | 能力直调 | `l1Pass=0.6` | `l1()` | `l0SkillRouter.checkL1Capability`（4 项） |
 | L2 | RaaP 混合检索 | — | `l2()` | `toolRetrieval.universalMatch` + M16 竞争 + 消歧四策略 |
 | L3 | LLM 仲裁 | — | `l3()` | `toolRetrieval.llmFallback`（≥2 候选才上） |
@@ -737,9 +737,14 @@ sequenceDiagram
 
 ### 16.3 L0.5 — 单步 L2 工具的「快配」
 
-`tryL05QuickMatch(input, allL2Manifests)`：拿输入逐字比对**所有 L2 manifest 的 `routing.keywords`**，按「命中率」排序；要求命中率 ≥0.4 且与第二名 margin ≥0.1；置信度 = `min(hitRatio × 1.5, 1.0)`，**≥0.8 才放行**；且**只接受单步形态**（`mode === 'direct'`，或 `dagPlan` 仅 1 步）——多步一律下沉 L2。命中后产出的是 `llm_generate` 单步计划。
+`tryL05QuickMatch(input, allL2Manifests)`：拿输入逐字比对**所有 L2 manifest 的 `routing.keywords`**，按「命中率」排序；要求命中率 ≥0.4 且与第二名 margin ≥0.1；**本函数只做这道基本过滤**，是否放行由 funnel 的 `l05Pass` gate 决定（`DEFAULT_FUNNEL_GATES`，默认 **0.6**）；且**只接受单步形态**（`mode === 'direct'`，或 `dagPlan` 仅 1 步）——多步一律下沉 L2。命中后产出的是 `llm_generate` 单步计划。
 
-即 L0.5 的覆盖面 = L2 清单中 **6 个 `direct` 型工具**：文档翻译英文版、公告通知草稿、客户邮件撰写、PPT 大纲生成、政策文档问答、ND 审查清单。
+即 L0.5 的覆盖面 = L2 清单中 **6 个 `direct` 型工具**：文档翻译英文版、公告通知草稿、客户邮件撰写、PPT 大纲生成、政策文档问答、ND 审查清单。（`macro` 型若 `dagPlan` 仅 1 步也参与。）
+
+> **2026-09-30 修正（两处）**：
+> ① **移除内层硬门 `confidence >= 0.8`**——它把过门线钉死在 `hitRatio ≥ 0.533`，实测对典型输入只有 **~8% 命中**（近死层）；且**遮蔽了 `l05Pass` 的配置面**：该 gate 只能"抬高"门槛，经 vault `config/holo-funnel-gates` 调低**永不生效**（低于 0.8 的候选在 `tryL05QuickMatch` 内就已 `return null`）。
+> ② **`l05Pass` 默认 `0.8 → 0.6`**（与内层基本过滤下限 `hitRatio 0.4` 对齐，也与 `l1Pass` 同档）。`l05Auto`（自动执行门）保持 0.9 不变——降门只放宽"进入快配"，高置信才自动执行。
+> 效果：同一批针对性输入从 **6 中 1 → 6 中 6**。此前该函数在测试里**全被 `vi.mock` 掉、零真实覆盖**，现由 `test/unit/l05QuickMatch.spec.ts` 钉住机制。
 
 ### 16.4 L1 — 9 个路由出口（`checkL1Capability`）
 

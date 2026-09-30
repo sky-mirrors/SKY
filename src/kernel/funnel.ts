@@ -28,7 +28,12 @@ export interface FunnelGates {
   l1Pass: number
 }
 
-export const DEFAULT_FUNNEL_GATES: FunnelGates = { l05Pass: 0.8, l05Auto: 0.9, l1Pass: 0.6 }
+// 2026-09-30：l05Pass 由 0.8 降到 0.6。原 0.8 等价于 hitRatio ≥ 0.533，实测 L0.5 对典型
+// 输入只有 ~8% 命中（近死层）；且该门当时被 tryL05QuickMatch 内的硬编码 0.8 遮蔽、调低无效
+// （现已移除内层硬门，本 gate 是唯一过门判定点）。0.6 与内层"基本过滤"下限（hitRatio 0.4）
+// 对齐，也与 l1Pass 同档。l05Auto（自动执行门）保持 0.9 不变——降门只放宽"进入快配"，
+// 高置信才自动执行。
+export const DEFAULT_FUNNEL_GATES: FunnelGates = { l05Pass: 0.6, l05Auto: 0.9, l1Pass: 0.6 }
 
 /** 层产出：plan（带分值时过门评估）/ 交互暂停点 / MCP 直调 / miss（降级） */
 export type LayerResult =

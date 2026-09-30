@@ -78,7 +78,7 @@ describe('M5：六层漏斗编排核', () => {
     }
   })
 
-  it('L0.5 门评估：score < 0.8 降级；0.8-0.9 过门但需确认；≥0.9 且无 shell 自动执行', async () => {
+  it('L0.5 门评估：score < 0.6 降级；0.6-0.9 过门但需确认；≥0.9 且无 shell 自动执行', async () => {
     const mk = (score: number, tool = 'llm_generate') => makeConfig({
       layers: {
         l0: miss,
@@ -88,7 +88,8 @@ describe('M5：六层漏斗编排核', () => {
       }
     })
 
-    const low = await runFunnel(mk(0.79), 'x', {})
+    // 2026-09-30：门由 0.8 降到 0.6，故"降级"用例的输入随之改为 0.59
+    const low = await runFunnel(mk(0.59), 'x', {})
     expect(low.kind).toBe('plan')
     expect((low as { source: string }).source).toBe('L4') // 降级到底
 
@@ -127,7 +128,8 @@ describe('M5：六层漏斗编排核', () => {
     })
     const outcome = await runFunnel(config, 'x', {})
     expect((outcome as { source: string }).source).toBe('L0.5')
-    expect(DEFAULT_FUNNEL_GATES.l05Pass).toBe(0.8)
+    // 2026-09-30：l05Pass 默认由 0.8 降到 0.6（内层硬门移除后本 gate 成为唯一判定点）
+    expect(DEFAULT_FUNNEL_GATES.l05Pass).toBe(0.6)
   })
 
   it('advisory scoreDelta 叠加到 L0.5 匹配分（影响过门）', async () => {
