@@ -310,8 +310,9 @@ const skillRules: L0SkillRule[] = [
         }
       }
       const src = filePath
-      const baseName = src.replace(/\.\w{1,5}$/, '')
-      const outputPath = `${baseName}.${effectiveTarget}`
+      // 2026-09-30：产物位置改由 buildOutputPath 决定——用户明说「存到 X 下」就用 X，
+      // 不再一律落源文件同目录（V2-R01 实测：题干要求存 out，产物却落 docs）。
+      const outputPath = buildOutputPath(src, effectiveTarget, input)
 
       // 2026-09-30 重写「→ docx」：原实现走 shell_exec + node -e 拼 docx 脚本（依赖
       // `npm install docx`，且该脚本形态历史上多次被安全闸拒——见原注释）。现改为
@@ -1101,3 +1102,29 @@ export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
 }
 
 export type { L0DirectPlan }
+
+/**
+ * 从用户输入里解析「产物输出目录」（如「存到 C:\x\out 下」「保存到 D:\y」）。
+ *
+ * 背景：`outputPath` 原实现一律取源文件同目录，用户明说「存到 X 下」也不生效——
+ * V2-R01 实测：题干要求存 out，产物仍落 docs。这是**路由层参数计算**问题，
+ * 不是提示词问题（模型不参与决定该路径），故在此处修。
+ */
+export function extractOutputDir(input: string): string | null {
+  const m = /(?:存到|保存到|存至|放到|放在|输出到|导出到|写入到|转存到|另存到|导到|移到|移动到)\s*[「"']?([A-Za-z]:\\[^「」"'`，。；;、\s]+)/.exec(input || '')
+  if (!m) return null
+  return m[1].replace(/[\\/]+$/, '')
+}
+
+/**
+ * 组装产物绝对路径：用户指定了输出目录就用它，否则与源文件同目录（保持既有行为）。
+ * @param sourcePath 源文件绝对路径
+ * @param ext 目标扩展名（不含点）
+ * @param userInput 用户原话，用于解析输出目录
+ */
+export function buildOutputPath(sourcePath: string, ext: string, userInput = ''): string {
+  const stem = sourcePath.replace(/\.\w{1,5}$/, '').split(/[\\/]/).pop() || 'output'
+  const dir = extractOutputDir(userInput)
+  if (dir) return `${dir}\\${stem}.${ext}`
+  return `${sourcePath.replace(/\.\w{1,5}$/, '')}.${ext}`
+}
