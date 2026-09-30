@@ -76,4 +76,26 @@ describe('L0 用户级验收：移动/重命名走 file_move 快车道', () => {
       && outcome.plan.steps.some(s => s.tool === 'file_move')
     expect(wentToMove).toBe(false)
   })
+
+  it('格式转换（2026-09-30 重写）：pdf → txt 停在 L0，产出 doc_extract + file_write', async () => {
+    const outcome = await route('把 C:\\docs\\a.pdf 转成 txt')
+    expect(outcome.kind).toBe('plan')
+    expect(outcome.source).toBe('L0')
+    if (outcome.kind === 'plan') {
+      const tools = outcome.plan.steps.map(s => s.tool)
+      expect(tools).toContain('doc_extract')
+      expect(tools).toContain('file_write')
+      // 不再是假转换：不得再出现"只产文本不落盘"的 llm_generate 步骤
+      expect(tools).not.toContain('llm_generate')
+    }
+  })
+
+  it('文件复制（2026-09-30 新增规则）：停在 L0，产出 file_copy', async () => {
+    const outcome = await route('把 C:\\Users\\x\\Desktop\\a.txt 复制到 C:\\Users\\x\\Desktop\\b.txt')
+    expect(outcome.kind).toBe('plan')
+    expect(outcome.source).toBe('L0')
+    if (outcome.kind === 'plan') {
+      expect(outcome.plan.steps[0].tool).toBe('file_copy')
+    }
+  })
 })
