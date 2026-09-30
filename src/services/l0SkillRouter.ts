@@ -536,7 +536,7 @@ const skillRules: L0SkillRule[] = [
       return {
         intent: `创建文件夹：${folderName}`,
         steps: [
-          { step: 1, description: `创建文件夹`, tool: 'create_directory', params: { path: `%USERPROFILE%\\Desktop\\${folderName}` }, expectedOutput: `桌面文件夹: ${folderName}` }
+            { step: 1, description: `创建文件夹`, tool: 'create_directory', params: { path: `${extractDirPath(input) || '%USERPROFILE%\\Desktop'}\\${folderName}` }, expectedOutput: `目标文件夹: ${folderName}` }
         ],
         isExploration: false
       }
@@ -851,6 +851,9 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
       if (imgOp.format) flat.format = imgOp.format
       if (imgOp.quality !== undefined) flat.quality = String(imgOp.quality)
       if (imgOp.grayscale) flat.grayscale = 'true'
+      // 2026-09-30：同 media 分支——尊重用户指定的输出目录（同一不变量，同族缺口一并补齐）。
+      const imgOutDir = extractOutputDir(input)
+      if (imgOutDir) flat.outDir = imgOutDir
       return {
         canHandle: true,
         nodeId: 'l1-image-ops',
@@ -887,6 +890,10 @@ export function checkL1Capability(input: string): L1CapabilityCheck {
       if (mediaOp.duration !== undefined) flat.duration = String(mediaOp.duration)
       if (mediaOp.thumbnailAt !== undefined) flat.thumbnailAt = String(mediaOp.thumbnailAt)
       if (mediaOp.width !== undefined) flat.width = String(mediaOp.width)
+      // 2026-09-30：尊重用户指定的输出目录（V2-M06 实测：题干「存到 out 下」，产物仍落源同目录 media）。
+      // 与 file_convert 分支（buildOutputPath）同源同型，只是此前漏了这条路径；通道现成（buildMediaProcessArgs 支持 outDir）。
+      const mediaOutDir = extractOutputDir(input)
+      if (mediaOutDir) flat.outDir = mediaOutDir
       return {
         canHandle: true,
         nodeId: 'l1-media-ops',
