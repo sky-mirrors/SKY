@@ -183,3 +183,63 @@ describe('多轮 followUps · runner 支持', () => {
     expect(report!.questions[0].replyExcerpt).toContain('只有一条回复')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V2 题库 · 端到端冒烟（2026-09-30）
+//
+// 上面的结构测试只证明「字段齐全、id 唯一」——它不会发现某道题在 runner 里
+// 跑起来会崩（多轮 followUps 处理、断言求值、requiresFixture 分支等）。
+// 这组用 mock deps 把 50 题**完整跑一遍**，钉住「V2 题库真的能跑完」，
+// 而不只是「看起来能跑」。真机开考（Ollama + 素材）仍属手工流程，见 RUNBOOK §八。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('V2 题库 · 端到端冒烟（mock deps）', () => {
+  it('50 题全部跑完：无跳过、无异常、每题都有终态', async () => {
+    let assertCalls = 0
+    const deps = makeDeps({ reply: '好的，已经处理完了。' })
+    const runner = createExamRunner({
+      ...deps,
+      fileExists: async () => { assertCalls++; return true },
+      dirMatches: async () => { assertCalls++; return true }
+    })
+
+    const report = await runner.run({
+      cases: EXAM_CASES_V2,
+      fixtureReady: true,
+      pollMs: 1,
+      graceMs: 5,
+      timeoutMsPerQuestion: 3000
+    })
+
+    expect(report).not.toBeNull()
+    // 每道题都被执行（fixtureReady=true ⇒ 素材题不该被跳过）
+    expect(report!.questions.length).toBe(50)
+    expect(report!.summary.skippedFixture).toBe(0)
+    // 每题都走到终态，没有卡在 pending
+    const badStatus = report!.questions.filter(q => q.status === 'pending' || q.status === 'running')
+    expect(badStatus.map(q => q.id)).toEqual([])
+    // 断言真的被求值过（fileExists/dirMatches 被调到），而非整份报告空转
+    expect(assertCalls).toBeGreaterThan(0)
+    // 逐题 id 与题库一致（顺序也不乱）
+    expect(report!.questions.map(q => q.id)).toEqual(EXAM_CASES_V2.map(c => c.id))
+  })
+
+  it('素材未就位时：requiresFixture 题被跳过且不计入分母', async () => {
+    const deps = makeDeps({ reply: '好的。' })
+    const runner = createExamRunner(deps)
+
+    const report = await runner.run({
+      cases: EXAM_CASES_V2,
+      fixtureReady: false,
+      pollMs: 1,
+      graceMs: 5,
+      timeoutMsPerQuestion: 3000
+    })
+
+    const needFixture = EXAM_CASES_V2.filter(c => c.requiresFixture).length
+      expect(report!.summary.skippedFixture).toBe(needFixture)
+      // total 是全部题数（含跳过）；实际执行数在 graded —— runner.ts:510/511
+      expect(report!.summary.total).toBe(50)
+      expect(report!.summary.graded).toBe(50 - needFixture)
+  })
+})
