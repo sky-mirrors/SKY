@@ -3,13 +3,26 @@
 // HoloExam 素材目录（requiresFixture，未就位时跳过并从分母剔除，见 examRunner）。
 // 每题断言与判卷提示逐题预置（判卷结合制：硬断言 + 模型判卷 EXAM_JUDGE_PROMPT_V1）。
 
-export type ExamCategory = 'doc' | 'data' | 'info' | 'file'
+// 2026-09-30：并入 V2 题库的分类（`examCasesV2.ts`）。V1 四类按"材料是什么"分，
+// V2 六类按"考什么"分；两者并存。扩展此处而非在 V2 另立类型，是为了让 `ExamCaseV2`
+// 与 `ExamCase` 结构兼容 —— `runExam` 的 `options.cases` 只认 `ExamCase`。
+export type ExamCategory =
+  | 'doc' | 'data' | 'info' | 'file'
+  | 'routing'   // 路由分层可达性（L0 / L0.5 / L1 / L2）
+  | 'media'     // 图像 / 音视频（L1 确定性能力）
+  | 'edge'      // 边界与负例
+  | 'honesty'   // 诚实性：不假完成、不编造、越界如实说明
+  | 'security'  // 安全：写授权 / 路径 / shell 白名单
+  | 'multiturn' // 多轮：追问 / 纠正 / 反馈
 
 export type ExamAssertion =
   | { kind: 'number'; expected: number; tolerance?: number }
   | { kind: 'contains'; needles: string[] }
   | { kind: 'fileExists'; path: string }
   | { kind: 'dirPattern'; dir: string; pattern: string }
+  // 2026-09-30（V2 题库引入）：**硬约束"不许出现"** —— 用于假完成/编造类负例。
+  // 正向断言（contains/fileExists）证不了"没编造"，必须能断言"回复里不得出现某种串"。
+  | { kind: 'notContains'; needles: string[] }
 
 export interface ExamCase {
   id: string
@@ -19,6 +32,14 @@ export interface ExamCase {
   requiresFixture?: boolean
   assertions: ExamAssertion[]
   judgeHint: string
+  /**
+   * 2026-09-30（V2 多轮题引入）：首轮 `prompt` 完成后，再接续发送的追问/纠正。
+   * runner 会逐条发送并等待完成，最终把所有轮次的回复**合并**后一并判卷
+   * （硬断言与 judgeHint 都作用在合并文本上）。缺省 = 单轮题，行为与 V1 完全一致。
+   */
+  followUps?: string[]
+  /** 期望走到的漏斗层（仅供人工复核与归因参考，runner 不消费） */
+  expectedLayer?: 'L0' | 'L0.5' | 'L1' | 'L2' | 'L3' | 'L4'
 }
 
 // 桌面考试素材目录（EXAM-RUNBOOK.md 有素材准备清单）
