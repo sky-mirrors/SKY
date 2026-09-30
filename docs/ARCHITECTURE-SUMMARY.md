@@ -802,7 +802,9 @@ L2 覆盖率 = **27 个 manifest**（`src\data\l2Manifests.ts`：**macro 20 / di
 > **2026-09-30 补做（上一条列出的三项遗留）**：
 > **① 分数池持久化（已修）**：原为纯内存 ⇒ 每次重启清零、`pool.length < 10` 一律回落 fallback 阈值，动态阈值在冷启动期从不生效。现落盘到 vault 的 `tool / raap-score-history`（复用同文件既有的 `loadToolIndex`/`saveToolIndex` 范式），**每 10 次记录落一次盘**（节流），模块加载时恢复；坏数据/无权限一律退化为"无历史"（即旧行为），不阻塞启动。测试：`test/unit/raapScorePersistence.spec.ts`（节流、key/域、**恢复后阈值不再回落 fallback**）。
 > **② 门控常量校准——只做成了一半**：**关键词侧**的 0.3（中信号）/ 0.6（强信号）在分母归一化后**与分数尺度自洽**（单命中 0.333 过中信号、双命中 0.667 过强信号），已由测试钉住。**向量侧**的 `GATE_GREEN_THRESHOLD = 0.95` / `VECTOR_AMBIGUOUS_LOW = 0.55` / `MARGIN_THRESHOLD = 0.10` **仍无法校准**——它们作用在向量分上，而本环境 embedder 不可用（见下），在伪向量上校准等于用噪声拟合噪声。
-> **③ L2 生产验证——本环境做不到，已留入口**：实测 `~/.cache/huggingface` 为空（8K 仅目录）、模型下载被证书问题（`unable to verify the first certificate`）阻断 ⇒ embedder 不可用 ⇒ 向量是伪向量。故 L2 的端到端命中率**在本环境无法验证**。已留 `test/integration/l2ProductionCoverage.spec.ts`：embedder 不可用时**明确跳过并打印原因**（跳过 ≠ 通过），在能加载 `Xenova/all-MiniLM-L6-v2` 的环境重跑即可完成该验证。
+> **③ L2 生产验证——本环境做不到，已留入口**：实测 `~/.cache/huggingface` 为空（8K 仅目录）、模型下载被证书问题（`unable to verify the first certificate`）阻断 ⇒ **嵌入模型**不可用 ⇒ 向量是伪向量。故 L2 的端到端命中率**在本环境无法验证**。已留 `test/integration/l2ProductionCoverage.spec.ts`：不可用时**明确跳过并打印原因**（跳过 ≠ 通过），在能加载 `Xenova/all-MiniLM-L6-v2` 的环境重跑即可完成该验证。
+> **⚠ 措辞澄清（2026-09-30 用户指出）**：不可用的是**嵌入模型**，不是"本地模型"。本项目主打**本地 LLM**——`qwen2.5:3b`（Ollama，见 `src/services/ollamaProvider.ts`），承担生成与工具调用；而 `embedder.ts` **不接 Ollama**，L2 的向量只来自 transformers.js 的 MiniLM。两者角色不同、不可互替。
+> **由此暴露的架构观察（未改，记在案）**：**本地化程度不一致**——LLM 走本地 Ollama（离线可用），而 L2 检索所需的**嵌入模型却要联网下载**（transformers.js + HuggingFace）。这意味着**处于离线环境时，L2 的向量侧失效、退化为纯关键词匹配**（关键词侧已于本轮修复，可独立工作）。若产品要承诺"本地优先/离线可用"，嵌入模型需一并离线化（随包分发或改走 Ollama 的嵌入接口）。
 
 > **文档滞后点**：`README.md` / `最新口径.md` 称 L2 有 **20 个**工具——实为 **27 个**；`src\data\topology.ts` 的星图节点模板仍是 20 条，**与 `l2Manifests.ts` 不同步**。
 
