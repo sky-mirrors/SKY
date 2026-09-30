@@ -272,7 +272,7 @@ const skillRules: L0SkillRule[] = [
     name: '文件格式转换',
     domain: 'file',
     triggerPatterns: [
-      /(转|转换|转为|转成|导出|另存|保存为|处理为|输出为).*(docx|pdf|txt|md|xlsx|html)/i,
+      /(转|转换|转为|转成|导出|另存|保存为|处理为|输出为).*(docx|pdf|txt|md|xlsx|csv|json|html)/i,
       /\.(md|txt|html|csv).*(docx|pdf|xlsx)/i,
       /\b(pandoc|convert|export)\b/i
     ],
@@ -313,22 +313,22 @@ const skillRules: L0SkillRule[] = [
       const baseName = src.replace(/\.\w{1,5}$/, '')
       const outputPath = `${baseName}.${effectiveTarget}`
 
+      // 2026-09-30 重写「→ docx」：原实现走 shell_exec + node -e 拼 docx 脚本（依赖
+      // `npm install docx`，且该脚本形态历史上多次被安全闸拒——见原注释）。现改为
+      // **框架内两步**：取文本（文本源 read_file / 二进制源 doc_extract）→ create_docx。
       if (effectiveTarget === 'docx') {
-        // 2026-09-25 修复：原三步里有两处**必被安全闸拒**，使 md→docx 永不成功：
-        //   ① step1 原为 `npm list docx || npm install docx` —— `||` 是 shell 元字符（findShellMetacharacter 黑名单），必被拒；
-        //   ② step3 原脚本写 `process.env.OUTPUT_PATH`（裸环境变量）—— node -e 受限模式只允许
-        //      「字符串字面量」或「process.env.USERPROFILE|HOME + 字面量」作为写目标，裸变量必被拒。
-        // 现改为把**桌面绝对路径烘焙成字面量**（`process.env.USERPROFILE+'\\Desktop\\x.docx'` 属允许形态，
-        // 已用真实 shellExec 打靶验证：code:0、产出真 docx、ZIP/PK 魔数）。
-        const outLiteral = (`${baseName}.docx`).replace(/['\\]/g, '') || 'output.docx'
+        const srcExtForDocx = (src.match(/\.(\w{1,5})$/) || [])[1]?.toLowerCase() || ''
+        const binarySrc = ['pdf', 'docx', 'xlsx', 'xls'].includes(srcExtForDocx)
+        const readStep = binarySrc
+          ? { step: 1, description: `提取源文档文本（${srcExtForDocx}）`, tool: 'doc_extract', params: { path: src }, expectedOutput: '文档文本' }
+          : { step: 1, description: `读取源文件内容`, tool: 'read_file', params: { path: src }, expectedOutput: '文件内容' }
         return {
-          intent: `将 ${src} 转换为 .docx（输出到桌面）`,
+          intent: `将 ${src} 转换为 .docx`,
           steps: [
-            { step: 1, description: `安装docx转换工具`, tool: 'shell_exec', params: { command: 'npm install docx' }, expectedOutput: 'docx库就绪' },
-            { step: 2, description: `读取源文件内容`, tool: 'read_file', params: { path: src }, expectedOutput: '文件内容' },
-            { step: 3, description: `生成docx文件`, tool: 'shell_exec', params: { command: `node -e "const {Document,Packer,Paragraph,TextRun}=require('docx');const fs=require('fs');const content=process.env.CONTENT||'';const doc=new Document({sections:[{children:content.split('\\n').map(line=>new Paragraph({children:[new TextRun(line)]}))]}]});Packer.toBuffer(doc).then(buf=>fs.writeFileSync(process.env.USERPROFILE+'\\\\Desktop\\\\${outLiteral}',buf))"`, env_content: '{{step_2_result}}' }, expectedOutput: `桌面\\${outLiteral}` }
+            readStep,
+            { step: 2, description: `生成 docx`, tool: 'create_docx', params: { filePath: outputPath, content: '{{step_1_result}}' }, depends_on: [1], expectedOutput: outputPath }
           ],
-          isExploration: true
+          isExploration: false
         }
       }
 
@@ -360,13 +360,37 @@ const skillRules: L0SkillRule[] = [
         }
       }
 
+      // 2026-09-30 重写：原实现走 read_file + llm_generate —— 只产出模型文本、**不落盘**，
+      // 是「假转换」（用户要「转成 xlsx」只拿到一段文字）。现改为：
+      //   ① 有真实现的组合（→ txt / md / csv）：取文本 → file_write 两步；二进制源
+      //      （pdf/docx/xlsx/xls）先经 doc_extract 真提取（主进程 pdf-parse / mammoth / xlsx）。
+      //   ② 无真实现的组合（→ xlsx / json / html）：如实说明，不产任何写盘步骤。
+      const srcExtTail = (src.match(/\.(\w{1,5})$/) || [])[1]?.toLowerCase() || ''
+      if (['txt', 'md', 'csv'].includes(effectiveTarget)) {
+        const binarySrc = ['pdf', 'docx', 'xlsx', 'xls'].includes(srcExtTail)
+        const readStep = binarySrc
+          ? { step: 1, description: `提取源文档文本（${srcExtTail}）`, tool: 'doc_extract', params: { path: src }, expectedOutput: '文档文本' }
+          : { step: 1, description: `读取源文件`, tool: 'read_file', params: { path: src }, expectedOutput: '文件内容' }
+        return {
+          intent: `将 ${src} 转换为 .${effectiveTarget}`,
+          steps: [
+            readStep,
+            { step: 2, description: `写入 .${effectiveTarget}`, tool: 'file_write', params: { filePath: outputPath, content: '{{step_1_result}}' }, depends_on: [1], expectedOutput: outputPath }
+          ],
+          isExploration: false
+        }
+      }
+
       return {
-        intent: `将 ${src} 转换为 .${effectiveTarget}`,
-        steps: [
-          { step: 1, description: `读取源文件`, tool: 'read_file', params: { path: src }, expectedOutput: '文件内容' },
-          { step: 2, description: `LLM转换输出.${effectiveTarget}`, tool: 'llm_generate', params: { prompt: `将以下内容转换为${effectiveTarget}格式：\n{{step_1_result}}` }, expectedOutput: `${effectiveTarget}格式内容` }
-        ],
-        isExploration: true
+        intent: `转换为 .${effectiveTarget}：当前无直接实现`,
+        steps: [{
+          step: 1,
+          description: '如实说明不支持并给可行替代',
+          tool: 'llm_generate',
+          params: { prompt: `用户要把「${src}」转成 .${effectiveTarget}，但应用内没有 ${srcExtTail} → ${effectiveTarget} 的直接转换实现（目标支持 docx / pdf / txt / md / csv；其中 →pdf 的源限 docx / md / html / txt）。请用中文如实说明这一点并给出可行的替代做法，不要假装已完成转换、不要编造已生成的文件路径。` },
+          expectedOutput: '不支持说明与替代方案'
+        }],
+        isExploration: false
       }
     }
   },
@@ -630,6 +654,37 @@ const skillRules: L0SkillRule[] = [
           step: 1,
           description: '移动/重命名文件（IPC 直连 fs，不经 shell 白名单）',
           tool: 'file_move',
+          params: { from: paths.from, to: paths.to },
+          expectedOutput: paths.to
+        }],
+        isExploration: false
+      }
+    }
+  },
+  {
+    // 2026-09-30：复制文件。此前复制既无原生工具也无 IPC，只能靠 shell `copy`
+    // （受 shell 元字符黑名单与引号转义限制，路径含空格/中文易出错）。现走新增的 file_copy。
+    // 触发词收窄 + 路径要求（extractMovePaths）双重兜底，避免把"复制这段文字"这类非文件意图抢进来。
+    name: '文件复制',
+    domain: 'file',
+    triggerPatterns: [
+      /(复制|拷贝|copy)/i
+    ],
+    forbiddenPatterns: [
+      // 图片/音视频归 L1 的确定性能力
+      /(图片|照片|图像|截图|\.jpe?g|\.png|\.webp|tiff?|视频|音频|\.mp4|\.mp3|\.webm)/i,
+      // 域词交给 L2
+      /(审查|合规|条款|合同|风险|报告|周报|竞品|财报|KPI|预算|摘要|翻译|排版)/
+    ],
+    async buildPlan(input: string): Promise<L0DirectPlan | null> {
+      const paths = extractMovePaths(input)
+      if (!paths) return null
+      return {
+        intent: `复制：${paths.from} → ${paths.to}`,
+        steps: [{
+          step: 1,
+          description: '复制文件（IPC 直连 fs）',
+          tool: 'file_copy',
           params: { from: paths.from, to: paths.to },
           expectedOutput: paths.to
         }],

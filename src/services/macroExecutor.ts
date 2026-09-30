@@ -186,8 +186,7 @@ export async function callToolDirectWithTier(
     return JSON.stringify(out)
   }
 
-  if (fullName === 'file_write') {
-    if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
+  if (fullName === 'file_write') {    if (!window.electronAPI?.fileWrite) throw new Error('file_write not available')
     const filePath = await resolveFilePath(String(args.filePath || args.path || ''))
     if (!filePath) throw new Error('file_write: missing filePath')
     const result = await window.electronAPI.fileWrite({
@@ -217,6 +216,30 @@ export async function callToolDirectWithTier(
     const result = await window.electronAPI.fileMove({ from, to })
     if (result.success) return `已重命名/移动: ${result.from} → ${result.to}`
     throw new Error(result.error || 'file_move failed')
+  }
+
+  // 2026-09-30：复制文件（与 file_move 同校验口径；主进程 file:copy）。
+  // 写授权门由本函数顶部的 requestWriteApproval 统一覆盖（file_copy 已在 WRITE_TOOLS 内）。
+  if (fullName === 'file_copy') {
+    if (!window.electronAPI?.fileCopy) throw new Error('file_copy not available')
+    const from = await resolveFilePath(String(args.from || args.path || args.source || ''))
+    if (!from) throw new Error('file_copy: missing from')
+    const to = await resolveFilePath(String(args.to || args.target || args.dest || ''))
+    if (!to) throw new Error('file_copy: missing to')
+    const result = await window.electronAPI.fileCopy({ from, to })
+    if (result.success) return `已复制: ${result.from} → ${result.to}`
+    throw new Error(result.error || 'file_copy failed')
+  }
+
+  // 2026-09-30：按路径提取文档文本（pdf/docx/xlsx/xls）。read_file 对二进制只返回描述串、
+  // 拿不到正文；本分支走主进程 doc:extractFromPath 真正解析（pdf-parse / mammoth / xlsx）。
+  if (fullName === 'doc_extract') {
+    if (!window.electronAPI?.docExtractFromPath) throw new Error('doc_extract not available')
+    const p = await resolveFilePath(String(args.path || args.source || args.filePath || ''))
+    if (!p) throw new Error('doc_extract: missing path')
+    const result = await window.electronAPI.docExtractFromPath(p)
+    if (!result.success) throw new Error(result.error || 'doc_extract failed')
+    return result.text || ''
   }
 
   // 2026-09-25（HANDOFF 下一步 5）：Q15 执行层确定性化——图片按拍摄日期批量重命名。

@@ -37,4 +37,14 @@ describe('原生工具名单一致性（防漂移）', () => {
     }
     expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 8)
   })
+
+  it('file_copy / doc_extract 在常驻清单（2026-09-30 新增），file_copy 登记为副作用工具', () => {
+    for (const n of ['file_copy', 'doc_extract']) {
+      expect((ALWAYS_AVAILABLE as readonly string[]).includes(n)).toBe(true)
+      expect(DISPATCH_NATIVE.has(n)).toBe(true)
+    }
+    expect(SIDE_EFFECT_TOOLS.has('file_copy')).toBe(true)
+    // doc_extract 是**读**类（提取文本，不改外部世界）——不得进副作用集
+    expect(SIDE_EFFECT_TOOLS.has('doc_extract')).toBe(false)
+  })
 })

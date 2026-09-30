@@ -695,13 +695,13 @@ sequenceDiagram
 
 编排核在 `src\kernel\funnel.ts`（`LAYER_ORDER` @ `:97`）；**每层默认实现在** `src\kernels\default\index.ts` 的 `createDefaultLayers()`；L0/L0.5/L1/L4 的具体内容在 `src\services\l0SkillRouter.ts`。
 
-### 16.2 L0 — 10 条硬编码规则（零 token 直达）
+### 16.2 L0 — 11 条硬编码规则（零 token 直达）
 
 每条规则 = 触发表 + **禁词表** + `buildPlan`；命中即跳过全部后续层。
 
 | # | 规则（域） | 触发要点 | 产出工具 |
 |---|---|---|---|
-| 1 | 文件格式转换（file） | 「转/导出/另存为」+ 目标格式；`.md\|.txt\|.html\|.csv` → `docx\|pdf\|xlsx` | `file_convert` / `read_file` / `llm_generate` / `shell_exec` |
+| 1 | 文件格式转换（file） | 「转/导出/另存为」+ 目标格式 | 见下方转换矩阵 |
 | 2 | 快速 Shell 命令（system） | 以 `ls\|dir\|pwd\|whoami\|date\|cat\|type\|echo\|mkdir\|cp\|copy` 开头；「运行/执行」；`npm\|node\|pip\|python\|git` 开头 | `shell_exec` |
 | 3 | 简单文本生成（creation） | 「写/生成/起草」+ 代码/函数/脚本/邮件/通知/公告/文案/总结 | `llm_generate` |
 | 4 | HTTP 请求（network） | `curl\|fetch\|get\|post\|请求\|访问\|下载` 开头，或输入含 URL | `http_request` |
@@ -711,12 +711,26 @@ sequenceDiagram
 | 8 | 快速文件操作（file） | 「读取/查看/打开/显示/阅读」或 `cat\|type\|head\|tail` | `read_file` |
 | 9 | **图片按拍摄日期重命名**（file） | 「重命名/改名/更名/批量命名」+ 图片/照片/图像 | `rename_images_by_date` |
 | 10 | **文件移动重命名**（file，2026-09-30 加） | 「移动/移到/挪到」或「重命名/改名/更名」+ 能同时抽出的真实 from/to 路径 | `file_move` |
+| 11 | **文件复制**（file，2026-09-30 加） | 「复制/拷贝/copy」+ 能同时抽出的真实 from/to 路径 | `file_copy` |
+
+**规则 1 的转换矩阵（2026-09-30 重写）**：
+
+| 目标 | 源 | 实现 |
+|---|---|---|
+| `pdf` | docx / md / markdown / html / htm / txt | `file_convert`（应用内 mammoth + printToPDF） |
+| `docx` | 文本源（txt/md/html/csv/json） | `read_file` → `create_docx` |
+| `docx` | 二进制源（pdf/docx/xlsx/xls） | `doc_extract` → `create_docx` |
+| `txt` / `md` / `csv` | 文本源 | `read_file` → `file_write` |
+| `txt` / `md` / `csv` | 二进制源（pdf/docx/xlsx/xls） | `doc_extract` → `file_write` |
+| `xlsx` / `json` / `html` | — | **如实说明无直接实现**（不产写盘步骤） |
+
+> **2026-09-30 重写说明**：此前的「其他格式」分支走 `read_file` + `llm_generate`——**只产出模型文本、不落盘**，是"假转换"（用户要「转成 xlsx」只拿到一段文字）。重写后：有真实现的组合走「取文本 → 写盘」两步（二进制源先经 `doc_extract` 真提取），无真实现的组合如实说明。`→docx` 也从 `shell_exec` + `node -e` 拼 docx 脚本改成了框架内两步（甩掉 `npm install docx` 依赖与历史多次被安全闸拒的脚本形态）。
 
 **禁词表是这层的核心防线**（在 `skillRules[*].forbiddenPatterns`）——例如「文件创建」禁入 `列出\|清单\|有哪些\|查看\|找出\|转成\|转为`（防「列清单」被误判成「建文件」，即验收 Q14 那次误路由）；「图片重命名」禁入 `审查\|合规\|条款\|转换\|导出\|保存为`；「简单查询」禁入 `分析\|报告\|审查\|对比\|文档\|文件\|转换`；规则 10 禁入图片类词（与规则 9 划清）与域词（审查/合同/报告…，避免抢 L2 manifest）。
 
 **三处「不伪造」的取舍已写进代码注释**：规则 1、9、10 在**抽不到真实路径**时，不再生成假计划（规则 1 曾伪造 `input.<ext>` 占位符，导致计划跑到 step2 报「文件不存在（路径：input.9）」）——规则 1/9 产出一步「如实索要完整路径」的 `llm_generate`，规则 10 直接返回 `null` 下沉（它没有更合适的兜底形态）。
 
-> **文档滞后点**：`README.md` 与 `docs\最新口径.md` 均称 L0 有 **8 条**规则——现为 **10 条**（第 9 条为「图片按拍摄日期重命名」，第 10 条为 2026-09-30 补的「文件移动重命名」）。`README.md:118` 另称「7 built-in patterns」，同属滞后。
+> **文档滞后点**：`README.md` 与 `docs\最新口径.md` 均称 L0 有 **8 条**规则——现为 **11 条**（第 9 条「图片按拍摄日期重命名」、第 10 条「文件移动重命名」、第 11 条「文件复制」均为后加）。`README.md:118` 另称「7 built-in patterns」，同属滞后。
 >
 > **2026-09-30 修正（规则 2）**：触发词移除了 `mv\|move\|rm\|del`——shell 白名单（`electron\shell-security.ts:4-16` 定义；`isShellCommandAllowed` 在 `:436-444` 按**词边界前缀**匹配 `trimmed === base \|\| trimmed.startsWith(base + ' ')`）不含这些命令，命中只会产出**必被拒绝**的计划（`命令不在白名单中`，exit -1）。「移动/重命名」改由规则 10 走 `file_move`（IPC 直连 fs，绕开 shell 白名单）；删除类**不设直达**，与 `writeGate` 的写授权边界取向一致。
 > 同源未修（超出本次范围）：规则 2 的 `^(npm|node|pip|python|git)\s+` 里 `node`/`python`/`git` 同样不在白名单（`npm install`/`pip install` 才在）。
@@ -759,12 +773,12 @@ L2 覆盖率 = **27 个 manifest**（`src\data\l2Manifests.ts`：**macro 20 / di
 
 ### 16.6 工具清单
 
-**原生常驻工具 9 个**（`src\services\nativeTools.ts`，声明「不得被检索过滤剔除」，保证 MCP 未连时仍可用）：
-`read_file`（:171）、`list_directory`（:182）、`file_write`（:194）、`file_move`（:206）、`rename_images_by_date`（:221）、`create_docx`（:237）、`file_convert`（:251）、`image_process`（:263）、`media_process`（:283）。
+**原生常驻工具 11 个**（`src\services\nativeTools.ts`，声明「不得被检索过滤剔除」，保证 MCP 未连时仍可用）：
+`read_file`、`list_directory`、`file_write`、`file_move`、**`file_copy`（2026-09-30 加）**、`rename_images_by_date`、`create_docx`、`file_convert`、`image_process`、`media_process`、**`doc_extract`（2026-09-30 加，按路径提取 pdf/docx/xlsx/xls 文本）**。
 
 **另有**：`shell_exec`、`http_request`、`llm_generate`、`knowledge_search`、`create_directory`（`nativeTools` 未登记但 L0 规则 6 在用）、以及 **MCP 工具**（目录 5 项：filesystem / memory / sequential-thinking / github / context7）。
 
-**主进程侧通道**（`electron\ipc-handlers.ts`，均实测存在）：`file:write`(:331)、`file:move`(:354)、`file:createDirectory`(:371)、`file:createDocx`(:385)、`file:list`(:414)、`doc:extractText`(:441)、`doc:convertToPdf`(:456)、`image:process`(:481)、`media:process`(:518)、`file:read`(:554)、`http:fetch`(:912)。
+**主进程侧通道**（`electron\ipc-handlers.ts`，均实测存在）：`file:write`、`file:move`、**`file:copy`（2026-09-30 加）**、`file:createDirectory`、`file:createDocx`、`file:list`、`doc:extractText`、**`doc:extractFromPath`（2026-09-30 加）**、`doc:convertToPdf`、`image:process`、`media:process`、`file:read`、`http:fetch`。
 
 ### 16.7 实测可用性（2026-09-27 本机亲跑）
 

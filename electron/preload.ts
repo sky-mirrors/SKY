@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('file:write', opts),
   fileMove: (opts: { from: string; to: string }) =>
     ipcRenderer.invoke('file:move', opts),
+  // 2026-09-30：复制文件（与 file:move 同校验口径）
+  fileCopy: (opts: { from: string; to: string }) =>
+    ipcRenderer.invoke('file:copy', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),
@@ -266,6 +269,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // K-1：文档文本提取（PDF/DOCX/XLSX）——知识摄取不再用占位符假入库
   docExtractText: (opts: { name: string; data: Uint8Array }) =>
     ipcRenderer.invoke('doc:extractText', opts),
+  // 2026-09-30：按**路径**提取（渲染层 file:read 对二进制只返回描述串，拿不到字节）
+  docExtractFromPath: (source: string) =>
+    ipcRenderer.invoke('doc:extractFromPath', source),
 
   resolvePath: (template: string) =>
     ipcRenderer.invoke('env:resolvePath', template),

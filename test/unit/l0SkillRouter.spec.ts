@@ -299,3 +299,69 @@ describe('l0SkillRouter', () => {
     })
   })
 })
+
+// ===== 2026-09-30：格式转换矩阵重写 + 文件复制 =====
+// 背景：原「其他格式」分支用 read_file + llm_generate——只产文本、**不落盘**（假转换）。
+// 重写后：→pdf 走 file_convert；→docx/txt/md/csv 走「取文本 → 写盘」两步，
+// 二进制源（pdf/docx/xlsx/xls）先经 doc_extract 提取；无真实现的组合如实说明。
+describe('L0 文件格式转换矩阵（2026-09-30 重写）', () => {
+  it('→ pdf 仍走 file_convert（回归）', async () => {
+    const plan = await tryL0Skill('把 C:\\docs\\a.md 转成 pdf')
+    expect(plan).not.toBeNull()
+    expect(plan!.steps[0].tool).toBe('file_convert')
+  })
+
+  it('文本 → docx 走 read_file + create_docx（不再 shell/node）', async () => {
+    const plan = await tryL0Skill('把 C:\\docs\\a.md 转成 docx')
+    expect(plan).not.toBeNull()
+    const tools = plan!.steps.map(s => s.tool)
+    expect(tools).toContain('create_docx')
+    expect(tools).not.toContain('shell_exec')
+  })
+
+  it('pdf → txt 走 doc_extract + file_write（真提取，不假装）', async () => {
+    const plan = await tryL0Skill('把 C:\\docs\\a.pdf 转成 txt')
+    expect(plan).not.toBeNull()
+    const tools = plan!.steps.map(s => s.tool)
+    expect(tools).toContain('doc_extract')
+    expect(tools).toContain('file_write')
+    expect(tools).not.toContain('llm_generate')
+  })
+
+  it('xlsx → csv 走 doc_extract + file_write', async () => {
+    const plan = await tryL0Skill('把 C:\\docs\\a.xlsx 转成 csv')
+    expect(plan).not.toBeNull()
+    const tools = plan!.steps.map(s => s.tool)
+    expect(tools).toContain('doc_extract')
+    expect(tools).toContain('file_write')
+  })
+
+  it('无真实现的组合（→ xlsx）不产出写盘步骤（如实说明，不假装）', async () => {
+    const plan = await tryL0Skill('把 C:\\docs\\a.txt 转成 xlsx')
+    const writes = plan?.steps.some(s => s.tool === 'file_write' || s.tool === 'create_docx') ?? false
+    expect(writes).toBe(false)
+  })
+})
+
+describe('L0 文件复制（2026-09-30 新增规则）', () => {
+  it('两个绝对路径：复制 → 单步 file_copy', async () => {
+    const plan = await tryL0Skill('把 C:\\Users\\x\\Desktop\\a.txt 复制到 C:\\Users\\x\\Desktop\\b.txt')
+    expect(plan).not.toBeNull()
+    expect(plan!.steps).toHaveLength(1)
+    expect(plan!.steps[0].tool).toBe('file_copy')
+    expect(plan!.steps[0].params.from).toBe('C:\\Users\\x\\Desktop\\a.txt')
+    expect(plan!.steps[0].params.to).toBe('C:\\Users\\x\\Desktop\\b.txt')
+  })
+
+  it('抽不到完整路径 → 不产出 file_copy（下沉，不伪造）', async () => {
+    const plan = await tryL0Skill('把这个文件复制一下')
+    const wentToCopy = plan?.steps.some(s => s.tool === 'file_copy') ?? false
+    expect(wentToCopy).toBe(false)
+  })
+
+  it('回归：移动/重命名仍走 file_move（复制规则不抢）', async () => {
+    const plan = await tryL0Skill('把 C:\\Users\\x\\Desktop\\a.txt 重命名为 b.txt')
+    expect(plan).not.toBeNull()
+    expect(plan!.steps[0].tool).toBe('file_move')
+  })
+})

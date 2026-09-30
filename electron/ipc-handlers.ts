@@ -4,7 +4,7 @@ import { request as httpRequest } from 'http'
 import { request as httpsRequest } from 'https'
 import { Readable } from 'stream'
 import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync, copyFileSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
@@ -368,8 +368,26 @@ export function setupIpc(_win: BrowserWindow | null) {
     }
   })
 
-  ipcMain.handle('file:createDirectory', (_event, dirPath: string) => {
-    const pathCheck = validatePath(dirPath)
+  // 2026-09-30 新增「复制」原生工具。与 file:move 同一校验口径（源 validatePath、
+  // 目标 validateWritePath）；复制前若目标目录不存在则递归建，行为对齐 file:move。
+  ipcMain.handle('file:copy', (_event, opts: { from: string; to: string }) => {
+    const srcCheck = validatePath(opts.from)
+    if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
+    const dstCheck = validateWritePath(opts.to)
+    if (!dstCheck.safe) return { success: false, error: dstCheck.reason }
+    if (srcCheck.resolved === dstCheck.resolved) return { success: false, error: '源与目标路径相同' }
+    try {
+      if (!existsSync(srcCheck.resolved)) return { success: false, error: `源不存在: ${srcCheck.resolved}` }
+      const dir = join(dstCheck.resolved, '..')
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+      copyFileSync(srcCheck.resolved, dstCheck.resolved)
+      return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('file:createDirectory', (_event, dirPath: string) => {    const pathCheck = validatePath(dirPath)
     if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
     if (hasSuspiciousBasename(pathCheck.resolved)) {
       return { success: false, error: `目录名以点/空格结尾或包含冒号，被安全策略拒绝: ${pathCheck.resolved}` }
@@ -447,6 +465,27 @@ export function setupIpc(_win: BrowserWindow | null) {
       if (buf.byteLength === 0) return { success: false, error: '文件内容为空' }
       if (buf.byteLength > 50 * 1024 * 1024) return { success: false, error: '文件过大（上限 50MB）' }
       const text = await extractDocumentText(opts.name, buf)
+      return { success: true, text }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 2026-09-30 新增：按**路径**提取文档文本。既有 doc:extractText 的入参是 Uint8Array
+  // （上传场景，见 knowledgeBase 的 file.arrayBuffer()），而渲染层 file:read 对二进制只返回
+  // 描述串、拿不到字节 —— 本机路径场景必须有本通道。复用同一提取实现与 50MB 上限。
+  ipcMain.handle('doc:extractFromPath', async (_event, source: string) => {
+    try {
+      const src = String(source || '')
+      if (!src) return { success: false, error: '缺少 source' }
+      const check = validateReadPath(src)
+      if (!check.safe) return { success: false, error: `源文件被安全策略拒绝: ${check.reason}` }
+      if (!check.resolved || !existsSync(check.resolved)) return { success: false, error: `源文件不存在: ${src}` }
+      const size = statSync(check.resolved).size
+      if (size === 0) return { success: false, error: '文件内容为空' }
+      if (size > 50 * 1024 * 1024) return { success: false, error: '文件过大（上限 50MB）' }
+      const name = String(check.resolved).split(/[\\/]/).pop() || ''
+      const text = await extractDocumentText(name, new Uint8Array(readFileSync(check.resolved)))
       return { success: true, text }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }

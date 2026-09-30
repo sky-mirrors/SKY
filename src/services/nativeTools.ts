@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract'] as const
 
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
@@ -296,6 +296,34 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         suffix: { type: 'string', description: '输出文件名后缀；不填默认 -out' }
       },
       required: ['inputs']
+    }
+  },
+  {
+    // 2026-09-30：复制文件。与 file_move 同族的写类原生工具（源 validatePath、目标
+    // validateWritePath）；此前复制既无工具也无 IPC，只能靠 shell copy（受元字符黑名单限制）。
+    name: 'file_copy',
+    description: '复制本机文件（from → to）。跨目录复制时若目标目录不存在会自动创建。',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: '源文件绝对路径' },
+        to: { type: 'string', description: '目标文件绝对路径（含文件名）' }
+      },
+      required: ['from', 'to']
+    }
+  },
+  {
+    // 2026-09-30：按路径提取文档文本（PDF / DOCX / XLSX / XLS）。
+    // 与 read_file 的分工：read_file 对二进制只返回描述串，拿不到正文；本工具走主进程
+    // 的 doc:extractFromPath（pdf-parse / mammoth / xlsx）真正解析出文本。
+    name: 'doc_extract',
+    description: '提取本机文档的文本内容：支持 pdf / docx / xlsx / xls。用于把文档转成 txt/md 或读取其正文。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '源文档绝对路径（.pdf/.docx/.xlsx/.xls）' }
+      },
+      required: ['path']
     }
   }
 ]

@@ -42,6 +42,7 @@ export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'create_docx',
   'http_request',
   'file_move',
+  'file_copy',
   'file_convert',
   'rename_images_by_date',
   'image_process',
