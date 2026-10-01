@@ -7,6 +7,7 @@ import { attachNavigationGuard } from './navigation-guard'
 let mainWindow: BrowserWindow | null = null
 let pipelineWindow: BrowserWindow | null = null
 let debugWindow: BrowserWindow | null = null
+let devWindow: BrowserWindow | null = null
 let benchmarkWindow: BrowserWindow | null = null
 let onPipelineWindowReady: (() => void) | null = null
 
@@ -206,6 +207,58 @@ export function createDebugWindow(): BrowserWindow {
     onDebugWindowClosed?.()
   })
   return debugWindow
+}
+
+/**
+ * 2026-10-01 开发者端（合并窗口）：把「调试中心 / 压测台 / 规则审核」三页收进一个窗口。
+ * 管线编辑器按用户裁定不进开发者端（保留自己的独立窗口）。
+ */
+export function createDevWindow(): BrowserWindow {
+  if (devWindow && !devWindow.isDestroyed()) {
+    devWindow.focus()
+    return devWindow
+  }
+
+  devWindow = new BrowserWindow({
+    width: 1100,
+    height: 720,
+    minWidth: 640,
+    minHeight: 420,
+    show: true,
+    frame: false,
+    backgroundColor: '#050510',
+    title: 'HoloStarmap - 开发者端',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  devWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  guardWindow(devWindow)
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    devWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/dev.html`)
+  } else {
+    devWindow.loadFile(join(__dirname, '../renderer/dev.html'))
+  }
+
+  devWindow.on('closed', () => {
+    devWindow = null
+  })
+  return devWindow
+}
+
+export function getDevWindow(): BrowserWindow | null {
+  return devWindow && !devWindow.isDestroyed() ? devWindow : null
 }
 
 export function getBenchmarkWindow(): BrowserWindow | null {

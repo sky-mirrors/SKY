@@ -36,21 +36,14 @@
       </button>
 
       <template v-if="devOpen">
-        <button class="wb-nav-item" title="管线编辑器" @click="openWindow('openPipelineWindow')">
+        <button class="wb-nav-item" title="管线编辑器（独立窗口）" @click="openWindow('openPipelineWindow')">
           <span class="wb-nav-icon">🧩</span>
           <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
         </button>
-        <button class="wb-nav-item" title="调试中心" @click="openWindow('openDebugWindow')">
-          <span class="wb-nav-icon">🔍</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">调试中心</span>
-        </button>
-        <button class="wb-nav-item" title="Token 优化压测台" @click="openWindow('openBenchmarkWindow')">
-          <span class="wb-nav-icon">📊</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">压测台</span>
-        </button>
-        <button class="wb-nav-item" title="规则审核" @click="openWindow('openRuleReviewWindow')">
-          <span class="wb-nav-icon">⚖️</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">规则审核</span>
+        <!-- 2026-10-01：调试中心 / 压测台 / 规则审核 已合并为一个独立「开发者端」窗口 -->
+        <button class="wb-nav-item" title="开发者端（调试中心 / 压测台 / 规则审核）" @click="openWindow('openDevWindow')">
+          <span class="wb-nav-icon">🛠</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">开发者端</span>
         </button>
         <button
           class="wb-nav-item"
@@ -168,7 +161,7 @@ function onDeleteSession(id: string): void {
 
 const emit = defineEmits<{ openApiSettings: [] }>()
 
-function openWindow(fn: 'openPipelineWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow') {
+function openWindow(fn: 'openPipelineWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow' | 'openDevWindow') {
   const api = (window as unknown as Record<string, undefined | (() => void)>).electronAPI as Record<string, undefined | (() => void)> | undefined
   api?.[fn]?.()
 }

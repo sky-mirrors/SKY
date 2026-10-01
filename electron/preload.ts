@@ -302,6 +302,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   openDebugWindow: () => ipcRenderer.send('open:debug-window'),
 
+  // 2026-10-01 开发者端（合并窗口：调试中心 / 压测台 / 规则审核）
+  openDevWindow: () => ipcRenderer.send('open:dev-window'),
+  devWindowMinimize: () => ipcRenderer.send('dev:window:minimize'),
+  devWindowMaximize: () => ipcRenderer.send('dev:window:maximize'),
+  devWindowClose: () => ipcRenderer.send('dev:window:close'),
+
   debugWindowMinimize: () => ipcRenderer.send('debug:window:minimize'),
   debugWindowMaximize: () => ipcRenderer.send('debug:window:maximize'),
   debugWindowClose: () => ipcRenderer.send('debug:window:close'),

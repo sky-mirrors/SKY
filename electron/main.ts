@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
 // 避免 WAL 文件残留与数据未 checkpoint 落盘
@@ -112,6 +112,17 @@ app.whenReady().then(async () => {
     createDebugWindow()
   })
 
+  // 2026-10-01 开发者端（合并窗口）：调试中心 / 压测台 / 规则审核三页合一
+  ipcMain.on('open:dev-window', () => {
+    createDevWindow()
+  })
+  ipcMain.on('dev:window:minimize', () => { getDevWindow()?.minimize() })
+  ipcMain.on('dev:window:maximize', () => {
+    const w = getDevWindow()
+    if (w) { w.isMaximized() ? w.unmaximize() : w.maximize() }
+  })
+  ipcMain.on('dev:window:close', () => { getDevWindow()?.close() })
+
   let debugWindowReady = false
   let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []
 
@@ -140,6 +151,9 @@ app.whenReady().then(async () => {
   ipcMain.on('debug:window:close', () => { getDebugWindow()?.close() })
 
   ipcMain.on('store:syncToDebug', (_event, data: { storeId: string; state: Record<string, unknown> }) => {
+    // 2026-10-01：开发者端（合并窗：调试/压测/规则审核三页）复用同一条下发通道。
+    // 不做 ready 队列——下发是增量广播，dev 窗打开后的下一次变更即逐项对齐。
+    getDevWindow()?.webContents.send('store:applyUpdate', data)
     const dw = getDebugWindow()
     if (!dw) return
     if (!debugWindowReady) {

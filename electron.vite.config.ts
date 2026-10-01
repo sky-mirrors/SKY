@@ -35,7 +35,8 @@ export default defineConfig({
           pipeline: resolve(__dirname, 'pipeline.html'),
           debug: resolve(__dirname, 'debug.html'),
           benchmark: resolve(__dirname, 'benchmark.html'),
-          'rule-review': resolve(__dirname, 'rule-review.html')
+          'rule-review': resolve(__dirname, 'rule-review.html'),
+          dev: resolve(__dirname, 'dev.html')
         }
       }
     },

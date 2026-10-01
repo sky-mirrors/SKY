@@ -127,6 +127,11 @@ interface ElectronAPI {
   vaultDelete: (namespace: string, key: string) => Promise<void>
   vaultList: (namespace?: string) => Promise<string[]>
   openDebugWindow: () => void
+  /** 2026-10-01 开发者端（合并窗口：调试中心 / 压测台 / 规则审核） */
+  openDevWindow: () => void
+  devWindowMinimize: () => void
+  devWindowMaximize: () => void
+  devWindowClose: () => void
   openBenchmarkWindow: () => void
   openRuleReviewWindow: () => void
   debugWindowMinimize: () => void
