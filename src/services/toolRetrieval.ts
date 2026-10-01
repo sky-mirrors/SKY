@@ -640,7 +640,12 @@ export async function universalMatch(
   const isNegated = hasNegation(userInput)
   let filteredIndex = toolIndex
   if (filterOptions?.visibleL2Ids && filterOptions.visibleL2Ids.length > 0) {
-    filteredIndex = toolIndex.filter(t => !t.l2ManifestId || filterOptions.visibleL2Ids!.includes(t.l2ManifestId))
+    // 2026-10-01：visibleL2Ids 来自**拓扑节点**（id 形如 `l2-xxx`），而 `t.l2ManifestId` 是
+    // manifest id（形如 `l2-xxx-v1`）——即 nodeStore H-2 记录的那个版本后缀差异，此处漏了归一化。
+    // 原实现直接 includes ⇒ 恒 false ⇒ **全部 L2 manifest 被过滤掉**，L2 检索整体不命中
+    // （实测：连 manifest 的 retrievalSummary 原文作输入也走 L4 探索模式）。
+    const visible = new Set(filterOptions.visibleL2Ids.map(id => id.replace(/-v\d+$/i, '')))
+    filteredIndex = toolIndex.filter(t => !t.l2ManifestId || visible.has(t.l2ManifestId.replace(/-v\d+$/i, '')))
   }
   const items: MatchableItem[] = filteredIndex.map(t =>
     t.l2ManifestId
