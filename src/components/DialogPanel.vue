@@ -23,7 +23,9 @@
       <div class="transient-hint" v-if="dialogStore.transientHint">{{ dialogStore.transientHint }}</div>
 
       <div class="quick-actions">
-        <button class="qa-btn primary" title="会话" @click="showPanel = showPanel === 'session' ? '' : 'session'">💬</button>
+        <!-- 2026-10-01：💬「会话」按钮已移除 —— 会话列表由左导航承担（此前指令区与左导航各有一份
+             会话功能，重叠且对用户不清晰）。会话级操作（添加附件 / 连接知识库）改由左导航发起，
+             经 `ui:session-panel` 事件回到这里开面板（逻辑只有一份）。 -->
         <button class="qa-btn primary" title="知识库" @click="showPanel = showPanel === 'kb' ? '' : 'kb'">📚</button>
         <button class="qa-btn primary" title="设置" @click="showPanel = showPanel === 'settings' ? '' : 'settings'">⚙️</button>
         <ZolWidget />
@@ -674,6 +676,7 @@ import { saveCustomManifest, loadCustomManifests, removeCustomManifest } from '@
 import { useWorkflowLogStore } from '@/domains/app'
 import { getBudgetMode, setBudgetMode as setBudgetModeFn, getSessionSpent } from '@/services/tokenBudget'
 import ZolWidget from '@/components/ZolWidget.vue'
+import { globalBus } from '@/kernel/bus'
 
 const dialogStore = useDialogStore()
 const nodeStore = useNodeStore()
@@ -711,6 +714,8 @@ const takeoverText = ref('')
 const panelWidth = ref(configStore.config.dialogPanelWidth ?? 460)
 const isResizing = ref(false)
 const showPanel = ref('')
+/** 2026-10-01：左导航「会话级操作」事件订阅的释放函数 */
+let uiSessionPanelDisposer: (() => void) | null = null
 const moreMenu = ref(false)
 const pipelineNodeIds = ref<string[]>([])
 const kbEntries = ref<{ id: string; filename: string; chunks: number; createdAt: number }[]>([])
@@ -1565,7 +1570,22 @@ function onDocClick(e: MouseEvent) {
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick, true))
+onMounted(() => {
+  document.addEventListener('click', onDocClick, true)
+  // 2026-10-01：左导航发起的会话级操作（添加附件 / 连接知识库）→ 在这里开对应面板。
+  // 只转移「入口」，实际逻辑（FileReader / 选分组）仍只有这一份，不复制。
+  uiSessionPanelDisposer = globalBus.on('ui:session-panel', (p: { panel?: 'attach' | 'kb' }) => {
+    if (p?.panel === 'kb') {
+      showPanel.value = 'kb'
+      return
+    }
+    if (p?.panel === 'attach') {
+      showPanel.value = 'session'
+      onAttach('session')
+    }
+  })
+})
+onUnmounted(() => { uiSessionPanelDisposer?.(); uiSessionPanelDisposer = null })
 onUnmounted(() => { document.removeEventListener('click', onDocClick, true); clearInterval(cacheRefreshTimer) })
 
 function onExportSession(sessionId: string, mode: 'qa' | 'narrative') {

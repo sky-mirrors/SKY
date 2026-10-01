@@ -63,7 +63,11 @@
           <template v-else>
             <span v-if="!navCollapsed" class="wb-nav-item-text wb-nav-session-name">{{ s.name }}</span>
             <!-- 2026-10-01：会话管理入口收进侧栏（能力本就在 sessionStore/dialogStore，此前只挂在 DialogPanel 里，侧栏点不到） -->
+            <!-- 2026-10-01：会话级操作统一到左导航（附件 / 连接知识库），
+                 原先它们和「会话列表」一起挤在指令区的 💬 面板里，与左导航的会话列表重复、对用户不清晰 -->
             <span class="wb-nav-sess-actions" @click.stop>
+              <button title="添加附件" @click="onSessionAction(s.id, 'attach')">📎</button>
+              <button title="连接知识库" @click="onSessionAction(s.id, 'kb')">🔗</button>
               <button title="重命名" @click="startRename(s)">✎</button>
               <button title="归档（隐藏）" @click="sessionStore.archiveSession(s.id)">📦</button>
               <button title="删除" @click="onDeleteSession(s.id)">✕</button>
@@ -99,6 +103,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { globalBus } from '@/kernel/bus'
 import { useDialogStore } from '@/domains/dialog'
 import { useSessionStore } from '@/domains/app'
 import { useHotplugStore } from '@/stores/hotplugStore'
@@ -135,6 +140,16 @@ function commitRename(id: string): void {
 /** 删除必须经 dialogStore 路由（P0-8：直调 sessionStore.deleteSession 会漏掉边界处理） */
 function onDeleteSession(id: string): void {
   dialogStore.deleteSession(id)
+}
+
+/**
+ * 2026-10-01：会话级操作（添加附件 / 连接知识库）统一由左导航发起。
+ * 这两项的实际逻辑仍在指令区（附件要 FileReader + 摄取，知识库要选分组），
+ * 所以这里只做「选中该会话 + 请求指令区打开对应面板」，避免把逻辑复制两份。
+ */
+function onSessionAction(sessionId: string, panel: 'attach' | 'kb'): void {
+  onSwitchSession(sessionId)
+  globalBus.emit('ui:session-panel', { panel })
 }
 
 const emit = defineEmits<{ openApiSettings: [] }>()
