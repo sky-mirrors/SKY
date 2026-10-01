@@ -25,16 +25,29 @@
           <span class="time-label">{{ timeTravelIdx < 0 ? '全部' : `步骤 ${timeTravelIdx + 1}` }} / {{ debugStore.activeProbes.length }}</span>
           <button v-if="timeTravelIdx >= 0" class="tb-btn" @click="timeTravelIdx = -1" title="重置">↺</button>
         </div>
+        <!-- 2026-10-01（用户裁定：探针流要能「按会话追踪每一轮」，粒度要极细）：
+             原先是一维平铺列表，看不出「哪一会话 / 哪一轮 / 这轮共花了多少 token」。
+             现按 sessionId → traceId 两级分组：组头给轮次 token 合计与成本，组内是逐步明细
+             （每步再带自己的 token 数，hover 看 prompt/completion 拆分）。 -->
         <div class="probes-list">
-          <div v-for="(probe, idx) in debugStore.activeProbes" :key="probe.id"
-               class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true, dimmed: timeTravelIdx >= 0 && idx > timeTravelIdx }"
-               @click="debugStore.selectProbe(probe.id)">
-            <span class="probe-source-icon">{{ sourceIcon(probe.source) }}</span>
-            <span class="probe-step">S{{ probe.stepNum }}</span>
-            <span class="probe-tool">{{ probe.toolName }}</span>
-            <span class="probe-duration">{{ probe.durationMs }}ms</span>
-            <span class="probe-source-label">{{ sourceLabel(probe.source) }}</span>
-          </div>
+          <template v-for="grp in probeGroups" :key="grp.key">
+            <div class="probe-group-head">
+              <span class="pg-session" :title="grp.sessionId || '未归属会话'">{{ grp.sessionLabel }}</span>
+              <span class="pg-round" :title="grp.traceId || '未归属轮次'">{{ grp.traceLabel }}</span>
+              <span class="pg-count">{{ grp.probes.length }} 步</span>
+              <span v-if="grp.tokens > 0" class="pg-tokens">{{ grp.tokens }}tok · {{ grp.cost.toFixed(4) }}¥</span>
+            </div>
+            <div v-for="probe in grp.probes" :key="probe.id"
+                 class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true }"
+                 @click="debugStore.selectProbe(probe.id)">
+              <span class="probe-source-icon">{{ sourceIcon(probe.source) }}</span>
+              <span class="probe-step">S{{ probe.stepNum }}</span>
+              <span class="probe-tool">{{ probe.toolName }}</span>
+              <span class="probe-duration">{{ probe.durationMs }}ms</span>
+              <span v-if="probe.tokenUsage" class="probe-tokens" :title="`prompt ${probe.tokenUsage.promptTokens} / completion ${probe.tokenUsage.completionTokens}`">{{ probe.tokenUsage.totalTokens }}tok</span>
+              <span class="probe-source-label">{{ sourceLabel(probe.source) }}</span>
+            </div>
+          </template>
           <div v-if="debugStore.activeProbes.length === 0" class="empty-hint">暂无探针</div>
         </div>
         <div class="profiler-section">
@@ -155,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useDebugStore } from '@/domains/debug'
 import type { ProbeSource, ConsoleLogEntry, ConsoleCategory, ProbeSnapshot } from '@/models'
 
@@ -224,6 +237,54 @@ function barWidth(ms: number): number {
 // 2026-10-01：步骤成本键为 `traceId:stepNum`（区分每轮对话），经 store 统一取
 function stepCostOf(probe: ProbeSnapshot) {
   return debugStore.getStepCost(probe.stepNum, probe.traceId)
+}
+
+/**
+ * 2026-10-01（用户裁定：探针流按会话追踪、粒度极细）：
+ * 把平铺的 activeProbes 折成 **会话 → 轮次** 两级分组，并累计每轮的 token 与成本。
+ * 用 Map 保持探针到达顺序（组内亦然），便于看时序；组头给出「N 步 · Xtok · Y¥」。
+ */
+const probeGroups = computed(() => {
+  const byKey = new Map<string, {
+    key: string
+    sessionId?: string
+    sessionLabel: string
+    traceId?: string
+    traceLabel: string
+    probes: ProbeSnapshot[]
+    tokens: number
+    cost: number
+  }>()
+  for (const p of debugStore.activeProbes) {
+    const sid = p.sessionId
+    const tid = p.traceId
+    const key = `${sid ?? '-'}|${tid ?? '-'}`
+    let g = byKey.get(key)
+    if (!g) {
+      g = {
+        key,
+        sessionId: sid,
+        sessionLabel: sid ? shortId(sid) : '(未归属会话)',
+        traceId: tid,
+        traceLabel: tid ? `轮次 ${shortId(tid)}` : '(未归属轮次)',
+        probes: [],
+        tokens: 0,
+        cost: 0
+      }
+      byKey.set(key, g)
+    }
+    g.probes.push(p)
+    if (p.tokenUsage) {
+      g.tokens += p.tokenUsage.totalTokens
+      g.cost += p.tokenUsage.estimatedCostCny
+    }
+  }
+  return [...byKey.values()]
+})
+
+/** id 太长（session-1790858023577-abc1）——取尾 8 位，足以人眼区分且不撑破行宽 */
+function shortId(id: string): string {
+  return id.length > 10 ? `…${id.slice(-8)}` : id
 }
 
 async function onExport() {
@@ -312,6 +373,14 @@ function autonomyLabel(a: 'none' | 'disable' | 'downgrade'): string {
 
 .probes-list { flex: 1; overflow-y: auto; padding: 3px; }
 .probe-item { display: flex; align-items: center; gap: 3px; padding: 3px 5px; border-radius: 3px; cursor: pointer; margin-bottom: 1px; font-size: 10px; }
+/* 2026-10-01（用户裁定：按会话追踪 + 极细粒度）：会话→轮次分组头 + 步骤级 token */
+.probe-group-head { display: flex; align-items: center; gap: 6px; padding: 4px 5px 2px; margin-top: 4px; border-top: 1px solid rgba(100, 180, 255, 0.10); font-size: 9px; color: #6a7a96; }
+.probe-group-head:first-child { margin-top: 0; border-top: none; }
+.pg-session { color: #8ab4ff; }
+.pg-round { color: #5a7a9a; }
+.pg-count { margin-left: auto; color: #5a7a9a; }
+.pg-tokens { color: #44ff88; }
+.probe-tokens { color: #44ff88; font-size: 9px; }
 .probe-item:hover { background: rgba(255, 255, 255, 0.05); }
 .probe-item.selected { background: rgba(255, 50, 50, 0.15); border: 1px solid rgba(255, 50, 50, 0.3); }
 .probe-item.dimmed { opacity: 0.25; }
