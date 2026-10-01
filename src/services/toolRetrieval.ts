@@ -584,6 +584,21 @@ export function computeDynamicThreshold(baseThreshold: number, fallback: number,
   return Math.max(0.3, Math.min(0.98, smoothed))
 }
 
+/**
+ * 2026-10-01（方案 A，用户裁定）：L2 条目声明的 `routing.confidenceThreshold` **覆盖**全局向量门槛。
+ *
+ * 背景：该字段此前**全仓零消费**（`grep` 排除数据定义与桩构造后为空），判定一律走
+ * `dynVecHigh`（`computeDynamicThreshold(0.85, 0.90,'vector')`，分数池空时恒 0.85）。
+ * 而 MiniLM 对同族短文本的 cosine 实测仅 ~0.55 ⇒ 各 manifest 声明的 0.6~0.7 形同虚设、
+ * L2 近乎不可达。本函数让声明生效：**只有合法声明（0<x≤1 的有限数）才覆盖**，
+ * 非法/缺失一律回落全局门槛——避免把门放到恒真（0）或恒假（>1 / NaN）。
+ */
+export function resolveVectorGate(item: MatchableItem, dynVecHigh: number): number {
+  const declared = item.manifest?.routing?.confidenceThreshold
+  const valid = typeof declared === 'number' && Number.isFinite(declared) && declared > 0 && declared <= 1
+  return valid ? (declared as number) : dynVecHigh
+}
+
 const MARGIN_THRESHOLD = 0.10
 
 function manifestToItem(m: L2ToolManifest): MatchableItem {
@@ -738,7 +753,9 @@ export async function universalMatch(
   const dynVecHigh = computeDynamicThreshold(0.85, 0.90, 'vector')
   const dynGreenGate = computeDynamicThreshold(GATE_GREEN_THRESHOLD, GATE_GREEN_THRESHOLD, 'keyword')
 
-  const hasStrongSignal = top1KwScore >= dynKwHigh || top1VecScore >= dynVecHigh
+  // 2026-10-01（方案 A）：L2 条目用自己声明的 confidenceThreshold 作向量门槛（覆盖全局 dynVecHigh）
+  const vecGate = resolveVectorGate(top1.item, dynVecHigh)
+  const hasStrongSignal = top1KwScore >= dynKwHigh || top1VecScore >= vecGate
   const hasModerateSignal = top1KwScore >= 0.3 || top1VecScore >= VECTOR_AMBIGUOUS_LOW
 
   // 2026-09-30：分数池的采样点从「命中分支」提前到「决策之前」。

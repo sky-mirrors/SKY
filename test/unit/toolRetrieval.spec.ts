@@ -16,7 +16,8 @@ import {
   llmFallback,
   isOnline,
   getRouteCacheStats,
-  clearRouteCache
+  clearRouteCache,
+  resolveVectorGate
 } from '@/services/toolRetrieval'
 import { contentHash } from '@/services/hash'
 import type { MatchableItem } from '@/services/toolRetrieval'
@@ -642,5 +643,56 @@ describe('isOnline + llmFallback offline', () => {
     expect(result).not.toBeNull()
     expect(mockChat).not.toHaveBeenCalled()
     Object.defineProperty(navigator, 'onLine', { value: originalOnLine, configurable: true })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-10-01（方案 A）：L2 条目声明的 routing.confidenceThreshold 应覆盖全局向量门槛。
+//
+// 背景（实测）：manifest 的 confidenceThreshold（各条 0.6~0.7）此前**全仓零消费**，
+// 判定一律走 dynVecHigh（computeDynamicThreshold(0.85, 0.90,'vector')，池空时恒 0.85）。
+// 而 MiniLM 对同族短文本的 cosine 实测仅 ~0.55 ⇒ 声明 0.6~0.7 的 manifest 永远过不了门，
+// L2 实际近乎不可达。本组锁定「声明生效」这一新行为。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveVectorGate · L2 声明的 confidenceThreshold 覆盖全局向量门槛', () => {
+  const DYN = 0.85
+
+  function itemWith(manifest?: Record<string, unknown>) {
+    return {
+      id: manifest ? `l2://${(manifest as any)?.identity?.id ?? 'x'}` : 'mcp://tool',
+      name: 'X',
+      description: 'd',
+      keywords: ['k'],
+      userSummary: '',
+      source: manifest ? 'l2' : 'mcp',
+      manifest
+    } as never
+  }
+  function manifestWith(threshold: unknown) {
+    return { identity: { id: 'l2-x-v1' }, routing: { confidenceThreshold: threshold } }
+  }
+
+  it('L2 条目声明了 confidenceThreshold → 用它（覆盖 0.85）', () => {
+    expect(resolveVectorGate(itemWith(manifestWith(0.7)), DYN)).toBe(0.7)
+    expect(resolveVectorGate(itemWith(manifestWith(0.6)), DYN)).toBe(0.6)
+  })
+
+  it('L2 条目未声明 → 回落全局门槛（行为不回归）', () => {
+    expect(resolveVectorGate(itemWith(manifestWith(undefined)), DYN)).toBe(DYN)
+  })
+
+  it('非 L2 条目（无 manifest）→ 回落全局门槛', () => {
+    expect(resolveVectorGate(itemWith(undefined), DYN)).toBe(DYN)
+  })
+
+  it('非法声明（0 / >1 / NaN / 非数字）→ 回落全局门槛，不得把门放到恒真或恒假', () => {
+    expect(resolveVectorGate(itemWith(manifestWith(0)), DYN)).toBe(DYN)
+    expect(resolveVectorGate(itemWith(manifestWith(1.5)), DYN)).toBe(DYN)
+    expect(resolveVectorGate(itemWith(manifestWith(Number.NaN)), DYN)).toBe(DYN)
+    expect(resolveVectorGate(itemWith(manifestWith('0.7')), DYN)).toBe(DYN)
+  })
+
+  it('边界值 1 合法（等价于保持最严门槛）', () => {
+    expect(resolveVectorGate(itemWith(manifestWith(1)), DYN)).toBe(1)
   })
 })
