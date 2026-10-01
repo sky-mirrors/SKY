@@ -192,7 +192,7 @@ export function createBuiltinPackSource(): PackSource {
 export class PackLoader {
   private mounted = new Map<string, MountedPack>()
   private lifecycleCallbacks = new Set<(e: PackLifecycleEvent) => void>()
-  private readonly source: PackSource
+  private source: PackSource
   private readonly hostVersion: string
   private reloadChain: Promise<unknown> = Promise.resolve()
 
@@ -203,6 +203,12 @@ export class PackLoader {
 
   private get bus(): HoloEventBus {
     return this.opts.bus ?? globalBus
+  }
+
+  /** 2026-10-01（用户诉求：pack 应「用户下载后自动接到路由」）：
+   *  启动时预加载完用户 pack 后切换数据源（内置 → 内置+用户混合）。仅改源，不动已挂载状态。 */
+  setSource(source: PackSource): void {
+    this.source = source
   }
 
   listPackIds(): string[] {

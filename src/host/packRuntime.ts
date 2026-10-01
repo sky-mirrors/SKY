@@ -1,4 +1,5 @@
-import { PackLoader } from './pack/loader'
+import { PackLoader, createBuiltinPackSource } from './pack/loader'
+import { loadUserPackTree, createUserPackSource, createHybridPackSource } from './pack/userPackSource'
 import type { PackExecutionManifest } from './pack/types'
 
 /**
@@ -44,6 +45,10 @@ let initPromise: Promise<void> | null = null
 export function initPackRuntime(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
+      // 2026-10-01（用户诉求：「领域包应该用户下载后自动接到路由」）：
+      // 先把用户 pack 预加载进内存并切到「内置 + 用户」混合源，再统一挂载。
+      await installUserPacks()
+
       for (const packId of packLoader.listPackIds()) {
         const result = await packLoader.mountPack(packId)
         if (!result.ok) {
@@ -57,4 +62,24 @@ export function initPackRuntime(): Promise<void> {
     })
   }
   return initPromise
+}
+
+/**
+ * 读 `{userData}/holostarmap-packs/<packId>/` 下的用户 pack 并并入数据源。
+ * fail-safe：无 IPC 能力 / 目录不存在 / 解析失败 ⇒ 静默保持内置源（用户 pack 是增量能力，
+ * 绝不能因为一个坏目录让内置 finance/hr/legal 挂不上）。
+ */
+async function installUserPacks(): Promise<void> {
+  try {
+    if (typeof window === 'undefined') return
+    const userData = await window.electronAPI?.getUserDataPath?.()
+    if (!userData) return
+    const tree = await loadUserPackTree(`${userData}/holostarmap-packs`)
+    const ids = Object.keys(tree)
+    if (ids.length === 0) return
+    packLoader.setSource(createHybridPackSource(createBuiltinPackSource(), createUserPackSource(tree)))
+    console.info(`[pack-runtime] 已加载 ${ids.length} 个用户 pack：${ids.join('、')}`)
+  } catch (err) {
+    console.warn('[pack-runtime] 用户 pack 加载失败（不影响内置 pack）：', err)
+  }
 }
