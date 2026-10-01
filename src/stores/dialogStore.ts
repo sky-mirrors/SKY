@@ -5,7 +5,7 @@ import type { DecisionContext, RewriteStrategy, DisambigStrategy, DetectedDomain
 import { getPackExecutionManifests } from '@/host/packRuntime'
 import { mergePackManifests } from '@/host/pack/merge'
 import { globalBus } from '@/kernel/bus'
-import { searchKnowledge, SearchScope } from '@/services/knowledgeBase'
+import { searchKnowledge, SearchScope, getKnowledgeEntries } from '@/services/knowledgeBase'
 import { planTask, reflectOnResult, saveTaskCase, replan, disambiguateChoice, translateIntent } from '@/services/promptTranslator'
 import { executeMacro, resolveDirectPrompt, formatLineage, computeLineageSavings, substitutePlaceholdersInArgs } from '@/services/macroExecutor'
 import type { MacroLineage } from '@/services/macroExecutor'
@@ -421,6 +421,16 @@ export const useDialogStore = defineStore('dialog', () => {
       kbContext = '\n\n【知识库检索结果 - 以下是与用户问题相关的已投喂文档片段】\n' + kbResults.map((r, i) => `[${i + 1}] ${r}`).join('\n\n')
     }
 
+    // 2026-10-01（用户反馈：上传文件后问「会话内都有什么文件」，模型却反问要具体目录）：
+    // 会话附件（session.attachedEntryIds）此前**只写不读**——从未进入模型上下文，模型自然答不出。
+    // 现把清单直接给出，并显式要求它别再反问目录。
+    const sessionFiles = (sessionStore3.activeSession?.attachedEntryIds ?? [])
+      .map(id => getKnowledgeEntries().find(e => e.id === id))
+      .filter((e): e is NonNullable<typeof e> => !!e)
+    const filesContext = sessionFiles.length > 0
+      ? `\n\n【本会话已挂载的文件】\n${sessionFiles.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}\n用户若问「有哪些文件」，请直接依据此清单回答，不要反问目录；问文件内容时可用文件名作为检索线索。`
+      : ''
+
     const mcpTools = (globalBus.request('mcp:get-tools-as-nodes', {}) as any[]).map(t => ({ name: t.name, description: t.description }))
 
     let toolListStr = ''
@@ -442,7 +452,7 @@ export const useDialogStore = defineStore('dialog', () => {
 - 当前引擎：${(globalBus.request('api:get-config', {}) as any)?.activeModel || '未配置'} (${globalBus.request('api:is-ready', {}) ? '已连接' : '离线'})
 - 已连接 MCP：${(globalBus.request('mcp:get-connections', {}) as any[]).filter(c => c.isConnected).length} 个
 - 知识库：${kbResults.length} 条相关上下文已自动检索
-${kbContext}
+${kbContext}${filesContext}
 
 ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工具，只能进行文本对话。'}`
   }
