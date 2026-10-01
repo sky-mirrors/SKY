@@ -36,6 +36,22 @@
             🔍 未找到相关知识
           </div>
 
+          <!-- 2026-10-01（用户反馈：上传后不知道「传到了哪个文件夹、哪个对话」）：
+               此前界面只有一个总数，既看不到文件清单、也看不到归属。现列出文件并逐条标注
+               它属于哪个分组 / 哪个会话 / 还是仅全局。 -->
+          <div class="kb-files-section">
+            <div class="kb-section-label">📄 文件 ({{ kbEntries.length }})</div>
+            <div class="kb-file-list">
+              <div v-for="e in kbEntries.slice(0, 40)" :key="e.id" class="kb-file-row">
+                <span class="kf-name" :title="e.filename">{{ e.filename }}</span>
+                <span class="kf-chunks">{{ e.chunks }}块</span>
+                <span class="kf-owner" :class="{ unowned: ownerLabelOf(e.id).startsWith('全局') }" :title="ownerLabelOf(e.id)">{{ ownerLabelOf(e.id) }}</span>
+              </div>
+              <div v-if="kbEntries.length === 0" class="mem-empty">暂无文件，点上方「上传文件」添加</div>
+              <div v-else-if="kbEntries.length > 40" class="mem-empty">仅显示最近 40 个，共 {{ kbEntries.length }} 个</div>
+            </div>
+          </div>
+
           <div class="kb-group-toolbar">
             <input class="kb-grp-input" v-model="newGroupName" placeholder="新分组名..." />
             <button class="kb-grp-btn" @click="onCreateGroup" :disabled="!newGroupName.trim()">📁 新建</button>
@@ -115,22 +131,6 @@
               </div>
             </div>
           </div>
-
-          <div class="mem-section">
-            <div class="mem-section-title">提示词模板</div>
-            <div v-if="memoryStore.globalMemory.promptTemplates.length > 0" class="mem-tpl-list">
-              <div v-for="t in memoryStore.globalMemory.promptTemplates" :key="t.id" class="mem-tpl-item">
-                <span class="mt-name">{{ t.name }}</span>
-                <button class="mt-del" @click="memoryStore.removePromptTemplate(t.id)">✕</button>
-              </div>
-            </div>
-            <div v-else class="mem-empty">暂无模板</div>
-            <div class="mem-add-row">
-              <input class="mem-add-input" v-model="newTplName" placeholder="模板名..." />
-              <input class="mem-add-input" v-model="newTplContent" placeholder="模板内容..." />
-              <button class="mem-add-btn" @click="onAddTemplate">+</button>
-            </div>
-          </div>
         </template>
 
         <div v-if="kbTab === 'refs'" class="kb-ref-list">
@@ -183,8 +183,6 @@ const kbSearched = ref(false)
 const kbSearchResults = ref<Array<{ score: number; text: string }>>([])
 const newGroupName = ref('')
 const newProjectName = ref('')
-const newTplName = ref('')
-const newTplContent = ref('')
 const expandedGroups = ref<Set<string>>(new Set())
 const notice = ref('')
 // 合并式新建项目空间（2026-10-01 用户诉求）
@@ -267,6 +265,24 @@ function getEntryName(entryId: string): string {
   return entry?.filename || entryId
 }
 
+/**
+ * 2026-10-01（用户反馈：上传后「不知道传到了哪个文件夹、哪个对话」）：
+ * 上传走的是全局库（`ingestFile(file, { type: 'global' })`），本就不归属任何分组/会话——
+ * 但界面此前只显示一个总数，用户无从判断。这里把归属显式算出来并标在文件行上。
+ */
+function ownerLabelOf(entryId: string): string {
+  const groups = knowledgeStore.knowledgeGroups.filter(g => g.sharedEntryIds.includes(entryId))
+  if (groups.length > 0) return `分组：${groups.map(g => g.name).join('、')}`
+  const sessions = sessionStore.sessions.filter(s => (s.attachedEntryIds ?? []).includes(entryId))
+  if (sessions.length > 0) return `会话：${sessions.map(s => s.name).join('、')}`
+  return '全局（未归属分组/会话）'
+}
+
+function formatSize(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 function onRemoveSharedEntry(groupId: string, entryId: string) {
   knowledgeStore.removeSharedEntryFromGroup(groupId, entryId)
 }
@@ -281,13 +297,6 @@ function onAddProject() {
   const result = memoryStore.addProjectMemory(newProjectName.value.trim())
   if (!result) { showNotice('⚠️ 项目空间名称已存在'); return }
   newProjectName.value = ''
-}
-
-function onAddTemplate() {
-  if (!newTplName.value.trim() || !newTplContent.value.trim()) return
-  memoryStore.addPromptTemplate({ name: newTplName.value.trim(), content: newTplContent.value.trim() })
-  newTplName.value = ''
-  newTplContent.value = ''
 }
 
 /**
@@ -360,6 +369,15 @@ onMounted(() => { refreshKbEntries() })
 .kb-grp-btn { padding: 2px 8px; background: rgba(100,180,255,0.1); border: 1px solid rgba(100,180,255,0.15); border-radius: 3px; color: #8ab4ff; font-size: 9px; cursor: pointer; }
 .kb-grp-btn:hover { background: rgba(100,180,255,0.2); }
 .kb-grp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* 2026-10-01（用户反馈）：文件清单 —— 让用户看清「传了什么、归在哪」 */
+.kb-files-section { margin-bottom: 8px; }
+.kb-file-list { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; margin-top: 2px; }
+.kb-file-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 3px; font-size: 10px; }
+.kb-file-row:hover { background: rgba(100, 180, 255, 0.05); }
+.kf-name { color: #c0d8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kf-chunks { color: #5a7a9a; font-size: 9px; flex-shrink: 0; }
+.kf-owner { color: #7dcea0; font-size: 9px; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kf-owner.unowned { color: #8a93a6; }
 .kb-tree { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
 .kb-group-node { border: 1px solid rgba(100,180,255,0.06); border-radius: 4px; }
 .kb-group-header { display: flex; align-items: center; gap: 4px; padding: 3px 6px; cursor: pointer; background: rgba(100,180,255,0.04); border-radius: 3px; }
