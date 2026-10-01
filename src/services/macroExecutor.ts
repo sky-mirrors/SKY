@@ -53,7 +53,7 @@ function probeStep(
   inputSnapshot: Record<string, unknown>,
   outputSnapshot: string,
   durationMs: number,
-  extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage'>>,
+  extra?: Partial<Pick<ProbeSnapshot, 'modelTier' | 'modelParams' | 'ruleId' | 'cacheFingerprint' | 'errorStack' | 'tokenUsage' | 'sessionId'>>,
   traceId?: string
 ) {
   // P1-39：get-step-cost 请求与探针发布分离——请求失败（无 handler）不再吞掉整个探针
@@ -71,6 +71,15 @@ function probeStep(
   } catch { /* 可选链路：step-cost 不可用不影响探针 */ }
   try {
     // #2 收尾：traceId 参数化传播（原模块级全局并发下串号）
+    // 2026-10-01（用户诉求：探针流要能按会话追踪）：经 bus 取当前活动会话 id——
+    // 与上面 `debug:get-step-cost` 同款「可选链路」模式（取不到就不带该字段，不影响探针）。
+    // 这样无需改动 executeMacro/executeStep 的签名链（它们已有 9 个位置参数 + traceId）。
+    let sessionId: string | undefined
+    try {
+      const active = globalBus.request<{ id?: string } | null>('session:get-active', {})
+      sessionId = active?.id
+    } catch { /* 可选链路 */ }
+
     const snapshot: ProbeSnapshot = {
       id: `probe-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       stepNum,
@@ -84,6 +93,7 @@ function probeStep(
       durationMs,
       tokenUsage,
       ...(traceId ? { traceId } : {}),
+      ...(sessionId ? { sessionId } : {}),
       ...extra
     }
     // P1-39：payload 须为 { snapshot } 包装——bridge 只认 payload.snapshot，旧扁平结构两分支均不命中

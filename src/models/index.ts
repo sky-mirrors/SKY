@@ -844,6 +844,9 @@ export interface ProbeSnapshot {
   durationMs: number
   tokenUsage?: { promptTokens: number; completionTokens: number; totalTokens: number; estimatedCostCny: number }
   traceId?: string
+  /** 2026-10-01（用户诉求：探针流要能「按会话追踪每一轮」）：所属会话 id。
+   *  traceId 标识「哪一轮」，sessionId 把轮次归到会话下——调试窗按 会话 → 轮次 → 步骤 三级呈现。 */
+  sessionId?: string
 }
 
 export interface DebugSession {
