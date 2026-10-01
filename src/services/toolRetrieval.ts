@@ -1,4 +1,4 @@
-import { generateVector as genVec, cosineSimilarity } from './embedder'
+import { generateVector as genVec, generateVectorWithMeta, cosineSimilarity } from './embedder'
 import { L2ToolManifest } from '@/models'
 import { getFileBoostForItem } from './fileContext'
 import { debugLog } from '@/services/debugLog'
@@ -22,6 +22,13 @@ export interface ToolIndex {
   l2ManifestId?: string
   isL2Macro?: boolean
   contentHash?: string
+  /**
+   * 2026-10-01：该向量是否为 **伪向量**（embedder 不可用时的哈希散射降级产物）。
+   * 必须持久化：此前只比 contentHash 就复用缓存，而 fingerprint 不含 embedder 状态
+   * ⇒ embedder 坏掉期间写进 vault 的伪向量会被**永久复用**，与 embedder 后来是否恢复无关
+   * （实测：L2 的向量通路形同失效，只剩字面关键词通路 ⇒ 自然语言输入永不命中 L2）。
+   */
+  isPseudo?: boolean
 }
 
 const TOOL_INDEX_KEY = 'holo-tool-index'
@@ -165,13 +172,16 @@ export async function buildL2Index(l2Manifests: L2ToolManifest[]): Promise<ToolI
     const key = `l2://${m.identity.id}`
     const fp = manifestFingerprint(m)
     const cached = existingMap.get(key)
-    if (cached && cached.contentHash === fp) {
+    // 2026-10-01：伪向量**永不复用** —— 它是 embedder 不可用时的降级产物，一旦 embedder 恢复
+    // 就该重建。旧实现在这里只看 contentHash（fingerprint 不含 embedder 状态），
+    // 于是 embedder 坏掉那段时间写进 vault 的伪向量被永久复用，L2 向量通路再也回不来。
+    if (cached && cached.contentHash === fp && !cached.isPseudo) {
       result.push(cached)
       continue
     }
     debugLog(`[RaaP] 生成L2向量: ${m.identity.name} (${key})`)
     const summary = `${m.identity.name}: ${m.routing.retrievalSummary}`
-    const vector = await genVec(`${m.routing.keywords.join(' ')} ${m.routing.retrievalSummary}`)
+    const { vector, isPseudo } = await generateVectorWithMeta(`${m.routing.keywords.join(' ')} ${m.routing.retrievalSummary}`)
     const entry: ToolIndex = {
       fullName: key,
       shortName: m.identity.name,
@@ -181,7 +191,8 @@ export async function buildL2Index(l2Manifests: L2ToolManifest[]): Promise<ToolI
       mcpId: '',
       l2ManifestId: m.identity.id,
       isL2Macro: m.execution.mode === 'macro' || m.execution.mode === 'chain',
-      contentHash: fp
+      contentHash: fp,
+      isPseudo
     }
     result.push(entry)
     generated++
