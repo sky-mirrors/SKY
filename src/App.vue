@@ -136,10 +136,6 @@ function minimizeWindow() {
   window.electronAPI?.windowMinimize()
 }
 
-function onOpenDebugWindow() {
-  window.electronAPI?.openDebugWindow()
-}
-
 function onOpenBenchmarkWindow() {
   window.electronAPI?.openBenchmarkWindow()
 }

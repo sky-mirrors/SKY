@@ -208,22 +208,6 @@
       </div>
     </div>
 
-    <!-- 区 4：探针流 -->
-    <div class="wb-rt-section">
-      <div class="wb-rt-title">
-        探针流
-        <span class="wb-rt-tag" :class="{ warn: debugStore.frozen }">{{ debugStore.frozen ? '❄️ 冻结' : '记录中' }}</span>
-        <button class="wb-rt-action" @click="openDebugWindow">打开调试窗口</button>
-      </div>
-      <div class="wb-rt-probes">
-        <div v-for="p in recentProbes" :key="p.id" class="wb-rt-probe" :class="{ error: p.source === 'error' }">
-          <span class="wb-rt-probe-tool">{{ p.toolName || p.manifestId }}</span>
-          <span class="wb-rt-probe-detail">{{ probeLabel(p) }}</span>
-          <span class="wb-rt-time">{{ p.durationMs }}ms</span>
-        </div>
-        <div v-if="recentProbes.length === 0" class="wb-rt-log-empty">暂无探针</div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -250,10 +234,6 @@ const budgetModeLabel = computed(() => {
   if (mode === 'zero') return '零 Token'
   if (mode === 'economy') return '经济'
   return '标准'
-})
-
-const recentProbes = computed(() => {
-  return [...debugStore.activeProbes].slice(-30).reverse()
 })
 
 function formatTime(ts: number): string {
@@ -287,19 +267,6 @@ function dagStatusClass(status: string): string {
 function dagStatusText(status: string): string {
   const map: Record<string, string> = { pending: '待执行', running: '执行中', done: '完成', failed: '失败', replanned: '已重规划', reuse: '复用', skip: '跳过' }
   return map[status] ?? status
-}
-
-function probeLabel(p: ProbeSnapshot): string {
-  if (p.source === 'error') return '执行错误'
-  if (p.source === 'cache') return '缓存命中'
-  if (p.source === 'rule') return '规则触发'
-  if (p.source === 'shell') return 'Shell 执行'
-  return p.sourceDetail || '探针'
-}
-
-function openDebugWindow() {
-  const api = (window as unknown as { electronAPI?: { openDebugWindow?: () => void } }).electronAPI
-  api?.openDebugWindow?.()
 }
 
 // ===== EXAM-5：验收考试卡（状态在 examStore——EXAM-1/EXAM-6：模式切换不孤儿化，进度 reactive） =====
@@ -516,12 +483,6 @@ function formatExamDuration(ms: number): string {
   cursor: pointer;
 }
 .wb-rt-action:hover { background: rgba(80, 160, 255, 0.08); }
-
-.wb-rt-probes { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-.wb-rt-probe { display: flex; align-items: baseline; gap: 6px; font-size: 10px; color: var(--rt-text-dim); }
-.wb-rt-probe.error { color: #e06a6a; }
-.wb-rt-probe-tool { color: var(--rt-text); flex-shrink: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wb-rt-probe-detail { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .wb-rt-time { font-size: 9px; color: var(--rt-text-dim); opacity: 0.7; flex-shrink: 0; }
 
