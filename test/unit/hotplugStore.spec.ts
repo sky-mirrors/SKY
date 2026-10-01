@@ -9,7 +9,9 @@ const { registryMock, loaderMock, refreshFlagMock } = vi.hoisted(() => ({
     getActiveId: vi.fn(),
     getState: vi.fn(),
     inFlightCount: vi.fn(),
-    queueLength: vi.fn()
+    queueLength: vi.fn(),
+    // 2026-10-01：refresh 新增拉取「池中可激活内核」列表（热插拔操作入口）
+    listKernelIds: vi.fn()
   },
   loaderMock: {
     listPackIds: vi.fn(),
@@ -45,6 +47,7 @@ describe('hotplugStore（工作台右栏数据源，R16）', () => {
     registryMock.getState.mockReturnValue('active')
     registryMock.inFlightCount.mockReturnValue(2)
     registryMock.queueLength.mockReturnValue(1)
+    registryMock.listKernelIds.mockReturnValue(['kernel-default'])
     loaderMock.listPackIds.mockReturnValue(['legal', 'finance'])
     loaderMock.listMounted.mockReturnValue([{ id: 'legal', name: '法务', version: '1.0.0', domain: 'legal' }])
     refreshFlagMock.mockReset()

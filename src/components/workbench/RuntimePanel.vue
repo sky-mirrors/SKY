@@ -77,16 +77,41 @@
           <span class="wb-rt-tag" :class="hotplugStore.kernelState === 'active' ? 'ok' : 'warn'">{{ hotplugStore.kernelState }}</span>
         </span>
       </div>
+      <!-- 2026-10-01（用户裁定：热插拔要「能替换」）：此前本区只有只读展示，用户点不动。
+           现补操作入口——内核可在池中切换；每个 pack 可挂载/卸载/重载（复用已有运行时 API）。 -->
+      <div class="wb-rt-kv">
+        <span class="wb-rt-k">切换内核</span>
+        <span class="wb-rt-v">
+          <select
+            class="wb-rt-select"
+            :value="hotplugStore.activeKernelId"
+            :disabled="hotplugStore.operating || hotplugStore.kernelIds.length === 0"
+            @change="hotplugStore.activateKernel(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="k in hotplugStore.kernelIds" :key="k" :value="k">{{ k }}</option>
+          </select>
+          <span v-if="hotplugStore.kernelIds.length <= 1" class="wb-rt-hint">池中仅 1 个内核</span>
+        </span>
+      </div>
       <div class="wb-rt-kv">
         <span class="wb-rt-k">在途/队列</span>
         <span class="wb-rt-v">{{ hotplugStore.kernelInFlight }} / {{ hotplugStore.kernelQueueLen }}</span>
       </div>
       <div class="wb-rt-kv">
         <span class="wb-rt-k">Pack</span>
-        <span class="wb-rt-v">
-          {{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}
-          <span v-for="p in hotplugStore.mountedPackIds" :key="p" class="wb-rt-chip">{{ p }}</span>
-        </span>
+        <span class="wb-rt-v">{{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}</span>
+      </div>
+      <div class="wb-rt-packlist">
+        <div v-for="p in hotplugStore.allPackIds" :key="p" class="wb-rt-packrow">
+          <span class="wb-rt-packname">{{ p }}</span>
+          <span class="wb-rt-tag" :class="hotplugStore.mountedPackIds.includes(p) ? 'ok' : 'off'">
+            {{ hotplugStore.mountedPackIds.includes(p) ? '已挂载' : '未挂载' }}
+          </span>
+          <button class="wb-rt-op" :disabled="hotplugStore.operating || hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.mountPack(p)">挂载</button>
+          <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.unmountPack(p)">卸载</button>
+          <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.reloadPack(p)">重载</button>
+        </div>
+        <div v-if="hotplugStore.allPackIds.length === 0" class="wb-rt-log-empty">无可用领域包</div>
       </div>
       <!-- 2026-10-01：funnel 主路径状态与「浸泡验证」卡片都删去 —— 已定用六层漏斗，
            这个开关（及其 shadow 对照：浸泡验证测的正是 funnel vs 旧路径的一致性）不再有意义
@@ -430,6 +455,18 @@ function formatExamDuration(ms: number): string {
 .wb-rt-tag.ok { background: rgba(94, 201, 138, 0.14); color: #5ec98a; }
 .wb-rt-tag.warn { background: rgba(230, 180, 80, 0.14); color: #e0b450; }
 .wb-rt-tag.bad { background: rgba(224, 106, 106, 0.14); color: #e06a6a; }
+.wb-rt-tag.off { background: rgba(140, 150, 170, 0.12); color: var(--rt-text-dim); }
+
+/* 2026-10-01：热插拔操作入口（领域包装卸/重载 + 内核切换） */
+.wb-rt-select { font-size: 10px; background: rgba(20, 30, 50, 0.6); color: var(--rt-text); border: 1px solid rgba(100, 180, 255, 0.2); border-radius: 3px; padding: 1px 4px; max-width: 140px; }
+.wb-rt-select:disabled { opacity: 0.5; }
+.wb-rt-hint { font-size: 9px; color: var(--rt-text-dim); }
+.wb-rt-packlist { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.wb-rt-packrow { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+.wb-rt-packname { flex: 1; color: var(--rt-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rt-op { font-size: 9px; padding: 1px 6px; background: rgba(100, 180, 255, 0.1); border: 1px solid rgba(100, 180, 255, 0.18); border-radius: 3px; color: #8ab4d8; cursor: pointer; }
+.wb-rt-op:hover:not(:disabled) { background: rgba(100, 180, 255, 0.22); }
+.wb-rt-op:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .wb-rt-kv { display: flex; align-items: baseline; gap: 8px; font-size: 11px; margin-bottom: 5px; }
 .wb-rt-k { color: var(--rt-text-dim); flex-shrink: 0; width: 62px; }

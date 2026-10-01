@@ -66,6 +66,12 @@ export class KernelRegistry {
   getState(): KernelState { return this.state }
   getActiveId(): string | undefined { return this.activeId }
 
+  /** 2026-10-01（用户诉求：内核热插拔要能操作）：池中可激活的内核 id 列表（UI 切换下拉用）。
+   *  僵尸内核（挂载失败过）不再可激活，故排除。 */
+  listKernelIds(): string[] {
+    return [...this.pool.keys()].filter(id => !this.zombies.has(id))
+  }
+
   /** 入池（不激活） */
   register(k: KernelPlugin): PoolResult {
     if (!k || !PLUGIN_ID_RE.test(k.id ?? '')) return { ok: false, reason: 'invalid-id' }

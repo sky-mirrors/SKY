@@ -40,6 +40,8 @@ export const useHotplugStore = defineStore('hotplug', () => {
   const kernelQueueLen = ref(0)
   const allPackIds = ref<string[]>([])
   const mountedPackIds = ref<string[]>([])
+  const kernelIds = ref<string[]>([])
+  const operating = ref(false)
   const lastRouted = ref<FunnelRoutedRecord | null>(null)
   const eventLog = ref<HotplugEvent[]>([])
 
@@ -61,6 +63,52 @@ export const useHotplugStore = defineStore('hotplug', () => {
     kernelQueueLen.value = kernelRegistry.queueLength()
     allPackIds.value = packLoader.listPackIds()
     mountedPackIds.value = packLoader.listMounted().map(m => m.id)
+    kernelIds.value = kernelRegistry.listKernelIds()
+  }
+
+  /**
+   * 2026-10-01（用户诉求：热插拔「要能替换」）：
+   * 此前全仓对内核/pack 只有**只读展示**（RuntimePanel/StatusBar/WorkbenchNav），零操作入口，
+   * 所以界面上永远显示「3/3 已挂载」「内核 kernel-default」却点不动。以下四者是操作的最小入口——
+   * 薄包装 + refresh；事件日志由运行时自身的 bus 事件（pack:mounted/unmounted/reloaded）补记。
+   */
+  async function mountPack(packId: string) {
+    operating.value = true
+    try {
+      const r = await packLoader.mountPack(packId)
+      if (!r.ok) pushEvent('pack', `挂载失败：${packId}（${r.error.phase}/${r.error.reason}）`, 'error')
+      refresh()
+      return r
+    } finally { operating.value = false }
+  }
+
+  async function unmountPack(packId: string) {
+    operating.value = true
+    try {
+      const r = await packLoader.unmountPack(packId)
+      if (!r.ok) pushEvent('pack', `卸载失败：${packId}`, 'error')
+      refresh()
+      return r
+    } finally { operating.value = false }
+  }
+
+  async function reloadPack(packId: string) {
+    operating.value = true
+    try {
+      const r = await packLoader.reloadPack(packId)
+      refresh()
+      return r
+    } finally { operating.value = false }
+  }
+
+  async function activateKernel(kernelId: string) {
+    operating.value = true
+    try {
+      const r = await kernelRegistry.activate(kernelId)
+      if (!r.ok) pushEvent('kernel', `内核激活失败：${kernelId}（${r.reason}）`, 'error')
+      refresh()
+      return r
+    } finally { operating.value = false }
   }
 
   /** 订阅总线事件（幂等；App 挂载工作台时调用一次） */
@@ -148,8 +196,14 @@ export const useHotplugStore = defineStore('hotplug', () => {
     kernelQueueLen,
     allPackIds,
     mountedPackIds,
+    kernelIds,
+    operating,
     lastRouted,
     eventLog,
+    mountPack,
+    unmountPack,
+    reloadPack,
+    activateKernel,
     init,
     dispose,
     refresh
