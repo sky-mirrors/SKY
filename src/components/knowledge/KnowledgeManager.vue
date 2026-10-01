@@ -183,7 +183,7 @@
  * 注意：这里**不**调用 memoryStore.loadFromStorage()——它会因本窗 configStore 未载入而
  * 误判 restoreSessionMemory=false，进而 pushSessionToArchive + clearSession 清空主窗会话记忆。
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useKnowledgeStore, ingestFile, getKnowledgeEntries, hybridSearch, deleteKnowledgeEntry } from '@/domains/knowledge'
 import { useMemoryStore } from '@/domains/memory'
 import { useDialogStore } from '@/domains/dialog'
@@ -371,6 +371,14 @@ function onMaximize(): void { window.electronAPI?.knowledgeWindowMaximize() }
 function onClose(): void { window.electronAPI?.knowledgeWindowClose() }
 
 onMounted(() => { refreshKbEntries() })
+
+/**
+ * 2026-10-01（用户反馈：需接成响应式）：
+ * 知识条目本身不经过 store，只有「变更信号」（knowledgeStore.entriesVersion）会被镜像到本窗。
+ * 它一变就重新拉取条目列表——这样主窗/对话里新增或删除的知识文件会**即时**反映到这里，
+ * 不必再重开窗口（此前 `kbEntries` 只在挂载与本地增删时刷新）。
+ */
+watch(() => knowledgeStore.entriesVersion, () => { refreshKbEntries() })
 </script>
 
 <style scoped>

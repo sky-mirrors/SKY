@@ -7,6 +7,7 @@ import { getKnowledgeEntries } from '@/services/knowledgeBase'
 type Disposer = (() => void) | null
 
 let _disposeEntryDeleted: Disposer = null
+let _disposeEntriesChanged: Disposer = null
 export function registerKnowledgeHandlers(bus: HoloEventBus) {
   bus.registerHandler('knowledge:get-entries', () => {
     return getKnowledgeEntries()
@@ -46,4 +47,14 @@ export function registerKnowledgeHandlers(bus: HoloEventBus) {
   bus.registerHandler('knowledge:entry-deleted', entryDeletedHandler)
   _disposeEntryDeleted?.()
   _disposeEntryDeleted = bus.on('knowledge:entry-deleted', entryDeletedHandler as (payload: unknown) => unknown)
+
+  // 2026-10-01（用户反馈：知识库窗口需接成响应式）：条目增删信号 → 自增 store 版本号。
+  // 知识条目本身不经过 store（存在 knowledgeBase 的模块级数组），只能靠这个信号把「变了」
+  // 这件事送进 store，进而经跨窗口镜像传播到独立的知识库窗口。
+  const entriesChangedHandler = () => {
+    try { useKnowledgeStore().bumpEntriesVersion() } catch { /* store 未就绪 */ }
+  }
+  bus.registerHandler('knowledge:entries-changed', entriesChangedHandler)
+  _disposeEntriesChanged?.()
+  _disposeEntriesChanged = bus.on('knowledge:entries-changed', entriesChangedHandler as (payload: unknown) => unknown)
 }

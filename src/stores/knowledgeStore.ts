@@ -9,6 +9,15 @@ const GROUPS_KEY = 'holo-knowledge-groups'
 export const useKnowledgeStore = defineStore('knowledge', () => {
   const knowledgeGroups = ref<KnowledgeGroup[]>([])
   const storageMode = ref<'local' | 'file'>('local')
+  /**
+   * 2026-10-01（用户反馈：知识库窗口看不到别处新增的文件，需改用响应式）：
+   * 知识条目本身存在 knowledgeBase 的模块级数组里、**不经过 store**，因此主窗增删条目时
+   * 独立窗口无从知晓。这里引入一个单调递增的「变更信号」：knowledgeBase 在增删后 emit 事件
+   * → 本 store 自增 → 经既有跨窗口 store 镜像同步到知识库窗口 → 该窗口 watch 它重新拉取列表。
+   * 选版本号而非把条目搬进 store：改动面最小，且不触碰既有的条目存储与检索路径。
+   */
+  const entriesVersion = ref(0)
+  function bumpEntriesVersion() { entriesVersion.value++ }
   function saveGroupsToStorage() {
     vault.writeThrough('knowledge', GROUPS_KEY, JSON.stringify(knowledgeGroups.value))
   }
@@ -122,6 +131,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   return {
     knowledgeGroups,
     storageMode,
+    entriesVersion,
+    bumpEntriesVersion,
     createGroup,
     createGroupWithEntries,
     deleteGroup,

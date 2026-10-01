@@ -48,6 +48,10 @@ export function getKnowledgeEntries(): KnowledgeEntry[] {
 
 function saveEntries(entries: KnowledgeEntry[]) {
   vault.writeThrough('knowledge', STORAGE_KEY, JSON.stringify(entries))
+  // 2026-10-01（用户反馈：知识库窗口看不到别处新增的文件，需接成响应式）：
+  // 本函数是条目索引的**唯一**落盘点（新增/删除都经它），故变更信号发在这里，不会漏发。
+  // knowledgeStore 监听后自增 entriesVersion，再经既有的跨窗口 store 镜像抵达知识库窗口。
+  try { globalBus.emit('knowledge:entries-changed', { count: entries.length }) } catch { /* 可选链路 */ }
 }
 
 /**
