@@ -1,21 +1,15 @@
 <template>
   <div class="wb-nav" :class="{ collapsed: navCollapsed }">
     <div class="wb-nav-header">
-      <span class="wb-nav-logo">HS</span>
+      <!-- 2026-10-01：收起后只剩窄条、其他操作够不到 —— 双击 HS 图标即恢复展开（用户反馈） -->
+      <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'HoloStarmap'">HS</span>
       <span v-if="!navCollapsed" class="wb-nav-title">HoloStarmap</span>
-      <button class="wb-nav-collapse-btn" @click="navCollapsed = !navCollapsed" :title="navCollapsed ? '展开导航' : '收起导航'">{{ navCollapsed ? '»' : '«' }}</button>
+      <button v-if="!navCollapsed" class="wb-nav-collapse-btn" @click="navCollapsed = true" title="收起导航">«</button>
     </div>
 
+    <!-- 2026-10-01：现在只有一个视图，「主视图」节与「工作台」项删去 -->
     <div class="wb-nav-section">
-      <div v-if="!navCollapsed" class="wb-nav-section-label">主视图</div>
-      <button class="wb-nav-item active" :title="'工作台（唯一主视图）'">
-        <span class="wb-nav-icon">🛠</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">工作台</span>
-      </button>
-    </div>
-
-    <div class="wb-nav-section">
-      <div v-if="!navCollapsed" class="wb-nav-section-label">配置</div>
+      <!-- 2026-10-01：配置 / 工具的分组标题文本栏删去（项保留） -->
       <button class="wb-nav-item" title="模型网关配置" @click="emit('openApiSettings')">
         <span class="wb-nav-icon">🧠</span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">模型网关</span>
@@ -25,10 +19,6 @@
     <!-- 2026-10-01 UI 分端：开发者工具收进默认折叠的「开发者」分区，用户端默认看不到它们。
          空 shell 的 L0 自动执行、funnel 主路径开关、四个工具窗口都是开发者向，不进用户视野。 -->
     <div class="wb-nav-section">
-      <div v-if="!navCollapsed" class="wb-nav-section-label">工具</div>
-      <!-- 2026-10-01：管线编辑器留在左导航（它是构建设备，不属于开发者向）；
-           开发者端入口移入「设置 → 开发者」；funnel 主路径开关已删 —— 既然定了用六层漏斗，
-           该灰度回退开关对新用户只会造成困惑（它本来就只是上线安全阀，不是功能）。 -->
       <button class="wb-nav-item" title="管线编辑器（独立窗口）" @click="openWindow('openPipelineWindow')">
         <span class="wb-nav-icon">🧩</span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
