@@ -71,6 +71,7 @@ function userRequestedFile(input: string): boolean {
 }
 
 import { useSessionStore } from './sessionStore'
+import { useKnowledgeStore } from './knowledgeStore'
 import type { Session } from './sessionStore'
 import { useMemoryStore } from './memoryStore'
 import { debugLog } from '@/services/debugLog'
@@ -402,20 +403,30 @@ export const useDialogStore = defineStore('dialog', () => {
   }
 
   /**
-   * 2026-10-01（用户反馈）：把「本会话已挂载的文件」清单拼进**喂给路由的输入**。
-   * 主路径（funnel）只接收这段文本，所以清单必须在这里带上——放进 buildVariableContext 无效
-   * （那只服务 funnel 失败后的兜底路径，实测用户「依旧没拿到任何目录」）。
-   * 无附件则原样返回，不影响既有行为。
+   * 2026-10-01（用户反馈：连接了知识库却只显示一个文件）：
+   * 上一版只列 `attachedEntryIds`（逐个手动附上的文件），**漏掉了「连接的知识库」里的全部文件**——
+   * 那才是用户预期的主体（原话：「我这个知识库里的文件应该全都在会话里的，因为我已经连接」）。
+   * 现按两个来源合并去重：① 会话连接的 knowledgeGroupId 分组的全部文件；② 手动附加的文件。
+   * 无任何文件时原样返回，不影响既有行为。
    */
   function withSessionFilesContext(content: string): string {
-    const ids = useSessionStore().activeSession?.attachedEntryIds ?? []
-    if (ids.length === 0) return content
+    const session = useSessionStore().activeSession
+    if (!session) return content
     const all = getKnowledgeEntries()
-    const files = ids.map(id => all.find(e => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e)
+    const ids = new Set<string>()
+    // ① 连接的知识库分组
+    if (session.knowledgeGroupId) {
+      const group = useKnowledgeStore().knowledgeGroups.find(g => g.id === session.knowledgeGroupId)
+      for (const id of group?.sharedEntryIds ?? []) ids.add(id)
+    }
+    // ② 手动附加的文件
+    for (const id of session.attachedEntryIds ?? []) ids.add(id)
+    if (ids.size === 0) return content
+    const files = [...ids].map(id => all.find(e => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e)
     if (files.length === 0) return content
     return `${content}
 
-【本会话已挂载的文件（请直接依据此清单回答，不要反问目录）】
+【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】
 ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
   }
 
