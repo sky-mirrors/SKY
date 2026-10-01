@@ -128,7 +128,9 @@ describe('P3.6 验收一：换内核切换（M4 状态机）', () => {
 describe('P3.6 验收二：pack 热重载（M19）与卸载即收缩', () => {
   it('启动挂载 55 条 → reloadPack(legal) 完整卸载-重挂 → 行为保持', async () => {
     await initPackRuntime()
-    expect(packLoader.listMounted().map(m => m.id).sort()).toEqual(['finance', 'hr', 'legal'])
+    // 2026-10-01：原为 toEqual(['finance','hr','legal']) —— 但本用例的意图是验证 legal 的
+    // 卸载-重挂，不该顺带锁死"内置 pack 全集"（包会随扩展增加，demopack 即为一例）。
+    expect(packLoader.listMounted().map(m => m.id).sort()).toEqual(expect.arrayContaining(['finance', 'hr', 'legal']))
     expect(getExternalConstraintIds()).toHaveLength(55)
 
     const fires = () => runConstraints({

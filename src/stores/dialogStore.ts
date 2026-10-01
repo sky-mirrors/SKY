@@ -855,16 +855,26 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       try {
         // 2026-10-01：内置表 ∪ 已挂载 pack 的执行层供给（用户裁定「下载后自动接到路由，不等待认领」）。
         // pack 未挂载/卸载后 getPackExecutionManifests() 即不含它 ⇒ 候选集随之收缩，热插拔可逆。
+        const packSupplied = getPackExecutionManifests()
         const allL2 = mergePackManifests(
           globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[],
-          getPackExecutionManifests()
+          packSupplied
         )
+        // 供给的 manifest 还必须**可见**——否则会被 L2 的 visibleL2Ids 过滤掉
+        // （toolRetrieval.ts:642：visibleL2Ids 非空时只保留其中 id）。判据与 merge 一致：仅「可执行供给」。
+        const suppliedIds = packSupplied
+          .filter(m => m.routing && m.execution)
+          .map(m => m.identity?.id)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0)
         const lastAssistantMsgs = messages.value.filter(m => m.role === 'assistant')
         const lastAssistantContent = lastAssistantMsgs.length > 0 ? lastAssistantMsgs[lastAssistantMsgs.length - 1].content : ''
         const ctx: DefaultKernelContext = {
           allL2Manifests: allL2,
           mcpTools: allMcpTools.map(t => ({ name: t.name, description: t.description })),
-          visibleL2Ids: globalBus.request('node:get-visible-l2-ids', {}) as string[],
+          visibleL2Ids: [...new Set([
+            ...(globalBus.request('node:get-visible-l2-ids', {}) as string[]),
+            ...suppliedIds
+          ])],
           selectedRole: globalBus.request('node:get-selected-role', {}) ?? undefined,
           lastAssistantContent,
           recentUserMsg,
