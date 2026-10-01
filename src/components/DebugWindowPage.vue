@@ -38,7 +38,7 @@
               <span v-if="grp.tokens > 0" class="pg-tokens">{{ grp.tokens }}tok · {{ grp.cost.toFixed(4) }}¥</span>
             </div>
             <div v-for="probe in grp.probes" :key="probe.id"
-                 class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true, dimmed: timeTravelIdx >= 0 && probe.globalIdx > timeTravelIdx }"
+                 class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true, dimmed: isDimmed(probe, timeTravelIdx) }"
                  @click="debugStore.selectProbe(probe.id)">
               <span class="probe-source-icon">{{ sourceIcon(probe.source) }}</span>
               <span class="probe-step">S{{ probe.stepNum }}</span>
@@ -171,6 +171,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useDebugStore } from '@/domains/debug'
 import type { ProbeSource, ConsoleLogEntry, ConsoleCategory, ProbeSnapshot } from '@/models'
+import { groupProbes, isDimmed } from '@/services/probeGrouping'
 
 const debugStore = useDebugStore()
 const inputExpanded = ref(false)
@@ -239,56 +240,10 @@ function stepCostOf(probe: ProbeSnapshot) {
   return debugStore.getStepCost(probe.stepNum, probe.traceId)
 }
 
-/**
- * 2026-10-01（用户裁定：探针流按会话追踪、粒度极细）：
- * 把平铺的 activeProbes 折成 **会话 → 轮次** 两级分组，并累计每轮的 token 与成本。
- * 用 Map 保持探针到达顺序（组内亦然），便于看时序；组头给出「N 步 · Xtok · Y¥」。
- */
-const probeGroups = computed(() => {
-  const byKey = new Map<string, {
-    key: string
-    sessionId?: string
-    sessionLabel: string
-    traceId?: string
-    traceLabel: string
-    probes: (ProbeSnapshot & { globalIdx: number })[]
-    tokens: number
-    cost: number
-  }>()
-  let globalIdx = 0
-  for (const p of debugStore.activeProbes) {
-    const sid = p.sessionId
-    const tid = p.traceId
-    const key = `${sid ?? '-'}|${tid ?? '-'}`
-    let g = byKey.get(key)
-    if (!g) {
-      g = {
-        key,
-        sessionId: sid,
-        sessionLabel: sid ? shortId(sid) : '(未归属会话)',
-        traceId: tid,
-        traceLabel: tid ? `轮次 ${shortId(tid)}` : '(未归属轮次)',
-        probes: [],
-        tokens: 0,
-        cost: 0
-      }
-      byKey.set(key, g)
-    }
-    // 2026-10-01：带上**跨组全局序号**——时间旅行滑块的 dimmed 判定依赖它。
-    // 分组后若沿用组内索引，淡化范围会跨组错乱（这是分组改造时误删该效果的原因）。
-    g.probes.push({ ...p, globalIdx: globalIdx++ })
-    if (p.tokenUsage) {
-      g.tokens += p.tokenUsage.totalTokens
-      g.cost += p.tokenUsage.estimatedCostCny
-    }
-  }
-  return [...byKey.values()]
-})
-
-/** id 太长（session-1790858023577-abc1）——取尾 8 位，足以人眼区分且不撑破行宽 */
-function shortId(id: string): string {
-  return id.length > 10 ? `…${id.slice(-8)}` : id
-}
+// 2026-10-01：分组/淡化逻辑抽到 @/services/probeGrouping（可单测），此处只做接线。
+// 抽出的动因：这段内联逻辑出过事——加分组时把 dimmed 判定从「列表位置」改成「组内位置」，
+// 导致淡化跨组错乱，且几轮后才被发现；抽成纯函数后由 probeGrouping.spec.ts 兜底。
+const probeGroups = computed(() => groupProbes(debugStore.activeProbes))
 
 async function onExport() {
   const path = await debugStore.exportDebugPackage()
