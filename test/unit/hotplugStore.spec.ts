@@ -57,7 +57,7 @@ describe('hotplugStore（工作台右栏数据源，R16）', () => {
     globalBus.clear()
   })
 
-  it('init → 单例快照 + funnel flag 默认开启', () => {
+  it('init → 单例快照', () => {
     const store = useHotplugStore()
     store.init()
 
@@ -67,17 +67,9 @@ describe('hotplugStore（工作台右栏数据源，R16）', () => {
     expect(store.kernelQueueLen).toBe(1)
     expect(store.allPackIds).toEqual(['legal', 'finance'])
     expect(store.mountedPackIds).toEqual(['legal'])
-    expect(store.funnelMainEnabled).toBe(true)
+    // 2026-10-01：funnel 主路径开关已删（用户裁定：六层漏斗定了，旧回滚逻辑用不着），
+    // 故不再断言 store.funnelMainEnabled。
     expect(store.eventLog).toHaveLength(0)
-  })
-
-  it("flag='0' → funnelMainEnabled=false", async () => {
-    vaultFlag = '0'
-    const store = useHotplugStore()
-    store.init()
-    await store.refreshFunnelFlag()
-
-    expect(store.funnelMainEnabled).toBe(false)
   })
 
   it('init 幂等（重复调用不重复订阅）', () => {
@@ -164,25 +156,6 @@ describe('hotplugStore（工作台右栏数据源，R16）', () => {
     expect(store.eventLog[1].text).toContain('不一致')
     expect(store.eventLog[2]).toMatchObject({ level: 'info' })
     expect(store.eventLog[2].text).toBe('影子对照：funnel(macro) vs 旧路径(macro) 一致')
-  })
-
-  it('toggleFunnelMain → vault 写入 + dialogStore 缓存清除 + 事件', () => {
-    const store = useHotplugStore()
-    store.init()
-
-    store.toggleFunnelMain()
-
-    expect(vault.readCache('config', 'holo-funnel-main')).toBe('0')
-    expect(store.funnelMainEnabled).toBe(false)
-    expect(refreshFlagMock).toHaveBeenCalledTimes(1)
-    expect(store.eventLog[0]).toMatchObject({ kind: 'funnel', level: 'warn' })
-    expect(store.eventLog[0].text).toContain('已关闭')
-
-    store.toggleFunnelMain()
-
-    expect(vault.readCache('config', 'holo-funnel-main')).toBe('1')
-    expect(store.funnelMainEnabled).toBe(true)
-    expect(refreshFlagMock).toHaveBeenCalledTimes(2)
   })
 
   it('eventLog 上限 50 条（新事件在前）', () => {

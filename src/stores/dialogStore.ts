@@ -913,26 +913,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
   }
 
-  // ===== Phase 3 灰度第二步（R14/R15）：funnel 主路径适配层（默认开启；vault config:holo-funnel-main = '0' 显式回滚旧路径）=====
-  let funnelMainEnabled: boolean | null = null
-
-  async function isFunnelMainEnabled(): Promise<boolean> {
-    if (funnelMainEnabled === null) {
-      try {
-        // R15：默认翻转——未配置（null）即走 funnel 主路径；'0' 为回滚开关（旧六层内联保留为回滚目标 + error 兜底）
-        funnelMainEnabled = (await vault.read('config', 'holo-funnel-main')) !== '0'
-      } catch {
-        funnelMainEnabled = true
-      }
-    }
-    return funnelMainEnabled
-  }
-
-  /** R16：工作台导航开关调用——vault 写入后清除闭包缓存，下一条消息即按新值路由 */
-  function refreshFunnelMainFlag(): void {
-    funnelMainEnabled = null
-  }
-
   // ===== G-15（2026-09-25）：漏斗门值配置通道 =====
   // 门值默认仍是 funnel.ts 的启发式常量；本通道让它们可经 vault `config/holo-funnel-gates`（JSON，如
   // {"l05Pass":0.75}）覆盖，并把被覆盖的字段打到探针（此前既不可调也不可见）。未配置时逐字节等于默认。
@@ -1509,14 +1489,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const recentUserMsgs = messages.value.filter(m => m.role === 'user')
       const recentUserMsg = recentUserMsgs.length > 1 ? recentUserMsgs[recentUserMsgs.length - 2].content : ''
 
-      // Phase 3 灰度第二步（R14/R15）：默认走 funnel 主路径（'0' 回滚旧内联）；error/异常回退下方旧路径兜底
-      if (await isFunnelMainEnabled()) {
-        if (await routeViaFunnel(content, allMcpTools, recentUserMsg)) return ''
-      } else {
-        // 回滚模式（config:holo-funnel-main='0'）：仅跑 shadow 对照；emit 路由事件供工作台观测（handled=false 表示走旧路径）
-        globalBus.emit('funnel:routed', { handled: false, kind: 'funnel-disabled', ts: Date.now(), traceId: activeTraceId.value || undefined })
-        void runFunnelShadow(content, allMcpTools, recentUserMsg)
-      }
+      // 2026-10-01（用户裁定「六层漏斗全部功能留着，旧逻辑、完全用不着的删去」）：
+      // funnel 主路径**无条件**走 —— 灰度开关（holo-funnel-main）及其"回滚旧内联"分支已删。
+      // routeViaFunnel 内部在 error/适配层异常时返回 false，落到下方兜底。
+      if (await routeViaFunnel(content, allMcpTools, recentUserMsg)) return ''
 
       let plan: TaskPlan | undefined = undefined
       let macroManifestId: string | null = null
@@ -3511,7 +3487,6 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     isProcessing,
     originSessionId,
     activeTraceId,
-    refreshFunnelMainFlag,
     currentEngine,
     pendingPlan,
     awaitingConfirmation,

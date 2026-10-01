@@ -40,7 +40,6 @@ export const useHotplugStore = defineStore('hotplug', () => {
   const kernelQueueLen = ref(0)
   const allPackIds = ref<string[]>([])
   const mountedPackIds = ref<string[]>([])
-  const funnelMainEnabled = ref(true)
   const lastRouted = ref<FunnelRoutedRecord | null>(null)
   const eventLog = ref<HotplugEvent[]>([])
 
@@ -64,29 +63,11 @@ export const useHotplugStore = defineStore('hotplug', () => {
     mountedPackIds.value = packLoader.listMounted().map(m => m.id)
   }
 
-  async function refreshFunnelFlag(): Promise<void> {
-    try {
-      funnelMainEnabled.value = (await vault.read('config', 'holo-funnel-main')) !== '0'
-    } catch {
-      funnelMainEnabled.value = true
-    }
-  }
-
-  /** 工作台导航开关：写 vault + 清 dialogStore 闭包缓存，立即生效（无需重载） */
-  function toggleFunnelMain(): void {
-    const next = !funnelMainEnabled.value
-    vault.writeThrough('config', 'holo-funnel-main', next ? '1' : '0')
-    funnelMainEnabled.value = next
-    useDialogStore().refreshFunnelMainFlag()
-    pushEvent('funnel', next ? 'funnel 主路径已开启' : 'funnel 主路径已关闭（回滚旧六层内联）', next ? 'info' : 'warn')
-  }
-
   /** 订阅总线事件（幂等；App 挂载工作台时调用一次） */
   function init(): void {
     if (initialized) return
     initialized = true
     refresh()
-    refreshFunnelFlag()
 
     disposers.push(
       globalBus.on('kernel:activated', p => {
@@ -167,13 +148,10 @@ export const useHotplugStore = defineStore('hotplug', () => {
     kernelQueueLen,
     allPackIds,
     mountedPackIds,
-    funnelMainEnabled,
     lastRouted,
     eventLog,
     init,
     dispose,
-    refresh,
-    refreshFunnelFlag,
-    toggleFunnelMain
+    refresh
   }
 })

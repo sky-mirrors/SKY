@@ -695,7 +695,7 @@ describe('P0-A：输入门控（RaaP 误路由修复）', () => {
     }
   })
 
-  it('L2 黄门 show_candidates：file 候选被过滤后仅剩 text 候选 → 单候选翻译路径用幸存者', async () => {
+  it('L2 黄门：原 top1(file 类) 被输入门控滤掉 → miss，不再改用幸存候选', async () => {
     const mFile = makeTypedManifest({ id: 'reader', inputType: 'file', steps: MEETING_DAG })
     const mText = makeTypedManifest({ id: 'writer', inputType: 'text', steps: MEETING_DAG })
     vi.mocked(universalMatch).mockResolvedValue({
@@ -711,8 +711,10 @@ describe('P0-A：输入门控（RaaP 误路由修复）', () => {
     } as UniversalMatchResult)
     vi.mocked(translateIntent).mockResolvedValue({ intent: '执行writer', params: { x: '1' } })
     const result = await layers.l2('帮我看看这段文字说了什么大概意思呢', null, makeCtx())
-    expect(result.kind).toBe('intent-confirm')
-    expect(translateIntent).toHaveBeenCalledWith(expect.anything(), mText, expect.anything())
+    // 2026-10-01（用户裁定）：原 top1 被输入门控滤掉（形态不匹配）⇒ 返回 miss 交给上层澄清，
+    // **不再**"用幸存候选" —— 实测那会让一次「缺附件」的请求悄悄跑成完全无关的任务。
+    expect(result.kind).toBe('miss')
+    expect(translateIntent).not.toHaveBeenCalled()
   })
 
   it('L2 黄门：全部候选被门控拒绝 → miss（降级 L3）', async () => {

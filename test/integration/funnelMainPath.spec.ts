@@ -256,21 +256,6 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     globalBus.clear()
   })
 
-  it("flag='0'（显式回滚）→ kernelRegistry.route 不被调用，走旧内联路径", async () => {
-    funnelMainFlag = '0'
-    setupBus()
-    vi.mocked(tryL0Skill).mockResolvedValue({
-      intent: '旧路径任务',
-      steps: [{ step: 1, description: '旧路径步骤', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
-    })
-
-    await store.sendMessage('测试消息')
-
-    expect(routeMock).not.toHaveBeenCalled()
-    expect(store.awaitingConfirmation).toBe(true)
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill直通：旧路径任务')
-  })
-
   it('flag 未配置（null，R15 默认）→ 默认走 funnel 主路径', async () => {
     funnelMainFlag = null
     setupBus()
@@ -861,21 +846,6 @@ describe('A2-9：pre-output 否决门接入 funnel 主路径（presentExecutionO
     expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
   })
 
-  it("flag='0' 回滚 → 旧六层内联路径不过 pre-output 门（回滚开关回滚完整旧行为）", async () => {
-    funnelMainFlag = '0'
-    setupBus()
-    getActiveMock.mockReturnValue(blockingKernel)
-    vi.mocked(tryL0Skill).mockResolvedValue({
-      intent: '回滚路径任务',
-      steps: [{ step: 1, description: '旧路径步骤', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
-    })
-
-    await store.sendMessage('测试回滚')
-
-    expect(routeMock).not.toHaveBeenCalled()
-    expect(noticeTexts(store)).not.toContain('⛔ 否决门拦截')
-    expect(store.awaitingConfirmation).toBe(true)
-  })
 })
 
 describe('M16：竞争模型接入 funnel 主路径（config:holo-competitive-mode）', () => {
