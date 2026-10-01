@@ -84,6 +84,18 @@ export function isEmbedderReady(): boolean {
   return embedderReady
 }
 
+/**
+ * 2026-10-01（用户反馈「小模型应该随应用启动提前冷启动」）：
+ * 后台预热——启动时调一次，把「下载模型 + 初始化 onnx」从**首次提问**挪到**应用启动**。
+ *
+ * 动机：此前只在首次走 RAG 路由时才加载，而首次要下 21.9MB（本机实测 26.5s）。
+ * 冷启动把这段等待藏进用户还没提问的时间窗里，首次对话不再承担它。
+ * 有意不 await、不抛（启动钩子按既有惯例 `.catch` 吞掉），绝不影响启动。
+ */
+export function prewarmEmbedder(): void {
+  void getEmbedder().catch(() => { /* 预热失败不影响启动；失败原因由 getEmbedder 内部报出 */ })
+}
+
 function simpleHash(text: string): number {
   let hash = 0
   for (let i = 0; i < text.length; i++) {

@@ -330,6 +330,11 @@ onMounted(async () => {
   // 但全仓没有任何 load 被调用（写而不读），重启即丢。设置在「设置 → 计价」。
   initPricingFromVault().catch(err => console.warn('[pricing] 用户计价装载失败:', err))
 
+  // 2026-10-01（用户反馈「小模型应该随着应用启动提前冷启动」）：把 embedder 的模型下载+
+  // onnx 初始化从「首次提问」挪到「启动后台」。首次要下 21.9MB（实测 26.5s），不预热就会
+  // 压在第一轮对话上、且受加载超时限制而失败降级。有意不 await —— 启动不被它拖住。
+  void import('@/services/embedder').then(m => m.prewarmEmbedder()).catch(() => {})
+
   // 2026-09-25（机制体检）：DAG 检查点过期回收——此前 pruneExpired 零消费者，
   // 过期检查点只能靠 saveCheckpoint 的 MAX=20 上限顺带淘汰。读侧 resume 候选见 DialogPanel。
   pruneExpired().catch(err => console.warn('[checkpoint] 过期检查点回收失败:', err))
