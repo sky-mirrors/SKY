@@ -56,11 +56,14 @@ class VaultClient {
    * 与 syncFromVault 的区别：那个是全量同步且会把同步前的本地写按磁盘优先丢弃；这里只刷新
    * 一个 key、不碰写队列，供「写前对齐」这种高频场景使用。
    */
-  async syncKey(namespace: string, key: string): Promise<void> {
+  async syncKey(namespace: string, key: string, opts?: { flush?: boolean }): Promise<void> {
     // 必须先把本窗的待写改动落盘再读——否则读回的「磁盘值」其实还是旧的
     // （writeThrough 是 100ms 延迟 flush），会把刚做的改动原样撤销回去。
     // 这个坑实测踩到过：连删 163 条只生效了 4 条。
-    try { await this.flushNow() } catch { /* 落盘失败则按现有磁盘值继续 */ }
+    // opts.flush=false 用于「他窗写入后的被动刷新」：此时不该把本窗未落盘的写推出去。
+    if (opts?.flush !== false) {
+      try { await this.flushNow() } catch { /* 落盘失败则按现有磁盘值继续 */ }
+    }
     const fullKey = this.fullKeyOf(namespace, key)
     const fresh = await this.readFromDisk(namespace, key)
     if (fresh !== null) this.cache.set(fullKey, fresh)
@@ -267,6 +270,15 @@ if (typeof window !== 'undefined') {
   const flushOnQuit = () => { vault.flushBeforeUnload() }
   window.addEventListener('beforeunload', flushOnQuit)
   window.addEventListener('pagehide', flushOnQuit)
+
+  // 2026-10-01（缺陷修复）：订阅他窗写入广播，被动刷新本窗缓存。
+  // 各渲染进程的 vault 缓存彼此不可见，若本窗据旧快照「读-改-写」，就会覆盖他窗的新数据
+  // （实测：知识库窗删除后，主窗用它的旧快照又把 169 条覆盖了回去）。收到广播即刷新该 key，
+  // 让下一次本地写入基于最新值。不 flush（flush:false）——这是被动同步，不该推本窗的写。
+  const api = (window as unknown as { electronAPI?: { onVaultChanged?: (cb: (d: { namespace: string; key: string }) => void) => void } }).electronAPI
+  api?.onVaultChanged?.((d) => {
+    void vault.syncKey(d.namespace, d.key, { flush: false })
+  })
 }
 
 export type { VaultClient }

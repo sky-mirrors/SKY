@@ -126,6 +126,8 @@ interface ElectronAPI {
   vaultWrite: (namespace: string, key: string, value: string, encrypted?: boolean) => Promise<void>
   vaultDelete: (namespace: string, key: string) => Promise<void>
   vaultList: (namespace?: string) => Promise<string[]>
+  /** 2026-10-01：他窗 vault 写入广播（多窗口缓存一致性用） */
+  onVaultChanged: (callback: (data: { namespace: string; key: string }) => void) => () => void
   openDebugWindow: () => void
   /** 2026-10-01 开发者端（合并窗口：调试中心 / 压测台 / 规则审核） */
   openDevWindow: () => void

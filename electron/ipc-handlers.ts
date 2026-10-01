@@ -14,6 +14,8 @@ import { processMedia, createFfmpegRunner, resolveFfmpegPath, type MediaOp } fro
 import { lookup } from 'dns/promises'
 import { isIP } from 'net'
 import type { BrowserWindow } from 'electron'
+// 2026-10-01：vault 写后广播需要运行时值（getAllWindows），故同时引入值导入
+import { BrowserWindow as ElectronBrowserWindow } from 'electron'
 import { hasMcpProcess, startMcpProcess, stopMcpProcess, getMcpEntry, sendMcpRequest, getAllMcpIds, sanitizeMcpEnv } from './mcp-manager'
 import { getMainWindow } from './window-manager'
 import { isShellCommandAllowed, getTimeoutForCommand, HTTP_MAX_BODY_SIZE, HTTP_ALLOWED_METHODS, HTTP_TIMEOUT_TIER, HTTP_ABSOLUTE_CAP, isMcpCommandAllowed } from './shell-security'
@@ -1545,12 +1547,27 @@ export function setupIpc(_win: BrowserWindow | null) {
     return vaultRead(namespace, key)
   })
 
-  ipcMain.handle('vault:write', (_event, namespace: string, key: string, value: string, encrypted?: boolean) => {
+  ipcMain.handle('vault:write', (event, namespace: string, key: string, value: string, encrypted?: boolean) => {
     vaultWrite(namespace, key, value, encrypted)
+    // 2026-10-01（缺陷修复）：多窗口各自持有渲染层 vault 缓存、彼此不可见，导致
+    // 「A 窗改完 → B 窗用旧快照写回 → A 的改动被覆盖」。实测到知识库删除被主窗旧快照回滚。
+    // 这里在写入后向**其他**窗口广播变更，让它们刷新该 key，从根上避免旧快照回写。
+    try {
+      for (const w of ElectronBrowserWindow.getAllWindows()) {
+        if (w.webContents.id === event.sender.id) continue
+        w.webContents.send('vault:changed', { namespace, key })
+      }
+    } catch { /* 广播失败不影响写入本身 */ }
   })
 
-  ipcMain.handle('vault:delete', (_event, namespace: string, key: string) => {
+  ipcMain.handle('vault:delete', (event, namespace: string, key: string) => {
     vaultDelete(namespace, key)
+    try {
+      for (const w of ElectronBrowserWindow.getAllWindows()) {
+        if (w.webContents.id === event.sender.id) continue
+        w.webContents.send('vault:changed', { namespace, key })
+      }
+    } catch { /* 同上 */ }
   })
 
   ipcMain.handle('vault:list', (_event, namespace?: string) => {

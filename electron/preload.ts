@@ -300,6 +300,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   vaultList: (namespace?: string) =>
     ipcRenderer.invoke('vault:list', namespace),
 
+  // 2026-10-01（缺陷修复）：他窗写入广播——供各窗口刷新本地 vault 缓存，避免旧快照覆盖新数据
+  onVaultChanged: (callback: (data: { namespace: string; key: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { namespace: string; key: string }) => callback(data)
+    ipcRenderer.on('vault:changed', handler)
+    return () => ipcRenderer.removeListener('vault:changed', handler)
+  },
+
   openDebugWindow: () => ipcRenderer.send('open:debug-window'),
 
   // 2026-10-01 开发者端（合并窗口：调试中心 / 压测台 / 规则审核）
