@@ -181,7 +181,7 @@ export function createBuiltinPackSource(): PackSource {
         if (!data || typeof data !== 'object') continue
         if (section === 'routing') merged.routing = data as PackExecution['routing']
         else if (section === 'terminology') merged.terminology = data as PackExecution['terminology']
-        else if (section === 'manifests') merged.manifests = data as unknown[]
+        else if (section === 'manifests') merged.manifests = data as PackExecutionManifest[]
         else if (section === 'cases') merged.cases = data as unknown[]
       }
       return found ? merged : null
