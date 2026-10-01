@@ -47,6 +47,21 @@ class VaultClient {
     return result ?? null
   }
 
+  /**
+   * 2026-10-01（缺陷修复）：把**单个 key** 从主进程读回并更新本地缓存，且**不标脏**。
+   *
+   * 背景：各渲染进程（主窗 / 知识库窗 / 调试窗…）各有一份 vault 缓存，彼此不可见。
+   * 于是出现「本窗基于旧快照改动 → 写回时把别窗刚写入的新数据覆盖掉」——实测到：
+   * 知识库窗删除后磁盘已是 12 条，主窗却在某次写入时用它的 169 条旧快照又覆盖了回去。
+   * 与 syncFromVault 的区别：那个是全量同步且会把同步前的本地写按磁盘优先丢弃；这里只刷新
+   * 一个 key、不碰写队列，供「写前对齐」这种高频场景使用。
+   */
+  async syncKey(namespace: string, key: string): Promise<void> {
+    const fullKey = this.fullKeyOf(namespace, key)
+    const fresh = await this.readFromDisk(namespace, key)
+    if (fresh !== null) this.cache.set(fullKey, fresh)
+  }
+
   async write(namespace: string, key: string, value: string, encrypted?: boolean): Promise<void> {
     const fullKey = this.fullKeyOf(namespace, key)
     this.cache.set(fullKey, value)

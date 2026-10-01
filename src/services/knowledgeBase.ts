@@ -73,7 +73,14 @@ function appendEntryLocked(entry: KnowledgeEntry): void {
 // 与并发摄取互相覆盖（迁移窗口内写入的新条目会被旧快照抹掉）。
 let entriesWriteLock: Promise<unknown> = Promise.resolve()
 export function withEntriesLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = entriesWriteLock.then(fn, fn)
+  // 2026-10-01（缺陷修复）：写前先与主进程对齐。各渲染进程的 vault 缓存彼此不可见，
+  // 直接基于本窗旧快照「读-改-写」会把别的窗口刚写入的新数据覆盖掉——实测到：
+  // 知识库窗删除后磁盘已是 12 条，主窗用它的 169 条旧快照又覆盖了回去。
+  const aligned = async () => {
+    try { await vault.syncKey('knowledge', STORAGE_KEY) } catch { /* 对齐失败则按本地缓存继续 */ }
+    return fn()
+  }
+  const run = entriesWriteLock.then(aligned, aligned)
   entriesWriteLock = run.then(() => undefined, () => undefined)
   return run
 }
