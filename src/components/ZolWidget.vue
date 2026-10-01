@@ -32,14 +32,39 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getZOLState, resetZOL, DOMAIN_REWRITE_OFFSETS, DOMAIN_DISAMBIG_OFFSETS } from '@/services/strategySelector'
 import { getRoutingZOLState, DOMAIN_ROUTING_TIER_BIAS } from '@/services/smartRouter'
 import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
+import { globalBus } from '@/kernel/bus'
 
 const expanded = ref(false)
 
+/**
+ * 2026-10-01（用户反馈：检查 ZOL 是否实时跟随会话计算）：
+ * 后端学习**确实实时**——`apiStore` 每次 LLM 调用结束都会 `recordOutcome`（并刻意排除
+ * benchmark/exam 流量）。但**这个组件显示的百分比原本是死的**：`getZOLState()` /
+ * `getBudgetMode()` / `getSessionSpent()` 都是非响应式模块级读取，computed 在没有响应式
+ * 依赖时只求值一次、永不失效 ⇒ 数字停在首帧，看着像"没跟随"。
+ * 修法：引入 tick 驱动源——每轮 LLM 完成（`debug:record-cost`）即刷新，另加低频轮询兜底
+ * 非 LLM 路径（预算重置 / ZOL reset / 手工切换）。
+ */
+const tick = ref(0)
+let tickTimer: ReturnType<typeof setInterval> | null = null
+let disposeTick: (() => void) | null = null
+
+onMounted(() => {
+  disposeTick = globalBus.on('debug:record-cost', () => { tick.value++ })
+  tickTimer = setInterval(() => { tick.value++ }, 1500)
+})
+onUnmounted(() => {
+  disposeTick?.()
+  disposeTick = null
+  if (tickTimer) { clearInterval(tickTimer); tickTimer = null }
+})
+
 const learners = computed(() => {
+  void tick.value // 响应式依赖：tick 变化时重算（见上方注释）
   const rewrite = getZOLState().rewrite
   const disambig = getZOLState().disambig
   const routing = getRoutingZOLState()
@@ -84,8 +109,8 @@ const domainOffsets = computed(() => {
   return merged
 })
 
-const budgetMode = computed(() => getBudgetMode())
-const spent = computed(() => getSessionSpent().toFixed(4))
+const budgetMode = computed(() => { void tick.value; return getBudgetMode() })
+const spent = computed(() => { void tick.value; return getSessionSpent().toFixed(4) })
 
 function formatOffsets(offsets: Record<string, number>): string {
   return Object.entries(offsets).map(([k, v]) => `${k}:${v > 0 ? '+' : ''}${v}`).join(' ')

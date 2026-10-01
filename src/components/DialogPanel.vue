@@ -23,19 +23,15 @@
       <div class="transient-hint" v-if="dialogStore.transientHint">{{ dialogStore.transientHint }}</div>
 
       <div class="quick-actions">
-        <!-- 2026-10-01：💬「会话」按钮已移除 —— 会话列表由左导航承担（此前指令区与左导航各有一份
-             会话功能，重叠且对用户不清晰）。会话级操作（添加附件 / 连接知识库）改由左导航发起，
-             经 `ui:session-panel` 事件回到这里开面板（逻辑只有一份）。 -->
-        <button class="qa-btn primary" title="知识库" @click="openKnowledgeWindow()">📚</button>
-        <button class="qa-btn primary" title="设置" @click="showPanel = showPanel === 'settings' ? '' : 'settings'">⚙️</button>
+        <!-- 2026-10-01（用户裁定）：
+             · 📚 知识库 → 迁到左导航（与「管线编辑器」并列，不再挤在指令区）
+             · ⚙️ 设置 → 删（主界面左上角通知旁已有设置入口）
+             · ⋯ 菜单 → 删（其中「流水线」与「管线编辑器」是同一界面，属重复入口）
+             · 💾 导出 → 从 ⋯ 菜单里提出来，独立成按钮放在指令下
+             · ZOL → 移到本行**最右** -->
+        <button class="qa-btn primary" title="导出对话" @click="exportFullDialog()">💾</button>
+        <span class="qa-spacer"></span>
         <ZolWidget />
-        <div class="qa-more">
-          <button class="qa-btn" @click="moreMenu = !moreMenu">⋯</button>
-          <div class="qa-more-dropdown" v-if="moreMenu">
-            <div class="qa-more-item" @click="openPipelineWindow(); moreMenu = false">🔗 流水线</div>
-            <div class="qa-more-item" @click="exportFullDialog(); moreMenu = false">💾 导出</div>
-          </div>
-        </div>
       </div>
 
       <div class="file-context-bar" v-if="activeFileName">
@@ -606,7 +602,6 @@ const isResizing = ref(false)
 const showPanel = ref('')
 /** 2026-10-01：左导航「会话级操作」事件订阅的释放函数 */
 let uiSessionPanelDisposer: (() => void) | null = null
-const moreMenu = ref(false)
 const pipelineNodeIds = ref<string[]>([])
 const macroName = ref('')
 const macroKeywords = ref('')
@@ -655,10 +650,6 @@ watch([panelWidth, isCollapsed], () => {
   document.documentElement.style.setProperty('--dialog-panel-width', `${isCollapsed.value ? 24 : panelWidth.value}px`)
   emit('panelWidthChanged', effectiveWidth)
 }, { immediate: true })
-
-function openPipelineWindow() {
-  window.electronAPI?.openPipelineWindow?.()
-}
 
 // 2026-10-01（用户裁定）：知识库管理在**独立窗口**中打开，不再是指令区右栏的覆盖层
 function openKnowledgeWindow() {
@@ -1446,13 +1437,14 @@ onMounted(() => {
   document.addEventListener('click', onDocClick, true)
   // 2026-10-01：左导航发起的会话级操作（添加附件 / 连接知识库）→ 在这里开对应面板。
   // 只转移「入口」，实际逻辑（FileReader / 选分组）仍只有这一份，不复制。
+  // 2026-10-01（用户裁定）：点「附件」不该弹出右侧会话面板——直接弹文件选择即可；
+  // 「知识库」自知识库管理提为独立窗口后，也不该再走右栏面板，改为开窗（showPanel='kb' 已失效）。
   uiSessionPanelDisposer = globalBus.on('ui:session-panel', (p: { panel?: 'attach' | 'kb' }) => {
     if (p?.panel === 'kb') {
-      showPanel.value = 'kb'
+      openKnowledgeWindow()
       return
     }
     if (p?.panel === 'attach') {
-      showPanel.value = 'session'
       onAttach('session')
     }
   })
@@ -1749,6 +1741,8 @@ async function loadCheckpoints() {
   padding: 6px 14px;
   border-bottom: 1px solid rgba(100, 180, 255, 0.04);
 }
+/* 2026-10-01：把 ZOL 推到指令行最右（导出按钮留在左侧） */
+.qa-spacer { flex: 1; }
 .qa-btn {
   width: 28px;
   height: 28px;

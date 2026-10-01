@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { DialogMessage } from '@/models'
 import { debugLog } from '@/services/debugLog'
 import { vault } from '@/vault'
+import { globalBus } from '@/kernel/bus'
 
 export interface Session {
   id: string
@@ -133,6 +134,9 @@ export const useSessionStore = defineStore('session', () => {
       saveActiveId(activeSessionId.value)
     }
     saveSessions(sessions.value)
+    // 2026-10-01（用户反馈）：会话删了，工作台「最近路由」不该继续挂着该会话的意图
+    // （原先会残留到下一轮对话才被覆盖）。通知热插拔镜像清空。
+    try { globalBus.emit('session:deleted', { sessionId }) } catch { /* 可选链路 */ }
   }
 
   function renameSession(sessionId: string, name: string): void {

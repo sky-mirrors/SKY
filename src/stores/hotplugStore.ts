@@ -159,6 +159,10 @@ export const useHotplugStore = defineStore('hotplug', () => {
         const d = p as { packId: string; phase: string; reason: string }
         pushEvent('pack', `pack 挂载失败：${d.packId}（${d.phase}/${d.reason}）`, 'error')
       }),
+      // 2026-10-01（用户反馈）：会话被删除后，「最近路由」仍显示该会话的意图，直到下一轮对话才覆盖。
+      globalBus.on('session:deleted', () => {
+        lastRouted.value = null
+      }),
       globalBus.on('funnel:routed', p => {
         const d = p as FunnelRoutedRecord
         lastRouted.value = d

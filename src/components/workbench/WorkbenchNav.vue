@@ -23,6 +23,11 @@
         <span class="wb-nav-icon">🧩</span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
       </button>
+      <!-- 2026-10-01（用户裁定）：知识库入口从指令区迁到这里，与管线编辑器并列 -->
+      <button class="wb-nav-item" title="知识库管理（独立窗口）" @click="openWindow('openKnowledgeWindow')">
+        <span class="wb-nav-icon">📚</span>
+        <span v-if="!navCollapsed" class="wb-nav-item-text">知识库</span>
+      </button>
     </div>
 
     <div class="wb-nav-section wb-nav-sessions">
@@ -144,7 +149,7 @@ function onSessionAction(sessionId: string, panel: 'attach' | 'kb'): void {
 
 const emit = defineEmits<{ openApiSettings: [] }>()
 
-function openWindow(fn: 'openPipelineWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow' | 'openDevWindow') {
+function openWindow(fn: 'openPipelineWindow' | 'openKnowledgeWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow' | 'openDevWindow') {
   const api = (window as unknown as Record<string, undefined | (() => void)>).electronAPI as Record<string, undefined | (() => void)> | undefined
   api?.[fn]?.()
 }
