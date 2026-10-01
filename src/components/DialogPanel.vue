@@ -267,7 +267,9 @@
       </div>
       </div>
 
-      <div class="side-panel" v-if="showPanel">
+      <!-- 2026-10-01（用户裁定）：知识库管理应出现在**独立界面**，不再挤在指令区右栏里。
+           用全屏修饰类把它提为覆盖层；会话面板仍保持侧栏形态。 -->
+      <div class="side-panel" :class="{ 'side-panel-full': showPanel === 'kb' }" v-if="showPanel">
         <div v-if="showPanel === 'kb'" class="kb-panel">
           <div class="panel-title">📚 知识库</div>
           <div class="kb-toolbar">
@@ -2551,6 +2553,17 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
   border-left: 1px solid rgba(100, 180, 255, 0.1);
   scrollbar-width: thin;
   scrollbar-color: rgba(80, 160, 255, 0.2) transparent;
+}
+
+/* 2026-10-01：知识库管理的「独立界面」形态 —— 全屏覆盖，脱离 240px 侧栏 */
+.side-panel.side-panel-full {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  z-index: 60;
+  background: rgba(6, 9, 20, 0.98);
+  border-left: none;
+  padding: 16px 20px;
 }
 .panel-title {
   font-size: 11px;
