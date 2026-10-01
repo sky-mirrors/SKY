@@ -132,14 +132,51 @@ export interface VectorWithMeta {
   isPseudo: boolean
 }
 
+/**
+ * 2026-10-01（性能修复：知识库上传很卡）：
+ * 实测**每次 embed 约 560ms**，且同一文本重复调用仍要 557ms（毫无复用）。而摄取是按 chunk
+ * 逐个生成向量的 ⇒ 一个 10 chunk 的文件要等 5 秒以上，这就是「上传很卡」的主因。
+ * 加会话级缓存：同文本直接返回既有向量（键用轻量 hash，避免长文本撑爆 Map 键）。
+ */
+const vectorCache = new Map<string, VectorWithMeta>()
+const VECTOR_CACHE_LIMIT = 1000
+
+function textKey(text: string): string {
+  // djb2——只用于缓存键，碰撞概率对本用途足够低
+  let h = 5381
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0
+  return `${text.length}:${h}`
+}
+
+/** 清空向量缓存（测试/内存紧张时用） */
+export function clearVectorCache(): void {
+  vectorCache.clear()
+}
+
 export async function generateVectorWithMeta(text: string): Promise<VectorWithMeta> {
+  const key = textKey(text)
+  const cached = vectorCache.get(key)
+  if (cached) return cached
+
   const emb = await getEmbedder()
+  let result: VectorWithMeta
   if (emb) {
     try {
-      return { vector: await emb.embed(text), isPseudo: false }
-    } catch { /* fallback */ }
+      result = { vector: await emb.embed(text), isPseudo: false }
+    } catch {
+      result = { vector: generatePseudoVector(text), isPseudo: true }
+    }
+  } else {
+    result = { vector: generatePseudoVector(text), isPseudo: true }
   }
-  return { vector: generatePseudoVector(text), isPseudo: true }
+
+  // 超限时淘汰最早的一条（够用即可；不做精确 LRU 以免引入额外开销）
+  if (vectorCache.size >= VECTOR_CACHE_LIMIT) {
+    const oldest = vectorCache.keys().next().value
+    if (oldest !== undefined) vectorCache.delete(oldest)
+  }
+  vectorCache.set(key, result)
+  return result
 }
 
 export async function generateVector(text: string): Promise<number[]> {

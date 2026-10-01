@@ -73,14 +73,14 @@ function appendEntryLocked(entry: KnowledgeEntry): void {
 // 与并发摄取互相覆盖（迁移窗口内写入的新条目会被旧快照抹掉）。
 let entriesWriteLock: Promise<unknown> = Promise.resolve()
 export function withEntriesLock<T>(fn: () => Promise<T>): Promise<T> {
-  // 2026-10-01（缺陷修复）：写前先与主进程对齐。各渲染进程的 vault 缓存彼此不可见，
-  // 直接基于本窗旧快照「读-改-写」会把别的窗口刚写入的新数据覆盖掉——实测到：
-  // 知识库窗删除后磁盘已是 12 条，主窗用它的 169 条旧快照又覆盖了回去。
-  const aligned = async () => {
-    try { await vault.syncKey('knowledge', STORAGE_KEY) } catch { /* 对齐失败则按本地缓存继续 */ }
-    return fn()
-  }
-  const run = entriesWriteLock.then(aligned, aligned)
+  // 2026-10-01（性能回归修复）：**移除**原先在锁内的「写前 syncKey 对齐」。
+  //
+  // 背景：多窗口缓存互相覆盖（A 窗旧快照回写覆盖 B 窗新数据）曾用两个手段修：
+  //   ① 写前 syncKey（flushNow + readFromDisk，两次主进程往返）；② 主进程写后广播。
+  // 实测发现 ① 让**每次摄取都要多等约 600ms**（单 chunk 上传 566ms 摄取 + 617ms 落盘等待），
+  // 是「上传很卡」的主因；而 ② 已经覆盖了同一问题（他窗写入 → 本窗缓存被动刷新），
+  // 两者功能重叠。故移除此处的 ①（`vault.syncKey` 方法本身保留，供需要显式对齐处调用）。
+  const run = entriesWriteLock.then(fn, fn)
   entriesWriteLock = run.then(() => undefined, () => undefined)
   return run
 }
