@@ -15,8 +15,9 @@ const DEBUG_SYNC_STORES = ['debug', 'api', 'node']
 // P1-38：主→流水线窗口同步的 store 白名单（PipelinePage/ToolSelector 实际消费的 store）
 const PIPELINE_SYNC_STORES = ['node', 'pipeline']
 // 2026-10-01 主→知识库窗口同步的 store 白名单：knowledge/memory 是知识库面板的展示源，
-// dialog 供「对话引用」tab。增量广播 + 打开时另由 pushKnowledgeSnapshot 推一次全量。
-const KNOWLEDGE_SYNC_STORES = ['knowledge', 'memory', 'dialog']
+// dialog 供「对话引用」tab，session 供「合并式新建项目空间」选择会话。
+// 增量广播 + 打开时另由 pushKnowledgeSnapshot 推一次全量。
+const KNOWLEDGE_SYNC_STORES = ['knowledge', 'memory', 'dialog', 'session']
 
 function installStoreSync(): ReturnType<typeof createPinia> {
   const pinia = createPinia()

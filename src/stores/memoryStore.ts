@@ -80,7 +80,7 @@ function compressOldMessages(convs: ConversationMemory[], conv: ConversationMemo
 
 export const useMemoryStore = defineStore('memory', () => {
   const sessionMemory = ref<SessionMemory>({
-    id: `session-${Date.now()}`,
+    id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     createdAt: Date.now(),
     updatedAt: Date.now()
   })
@@ -121,7 +121,7 @@ export const useMemoryStore = defineStore('memory', () => {
 
   function clearSession() {
     sessionMemory.value = {
-      id: `session-${Date.now()}`,
+      id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
@@ -145,16 +145,22 @@ export const useMemoryStore = defineStore('memory', () => {
     clearSession()
   }
 
-  function addProjectMemory(name: string): ProjectMemory | null {
+  function addProjectMemory(
+    name: string,
+    opts?: { sessionIds?: string[]; parentGroupId?: string; knowledgeEntryIds?: string[] }
+  ): ProjectMemory | null {
     if (projectMemories.value.find(p => p.name === name)) return null
     const pm: ProjectMemory = {
       id: `proj-${Date.now()}`,
       name,
       fileFingerprints: [],
-      knowledgeEntryIds: [],
+      knowledgeEntryIds: opts?.knowledgeEntryIds ? Array.from(new Set(opts.knowledgeEntryIds)) : [],
       vectorIndex: {},
       updatedAt: Date.now()
     }
+    // 2026-10-01：合并式新建项目空间用——可选携带分组归属与会话清单
+    if (opts?.parentGroupId) pm.parentGroupId = opts.parentGroupId
+    if (opts?.sessionIds) pm.sessionIds = Array.from(new Set(opts.sessionIds))
     projectMemories.value.push(pm)
     saveProjectsToStorage()
     return pm

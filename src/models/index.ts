@@ -336,6 +336,8 @@ export interface ProjectMemory {
   vectorIndex: Record<string, number[]>
   updatedAt: number
   parentGroupId?: string
+  /** 2026-10-01：纳入本项目的会话 id（合并式新建项目空间时记录；旧数据无此字段，按可选处理） */
+  sessionIds?: string[]
 }
 
 export interface KnowledgeGroup {

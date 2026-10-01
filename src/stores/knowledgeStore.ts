@@ -23,9 +23,34 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   function createGroup(name: string): KnowledgeGroup | null {
     if (knowledgeGroups.value.find(g => g.name === name)) return null
     const g: KnowledgeGroup = {
-      id: `group-${Date.now()}`,
+      // 2026-10-01：补随机后缀——原先 `group-${Date.now()}` 在同一毫秒内建两个组会撞 id
+      // （被 projectSpace.spec 的原库不变断言暴露：两组被当成同一组）
+      id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name,
       sharedEntryIds: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    knowledgeGroups.value.push(g)
+    saveGroupsToStorage()
+    return g
+  }
+
+  /**
+   * 2026-10-01（用户裁定）：合并式新建知识库——用给定条目集合建一个**新**分组（自动去重）。
+   * 与 createGroup 的差异：取唯一名（重名自动加后缀）且直接填充 sharedEntryIds。
+   * 供「新建项目空间」把多个知识库合并为一个新库用；调用方保证**不改动任何原分组**。
+   */
+  function createGroupWithEntries(name: string, entryIds: string[]): KnowledgeGroup {
+    let finalName = name
+    let suffix = 2
+    while (knowledgeGroups.value.find(g => g.name === finalName)) {
+      finalName = `${name} (${suffix++})`
+    }
+    const g: KnowledgeGroup = {
+      id: `group-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: finalName,
+      sharedEntryIds: Array.from(new Set(entryIds)),
       createdAt: Date.now(),
       updatedAt: Date.now()
     }
@@ -98,6 +123,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     knowledgeGroups,
     storageMode,
     createGroup,
+    createGroupWithEntries,
     deleteGroup,
     renameGroup,
     addSharedEntryToGroup,

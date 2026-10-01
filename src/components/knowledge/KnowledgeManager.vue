@@ -84,13 +84,35 @@
             <div class="mem-proj-list" v-if="memoryStore.projectMemories.length > 0">
               <div v-for="p in memoryStore.projectMemories" :key="p.id" class="mem-proj-item" :class="{ active: p.id === memoryStore.activeProjectId }" @click="memoryStore.setActiveProject(p.id)">
                 <span class="mp-name">{{ p.name }}</span>
-                <span class="mp-meta">{{ p.fileFingerprints.length }}指纹 · {{ p.knowledgeEntryIds.length }}知识</span>
+                <span class="mp-meta">{{ p.fileFingerprints.length }}指纹 · {{ p.knowledgeEntryIds.length }}知识{{ p.sessionIds?.length ? ` · ${p.sessionIds.length}会话` : '' }}</span>
               </div>
             </div>
             <div v-else class="mem-empty">暂无项目</div>
             <div class="mem-add-row">
               <input class="mem-add-input" v-model="newProjectName" placeholder="新建项目名..." />
               <button class="mem-add-btn" @click="onAddProject">+</button>
+              <button class="mem-add-btn merge-toggle" @click="mergeOpen = !mergeOpen" title="合并多个会话与知识库，新建项目空间">⧉</button>
+            </div>
+            <div class="merge-panel" v-if="mergeOpen">
+              <div class="merge-hint">选会话 + 选知识库 → 合并为新项目空间（原知识库保持不变）</div>
+              <div class="merge-group">
+                <div class="merge-label">会话 ({{ mergeSessionIds.length }})</div>
+                <label v-for="s in sessionStore.sessions" :key="s.id" class="merge-item">
+                  <input type="checkbox" :value="s.id" v-model="mergeSessionIds" /> {{ s.name }}
+                </label>
+                <div v-if="sessionStore.sessions.length === 0" class="mem-empty">暂无会话</div>
+              </div>
+              <div class="merge-group">
+                <div class="merge-label">知识库 ({{ mergeGroupIds.length }})</div>
+                <label v-for="g in knowledgeStore.knowledgeGroups" :key="g.id" class="merge-item">
+                  <input type="checkbox" :value="g.id" v-model="mergeGroupIds" /> {{ g.name }} ({{ g.sharedEntryIds.length }}条)
+                </label>
+                <div v-if="knowledgeStore.knowledgeGroups.length === 0" class="mem-empty">暂无知识库</div>
+              </div>
+              <div class="merge-actions">
+                <button class="merge-ok" @click="onMergeCreate" :disabled="!newProjectName.trim()">创建项目空间</button>
+                <button class="merge-cancel" @click="mergeOpen = false">取消</button>
+              </div>
             </div>
           </div>
 
@@ -145,10 +167,13 @@ import { ref, computed, onMounted } from 'vue'
 import { useKnowledgeStore, ingestFile, getKnowledgeEntries, hybridSearch } from '@/domains/knowledge'
 import { useMemoryStore } from '@/domains/memory'
 import { useDialogStore } from '@/domains/dialog'
+import { useSessionStore } from '@/domains/app'
+import { createProjectSpace } from '@/services/projectSpace'
 
 const knowledgeStore = useKnowledgeStore()
 const memoryStore = useMemoryStore()
 const dialogStore = useDialogStore()
+const sessionStore = useSessionStore()
 
 const kbEntries = ref<{ id: string; filename: string; chunks: number; createdAt: number }[]>([])
 const kbTab = ref<'browse' | 'refs'>('browse')
@@ -162,6 +187,10 @@ const newTplName = ref('')
 const newTplContent = ref('')
 const expandedGroups = ref<Set<string>>(new Set())
 const notice = ref('')
+// 合并式新建项目空间（2026-10-01 用户诉求）
+const mergeOpen = ref(false)
+const mergeSessionIds = ref<string[]>([])
+const mergeGroupIds = ref<string[]>([])
 
 const totalChunks = computed(() => kbEntries.value.reduce((sum, e) => sum + e.chunks, 0))
 const ungroupedProjects = computed(() => memoryStore.projectMemories.filter(p => !p.parentGroupId))
@@ -259,6 +288,24 @@ function onAddTemplate() {
   memoryStore.addPromptTemplate({ name: newTplName.value.trim(), content: newTplContent.value.trim() })
   newTplName.value = ''
   newTplContent.value = ''
+}
+
+/**
+ * 2026-10-01（用户诉求）：合并多个会话与多个知识库，新建一个项目空间。
+ * 新库取所选各库条目并集，**原库保持不变**；所选会话改指新库。详见 services/projectSpace.ts。
+ */
+function onMergeCreate() {
+  const r = createProjectSpace({
+    name: newProjectName.value.trim(),
+    sessionIds: mergeSessionIds.value,
+    groupIds: mergeGroupIds.value
+  })
+  if (!r) { showNotice('⚠️ 项目空间名称已存在或无效'); return }
+  showNotice(`⧉ 已建项目空间「${r.group.name}」：${r.group.sharedEntryIds.length} 条知识 · ${mergeSessionIds.value.length} 个会话`)
+  newProjectName.value = ''
+  mergeSessionIds.value = []
+  mergeGroupIds.value = []
+  mergeOpen.value = false
 }
 
 // 窗口控制走本窗（knowledge 窗口）的 IPC
@@ -361,4 +408,19 @@ onMounted(() => { refreshKbEntries() })
 .mt-name { font-size: 10px; color: #a0c0e8; }
 .mt-del { background: none; border: none; color: #ff6666; cursor: pointer; font-size: 9px; }
 .mem-empty { font-size: 10px; color: #5a7a9a; text-align: center; padding: 8px; }
+
+/* 合并式新建项目空间 */
+.merge-toggle { font-weight: bold; }
+.merge-panel { margin-top: 6px; padding: 6px 8px; border: 1px solid rgba(100,180,255,0.15); border-radius: 4px; background: rgba(10,15,30,0.5); }
+.merge-hint { font-size: 9px; color: #5a7a9a; margin-bottom: 6px; }
+.merge-group { margin-bottom: 6px; max-height: 120px; overflow-y: auto; }
+.merge-label { font-size: 10px; color: #8ab4ff; margin-bottom: 2px; }
+.merge-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #a0c0e8; padding: 1px 2px; cursor: pointer; }
+.merge-item input { accent-color: #5a9cff; }
+.merge-actions { display: flex; gap: 4px; margin-top: 4px; }
+.merge-ok { flex: 1; padding: 3px 8px; background: rgba(100,180,255,0.15); border: 1px solid rgba(100,180,255,0.25); border-radius: 3px; color: #8ab4ff; font-size: 10px; cursor: pointer; }
+.merge-ok:hover { background: rgba(100,180,255,0.25); }
+.merge-ok:disabled { opacity: 0.4; cursor: not-allowed; }
+.merge-cancel { padding: 3px 10px; background: transparent; border: 1px solid rgba(150,150,150,0.2); border-radius: 3px; color: #7a8a9a; font-size: 10px; cursor: pointer; }
+.merge-cancel:hover { color: #aab; }
 </style>
