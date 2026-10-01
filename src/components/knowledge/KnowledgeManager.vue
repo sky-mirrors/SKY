@@ -39,19 +39,32 @@
           <!-- 2026-10-01（用户反馈：上传后不知道「传到了哪个文件夹、哪个对话」）：
                此前界面只有一个总数，既看不到文件清单、也看不到归属。现列出文件并逐条标注
                它属于哪个分组 / 哪个会话 / 还是仅全局。 -->
-          <div class="kb-files-section">
-            <div class="kb-section-label">📄 文件 ({{ kbEntries.length }})</div>
+          <div class="kb-block">
+            <div class="kb-block-head">
+              <span class="kb-block-title">📄 全部文件（{{ kbEntries.length }}）</span>
+              <span class="kb-block-desc">你上传的原始资料。可移入分组，或删除。</span>
+            </div>
             <div class="kb-file-list">
-              <div v-for="e in kbEntries.slice(0, 40)" :key="e.id" class="kb-file-row">
+              <div v-for="e in kbEntries.slice(0, 60)" :key="e.id" class="kb-file-row">
                 <span class="kf-name" :title="e.filename">{{ e.filename }}</span>
                 <span class="kf-chunks">{{ e.chunks }}块</span>
                 <span class="kf-owner" :class="{ unowned: ownerLabelOf(e.id).startsWith('全局') }" :title="ownerLabelOf(e.id)">{{ ownerLabelOf(e.id) }}</span>
+                <select class="kf-move" title="移入分组" :disabled="knowledgeStore.knowledgeGroups.length === 0"
+                        @change="onMoveToGroup(e.id, ($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).selectedIndex = 0">
+                  <option value="">📁 移入…</option>
+                  <option v-for="g in knowledgeStore.knowledgeGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+                </select>
+                <button class="kf-del" title="删除该文件（含全部知识块与向量，不可撤销）" @click="onDeleteEntry(e.id, e.filename)">✕</button>
               </div>
               <div v-if="kbEntries.length === 0" class="mem-empty">暂无文件，点上方「上传文件」添加</div>
-              <div v-else-if="kbEntries.length > 40" class="mem-empty">仅显示最近 40 个，共 {{ kbEntries.length }} 个</div>
+              <div v-else-if="kbEntries.length > 60" class="mem-empty">仅显示最近 60 个，共 {{ kbEntries.length }} 个</div>
             </div>
           </div>
 
+          <div class="kb-block-head">
+            <span class="kb-block-title">📁 分组（{{ knowledgeStore.knowledgeGroups.length }}）</span>
+            <span class="kb-block-desc">把文件归类；会话可「连接」某个分组，之后该组文件参与检索。</span>
+          </div>
           <div class="kb-group-toolbar">
             <input class="kb-grp-input" v-model="newGroupName" placeholder="新分组名..." />
             <button class="kb-grp-btn" @click="onCreateGroup" :disabled="!newGroupName.trim()">📁 新建</button>
@@ -96,11 +109,18 @@
           </div>
 
           <div class="mem-section">
-            <div class="mem-section-title">项目空间</div>
+            <div class="mem-section-title">📦 项目空间（{{ memoryStore.projectMemories.length }}）</div>
+            <div class="kb-block-desc">把「多个会话 + 多个知识库」合并成一个可复用工作单元（点 ⧉）；原知识库保持不变。</div>
             <div class="mem-proj-list" v-if="memoryStore.projectMemories.length > 0">
-              <div v-for="p in memoryStore.projectMemories" :key="p.id" class="mem-proj-item" :class="{ active: p.id === memoryStore.activeProjectId }" @click="memoryStore.setActiveProject(p.id)">
-                <span class="mp-name">{{ p.name }}</span>
+              <div v-for="p in memoryStore.projectMemories" :key="p.id" class="mem-proj-item" :class="{ active: p.id === memoryStore.activeProjectId }">
+                <span class="mp-name" @click="memoryStore.setActiveProject(p.id)" :title="'点击设为当前项目'">{{ p.name }}</span>
                 <span class="mp-meta">{{ p.fileFingerprints.length }}指纹 · {{ p.knowledgeEntryIds.length }}知识{{ p.sessionIds?.length ? ` · ${p.sessionIds.length}会话` : '' }}</span>
+                <!-- 2026-10-01（用户诉求：项目空间不能添加知识库）——补一个「＋文件」入口 -->
+                <select class="mp-add" title="把知识库文件加入本项目"
+                        @change="onAddEntryToProject(p.id, ($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).selectedIndex = 0">
+                  <option value="">＋文件</option>
+                  <option v-for="e in kbEntries" :key="e.id" :value="e.id">{{ e.filename }}</option>
+                </select>
               </div>
             </div>
             <div v-else class="mem-empty">暂无项目</div>
@@ -164,7 +184,7 @@
  * 误判 restoreSessionMemory=false，进而 pushSessionToArchive + clearSession 清空主窗会话记忆。
  */
 import { ref, computed, onMounted } from 'vue'
-import { useKnowledgeStore, ingestFile, getKnowledgeEntries, hybridSearch } from '@/domains/knowledge'
+import { useKnowledgeStore, ingestFile, getKnowledgeEntries, hybridSearch, deleteKnowledgeEntry } from '@/domains/knowledge'
 import { useMemoryStore } from '@/domains/memory'
 import { useDialogStore } from '@/domains/dialog'
 import { useSessionStore } from '@/domains/app'
@@ -283,6 +303,34 @@ function formatSize(ts: number): string {
   return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** 2026-10-01（用户诉求：用户应有增删权）：删除单个知识文件（含其全部知识块与向量）。 */
+async function onDeleteEntry(entryId: string, filename: string): Promise<void> {
+  if (!window.confirm(`删除「${filename}」？\n该文件的所有知识块与向量都会被移除，且无法撤销。`)) return
+  const ok = await deleteKnowledgeEntry(entryId)
+  if (ok) {
+    knowledgeStore.removeSharedEntryEverywhere(entryId)
+    refreshKbEntries()
+    showNotice(`🗑️ 已删除：${filename}`)
+  } else {
+    showNotice(`❌ 删除失败：${filename}`)
+  }
+}
+
+/** 2026-10-01（用户诉求：已有文件不知道如何移入分组）：把某个已入库文件加入分组。 */
+function onMoveToGroup(entryId: string, groupId: string): void {
+  if (!groupId) return
+  knowledgeStore.addSharedEntryToGroup(groupId, entryId)
+  const g = knowledgeStore.knowledgeGroups.find(x => x.id === groupId)
+  showNotice(`📁 已把「${getEntryName(entryId)}」移入分组「${g?.name ?? ''}」`)
+}
+
+/** 2026-10-01（用户诉求：项目空间不能添加知识库）：把已入库文件追加进项目空间。 */
+function onAddEntryToProject(projectId: string, entryId: string): void {
+  if (!entryId) return
+  memoryStore.addKnowledgeEntry(projectId, entryId)
+  showNotice(`📦 已把「${getEntryName(entryId)}」加入项目空间`)
+}
+
 function onRemoveSharedEntry(groupId: string, entryId: string) {
   knowledgeStore.removeSharedEntryFromGroup(groupId, entryId)
 }
@@ -369,15 +417,22 @@ onMounted(() => { refreshKbEntries() })
 .kb-grp-btn { padding: 2px 8px; background: rgba(100,180,255,0.1); border: 1px solid rgba(100,180,255,0.15); border-radius: 3px; color: #8ab4ff; font-size: 9px; cursor: pointer; }
 .kb-grp-btn:hover { background: rgba(100,180,255,0.2); }
 .kb-grp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-/* 2026-10-01（用户反馈）：文件清单 —— 让用户看清「传了什么、归在哪」 */
-.kb-files-section { margin-bottom: 8px; }
-.kb-file-list { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; margin-top: 2px; }
+/* 2026-10-01（用户反馈：UI 要能一眼看出用途 + 用户应有增删权） */
+.kb-block { margin-bottom: 12px; }
+.kb-block-head { display: flex; flex-direction: column; gap: 1px; margin-bottom: 4px; }
+.kb-block-title { font-size: 11px; color: #8ab4ff; font-weight: 600; }
+.kb-block-desc { font-size: 9px; color: #5a7a9a; line-height: 1.45; }
+.kb-file-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
 .kb-file-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 3px; font-size: 10px; }
 .kb-file-row:hover { background: rgba(100, 180, 255, 0.05); }
 .kf-name { color: #c0d8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kf-chunks { color: #5a7a9a; font-size: 9px; flex-shrink: 0; }
-.kf-owner { color: #7dcea0; font-size: 9px; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kf-owner { color: #7dcea0; font-size: 9px; flex-shrink: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kf-owner.unowned { color: #8a93a6; }
+.kf-move { font-size: 9px; background: rgba(20, 30, 50, 0.6); color: #8ab4d8; border: 1px solid rgba(100, 180, 255, 0.15); border-radius: 3px; padding: 0 2px; max-width: 90px; flex-shrink: 0; }
+.kf-move:disabled { opacity: 0.35; }
+.kf-del { background: none; border: none; color: #ff6666; cursor: pointer; font-size: 10px; padding: 0 3px; opacity: 0.55; flex-shrink: 0; }
+.kf-del:hover { opacity: 1; }
 .kb-tree { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
 .kb-group-node { border: 1px solid rgba(100,180,255,0.06); border-radius: 4px; }
 .kb-group-header { display: flex; align-items: center; gap: 4px; padding: 3px 6px; cursor: pointer; background: rgba(100,180,255,0.04); border-radius: 3px; }
@@ -411,7 +466,9 @@ onMounted(() => { refreshKbEntries() })
 .mem-section:last-child { border-bottom: none; }
 .mem-section-title { font-size: 10px; color: #8ab4ff; margin-bottom: 4px; font-weight: 600; }
 .mem-proj-list { display: flex; flex-direction: column; gap: 2px; }
-.mem-proj-item { display: flex; justify-content: space-between; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; }
+.mem-proj-item { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border-radius: 3px; font-size: 10px; }
+.mem-proj-item .mp-name { cursor: pointer; }
+.mp-add { font-size: 9px; background: rgba(20, 30, 50, 0.6); color: #8ab4d8; border: 1px solid rgba(100, 180, 255, 0.15); border-radius: 3px; padding: 0 2px; max-width: 86px; flex-shrink: 0; }
 .mem-proj-item:hover { background: rgba(100,180,255,0.06); }
 .mem-proj-item.active { background: rgba(100,180,255,0.12); }
 .mp-name { color: #c0d8f0; }
