@@ -1,16 +1,13 @@
 <template>
   <div class="wb-statusbar">
     <div class="wb-sb-group">
-      <span class="wb-sb-item" :title="`内核 ${hotplugStore.activeKernelId || '—'}（${hotplugStore.kernelState}）`">
-        🧠 {{ hotplugStore.activeKernelId || '—' }}
-        <span class="wb-sb-dot" :class="hotplugStore.kernelState === 'active' ? 'ok' : 'warn'"></span>
-      </span>
+      <!-- 2026-10-01 UI 分端：内核名 / 探针 / funnel 状态都属开发者向，已移出用户端状态栏。
+           此处只留用户能理解的：已挂载领域包数。内核与 funnel 状态见导航「开发者」区与调试中心。 -->
       <span class="wb-sb-item" title="已挂载 pack">
         📦 {{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}
       </span>
-      <span class="wb-sb-item" :title="hotplugStore.funnelMainEnabled ? 'funnel 主路径运行中' : 'funnel 主路径已回滚（旧六层）'">
-        🧭 <span :class="hotplugStore.funnelMainEnabled ? 'wb-sb-ok' : 'wb-sb-bad'">{{ hotplugStore.funnelMainEnabled ? 'funnel' : '旧六层' }}</span>
-      </span>
+      <!-- 2026-10-01 UI 分端：funnel 主路径是「新六层漏斗 vs 旧内联实现」的灰度回滚开关
+           （dialogStore.ts:906），属开发者向——从用户端状态栏移出，开关本身在导航「开发者」区。 -->
     </div>
     <div class="wb-sb-group">
       <span v-if="l1Working.length > 0" class="wb-sb-item" :title="l1Working.map(n => n.name).join('、')">
@@ -22,9 +19,7 @@
       <span v-else class="wb-sb-item dim">L1 空闲</span>
     </div>
     <div class="wb-sb-group">
-      <span class="wb-sb-item dim" title="探针状态">
-        🔍{{ debugStore.activeProbes.length }}<span v-if="debugStore.frozen"> ❄️</span>
-      </span>
+      <!-- 2026-10-01 UI 分端：探针计数属开发者向，移出用户端状态栏（调试中心在导航「开发者」区） -->
       <span class="wb-sb-item" :title="apiStore.isCircuitOpen ? 'API 熔断器已开启——点击重置' : 'API 熔断器正常'">
         <template v-if="apiStore.isCircuitOpen">
           <button class="wb-sb-circuit" @click="apiStore.resetCircuitBreaker()">⚠ 熔断 · 点击重置</button>
@@ -41,12 +36,10 @@
 import { computed } from 'vue'
 import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
-import { useDebugStore } from '@/domains/debug'
 import { useHotplugStore } from '@/stores/hotplugStore'
 
 const nodeStore = useNodeStore()
 const apiStore = useApiStore()
-const debugStore = useDebugStore()
 const hotplugStore = useHotplugStore()
 
 const l1Working = computed(() => {

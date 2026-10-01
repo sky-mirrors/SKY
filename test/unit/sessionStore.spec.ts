@@ -185,3 +185,38 @@ describe('sessionStore', () => {
     expect(s1.messages[0].content).toBe('v2')
   })
 })
+
+// 2026-10-01：会话「隐藏」（归档）此前只有 archiveSession，且**全仓零 UI 消费者**
+// （只有 memoryStore 的同名函数被测试覆盖，sessionStore.archiveSession 没有任何入口调用）
+// ⇒ 用户侧表现为「会话不能隐藏」。本组锁住归档↔恢复的往返语义。
+// 注：unarchiveSession 的实现先于本测试写入（补测，非 TDD 先红），这里覆盖其行为与边界。
+describe('会话归档（隐藏）与恢复', () => {
+  it('archiveSession → 退出 activeSessions 并置 archived；unarchiveSession 可逆', () => {
+    const store = useSessionStore()
+    const s = store.createSession('归档测试会话')
+    expect(store.activeSessions.map(x => x.id)).toContain(s.id)
+
+    store.archiveSession(s.id)
+    expect(store.activeSessions.map(x => x.id)).not.toContain(s.id)
+    expect(store.sessions.find(x => x.id === s.id)?.status).toBe('archived')
+
+    store.unarchiveSession(s.id)
+    expect(store.activeSessions.map(x => x.id)).toContain(s.id)
+    expect(store.sessions.find(x => x.id === s.id)?.status).toBe('active')
+  })
+
+  it('恢复不存在的会话不抛（幂等防护，UI 上删除与恢复相邻易误触）', () => {
+    const store = useSessionStore()
+    expect(() => store.unarchiveSession('no-such-session')).not.toThrow()
+  })
+
+  it('renameSession 改名后 updatedAt 前进（侧栏重命名入口依赖它）', () => {
+    const store = useSessionStore()
+    const s = store.createSession('旧名')
+    const before = s.updatedAt
+    store.renameSession(s.id, '新名')
+    const after = store.sessions.find(x => x.id === s.id)!
+    expect(after.name).toBe('新名')
+    expect(after.updatedAt).toBeGreaterThanOrEqual(before)
+  })
+})

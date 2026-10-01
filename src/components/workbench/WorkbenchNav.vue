@@ -71,7 +71,7 @@
         <button class="wb-nav-new-session" title="新建会话" @click="onNewSession">＋</button>
       </div>
       <div class="wb-nav-session-list">
-        <button
+        <div
           v-for="s in sessionStore.activeSessions"
           :key="s.id"
           class="wb-nav-item wb-nav-session"
@@ -80,8 +80,43 @@
           @click="onSwitchSession(s.id)"
         >
           <span class="wb-nav-icon">💬</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text wb-nav-session-name">{{ s.name }}</span>
-        </button>
+          <input
+            v-if="renamingId === s.id"
+            class="wb-nav-rename-input"
+            v-model="renameValue"
+            @click.stop
+            @keydown.enter="commitRename(s.id)"
+            @keydown.esc="cancelRename"
+            @blur="commitRename(s.id)"
+          />
+          <template v-else>
+            <span v-if="!navCollapsed" class="wb-nav-item-text wb-nav-session-name">{{ s.name }}</span>
+            <!-- 2026-10-01：会话管理入口收进侧栏（能力本就在 sessionStore/dialogStore，此前只挂在 DialogPanel 里，侧栏点不到） -->
+            <span class="wb-nav-sess-actions" @click.stop>
+              <button title="重命名" @click="startRename(s)">✎</button>
+              <button title="归档（隐藏）" @click="sessionStore.archiveSession(s.id)">📦</button>
+              <button title="删除" @click="onDeleteSession(s.id)">✕</button>
+            </span>
+          </template>
+        </div>
+
+        <!-- 归档（隐藏）的会话：可展开并恢复，使「隐藏」可逆 -->
+        <div v-if="archivedSessions.length > 0" class="wb-nav-archived">
+          <button class="wb-nav-item wb-nav-archived-toggle" :title="archivedOpen ? '收起已归档' : '展开已归档'" @click="archivedOpen = !archivedOpen">
+            <span class="wb-nav-icon">📦</span>
+            <span v-if="!navCollapsed" class="wb-nav-item-text">已归档 ({{ archivedSessions.length }}) {{ archivedOpen ? '▾' : '▸' }}</span>
+          </button>
+          <template v-if="archivedOpen">
+            <div v-for="s in archivedSessions" :key="s.id" class="wb-nav-item wb-nav-session wb-nav-archived-item" :title="s.name">
+              <span class="wb-nav-icon">💬</span>
+              <span v-if="!navCollapsed" class="wb-nav-item-text wb-nav-session-name">{{ s.name }}</span>
+              <span class="wb-nav-sess-actions" @click.stop>
+                <button title="恢复" @click="sessionStore.unarchiveSession(s.id)">↩</button>
+                <button title="删除" @click="onDeleteSession(s.id)">✕</button>
+              </span>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 
@@ -92,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useDialogStore } from '@/domains/dialog'
 import { useSessionStore } from '@/domains/app'
 import { useHotplugStore } from '@/stores/hotplugStore'
@@ -104,6 +139,32 @@ const hotplugStore = useHotplugStore()
 const navCollapsed = ref(false)
 /** 2026-10-01 UI 分端：开发者分区默认折叠 —— 用户端默认看不到开发工具 */
 const devOpen = ref(false)
+
+// ── 会话管理（2026-10-01）────────────────────────────────────────────────────
+// 删除/重命名/归档的能力本就在 sessionStore / dialogStore，此前只有 DialogPanel 挂了入口，
+// 用户在侧栏（操作会话的地方）够不到 → 表现为「会话不能删除/重命名/隐藏」。此处补齐侧栏入口。
+const renamingId = ref<string | null>(null)
+const renameValue = ref('')
+const archivedOpen = ref(false)
+const archivedSessions = computed(() => sessionStore.sessions.filter(s => s.status === 'archived'))
+
+function startRename(s: { id: string; name: string }): void {
+  renamingId.value = s.id
+  renameValue.value = s.name
+}
+function cancelRename(): void {
+  renamingId.value = null
+}
+function commitRename(id: string): void {
+  if (renamingId.value !== id) return
+  const name = renameValue.value.trim()
+  if (name) sessionStore.renameSession(id, name)
+  renamingId.value = null
+}
+/** 删除必须经 dialogStore 路由（P0-8：直调 sessionStore.deleteSession 会漏掉边界处理） */
+function onDeleteSession(id: string): void {
+  dialogStore.deleteSession(id)
+}
 
 const emit = defineEmits<{ openApiSettings: [] }>()
 
@@ -213,6 +274,39 @@ function onSwitchSession(sessionId: string) {
   opacity: 0.7;
 }
 .wb-nav-dev-toggle:hover { opacity: 1; color: var(--wb-nav-text); }
+
+/* 2026-10-01 会话管理：操作按钮随 hover 出现（默认不占视觉注意力），归档区低对比 */
+.wb-nav-sess-actions {
+  display: none;
+  gap: 2px;
+  margin-left: auto;
+  align-items: center;
+}
+.wb-nav-session:hover .wb-nav-sess-actions { display: flex; }
+.wb-nav-sess-actions button {
+  background: none;
+  border: none;
+  color: var(--wb-nav-text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+.wb-nav-sess-actions button:hover { color: var(--wb-nav-text); background: var(--wb-nav-hover-bg); }
+.wb-nav-rename-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--wb-nav-border);
+  border-radius: 3px;
+  color: var(--wb-nav-text);
+  font-size: 12px;
+  padding: 1px 4px;
+}
+.wb-nav-archived { margin-top: 2px; border-top: 1px dashed var(--wb-nav-border); padding-top: 2px; }
+.wb-nav-archived-toggle { opacity: 0.7; }
+.wb-nav-archived-item { opacity: 0.75; }
 
 .wb-nav-item {
   display: flex;

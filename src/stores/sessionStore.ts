@@ -112,6 +112,19 @@ export const useSessionStore = defineStore('session', () => {
     saveSessions(sessions.value)
   }
 
+  /**
+   * 2026-10-01：归档的反向操作。此前 `archiveSession` 全仓零 UI 消费者
+   * （只有这里写着、没人调），用户因此无法"隐藏"会话；补上恢复侧，归档才可逆。
+   * 若恢复的正是当前活动会话之外的情形，活动会话保持不变（仅切状态）。
+   */
+  function unarchiveSession(sessionId: string): void {
+    const session = sessions.value.find(s => s.id === sessionId)
+    if (!session) return
+    session.status = 'active'
+    session.updatedAt = Date.now()
+    saveSessions(sessions.value)
+  }
+
   function deleteSession(sessionId: string): void {
     sessions.value = sessions.value.filter(s => s.id !== sessionId)
     if (activeSessionId.value === sessionId) {
@@ -323,6 +336,7 @@ export const useSessionStore = defineStore('session', () => {
     switchToSession,
     clearSession,
     archiveSession,
+    unarchiveSession,
     deleteSession,
     renameSession,
     updateActiveMessages,
