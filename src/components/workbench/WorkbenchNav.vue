@@ -25,45 +25,23 @@
     <!-- 2026-10-01 UI 分端：开发者工具收进默认折叠的「开发者」分区，用户端默认看不到它们。
          空 shell 的 L0 自动执行、funnel 主路径开关、四个工具窗口都是开发者向，不进用户视野。 -->
     <div class="wb-nav-section">
-      <button
-        v-if="!navCollapsed"
-        class="wb-nav-section-label wb-nav-dev-toggle"
-        :title="devOpen ? '收起开发者工具' : '展开开发者工具'"
-        @click="devOpen = !devOpen"
-      >开发者 {{ devOpen ? '▾' : '▸' }}</button>
-      <button v-else class="wb-nav-item" :title="'开发者工具'" @click="devOpen = !devOpen">
-        <span class="wb-nav-icon">⚙</span>
+      <div v-if="!navCollapsed" class="wb-nav-section-label">工具</div>
+      <!-- 2026-10-01：管线编辑器留在左导航（它是构建设备，不属于开发者向）；
+           开发者端入口移入「设置 → 开发者」；funnel 主路径开关已删 —— 既然定了用六层漏斗，
+           该灰度回退开关对新用户只会造成困惑（它本来就只是上线安全阀，不是功能）。 -->
+      <button class="wb-nav-item" title="管线编辑器（独立窗口）" @click="openWindow('openPipelineWindow')">
+        <span class="wb-nav-icon">🧩</span>
+        <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
       </button>
-
-      <template v-if="devOpen">
-        <button class="wb-nav-item" title="管线编辑器（独立窗口）" @click="openWindow('openPipelineWindow')">
-          <span class="wb-nav-icon">🧩</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
-        </button>
-        <!-- 2026-10-01：调试中心 / 压测台 / 规则审核 已合并为一个独立「开发者端」窗口 -->
-        <button class="wb-nav-item" title="开发者端（调试中心 / 压测台 / 规则审核）" @click="openWindow('openDevWindow')">
-          <span class="wb-nav-icon">🛠</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">开发者端</span>
-        </button>
-        <button
-          class="wb-nav-item"
-          :class="{ 'wb-nav-danger': !hotplugStore.funnelMainEnabled }"
-          :title="hotplugStore.funnelMainEnabled ? 'funnel 主路径运行中——点击回滚旧六层路由' : 'funnel 主路径已关闭——点击恢复'"
-          @click="hotplugStore.toggleFunnelMain()"
-        >
-          <span class="wb-nav-icon">{{ hotplugStore.funnelMainEnabled ? '🟢' : '🟠' }}</span>
-          <span v-if="!navCollapsed" class="wb-nav-item-text">funnel 主路径</span>
-          <span v-if="!navCollapsed" class="wb-nav-badge" :class="{ off: !hotplugStore.funnelMainEnabled }">{{ hotplugStore.funnelMainEnabled ? 'ON' : 'OFF' }}</span>
-        </button>
-      </template>
     </div>
 
     <div class="wb-nav-section wb-nav-sessions">
       <div v-if="!navCollapsed" class="wb-nav-section-label">
-        会话
+        <!-- 2026-10-01：会话列表可折叠（会话多时占满侧栏，挤压上面的功能入口） -->
+        <button class="wb-nav-sessions-toggle" :title="sessionsOpen ? '折叠会话列表' : '展开会话列表'" @click="sessionsOpen = !sessionsOpen">会话 {{ sessionsOpen ? '▾' : '▸' }}</button>
         <button class="wb-nav-new-session" title="新建会话" @click="onNewSession">＋</button>
       </div>
-      <div class="wb-nav-session-list">
+      <div v-show="sessionsOpen || navCollapsed" class="wb-nav-session-list">
         <div
           v-for="s in sessionStore.activeSessions"
           :key="s.id"
@@ -130,8 +108,8 @@ const sessionStore = useSessionStore()
 const hotplugStore = useHotplugStore()
 
 const navCollapsed = ref(false)
-/** 2026-10-01 UI 分端：开发者分区默认折叠 —— 用户端默认看不到开发工具 */
-const devOpen = ref(false)
+/** 2026-10-01：会话列表默认展开，可折叠（会话多时不再挤占侧栏） */
+const sessionsOpen = ref(true)
 
 // ── 会话管理（2026-10-01）────────────────────────────────────────────────────
 // 删除/重命名/归档的能力本就在 sessionStore / dialogStore，此前只有 DialogPanel 挂了入口，
@@ -255,7 +233,7 @@ function onSwitchSession(sessionId: string) {
 .wb-nav-new-session:hover { background: var(--wb-nav-hover-bg); }
 
 /* 2026-10-01 UI 分端：开发者分区标题做成可点击的折叠开关（默认收起，用户端更松） */
-.wb-nav-dev-toggle {
+.wb-nav-sessions-toggle {
   width: 100%;
   text-align: left;
   background: none;
@@ -266,7 +244,7 @@ function onSwitchSession(sessionId: string) {
   padding: 0;
   opacity: 0.7;
 }
-.wb-nav-dev-toggle:hover { opacity: 1; color: var(--wb-nav-text); }
+.wb-nav-sessions-toggle:hover { opacity: 1; color: var(--wb-nav-text); }
 
 /* 2026-10-01 会话管理：操作按钮随 hover 出现（默认不占视觉注意力），归档区低对比 */
 .wb-nav-sess-actions {

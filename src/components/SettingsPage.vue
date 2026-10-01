@@ -152,6 +152,15 @@
             </div>
           </div>
 
+          <!-- 2026-10-01：开发者向入口从左侧导航移到这里 -->
+          <div v-if="activeTab === 'developer'" class="sp-section">
+            <div class="sp-about-row">
+              <span>开发者端</span>
+              <button class="sp-dev-open" @click="onOpenDevConsole">打开</button>
+            </div>
+            <div class="sp-dev-hint">独立窗口，内含 调试中心 / 压测台 / 规则审核。日常使用无需打开。</div>
+          </div>
+
           <div v-if="activeTab === 'about'" class="sp-section">
             <div class="sp-about-logo">🌌</div>
             <div class="sp-about-name">HoloStarmap</div>
@@ -201,6 +210,8 @@ const tabs = [
   { id: 'notifications', icon: '🔔', label: '通知' },
   { id: 'data', icon: '💾', label: '数据' },
   { id: 'shortcuts', icon: '⌨', label: '快捷键' },
+  // 2026-10-01：开发者向入口从左侧导航移到这里（左导航只留用户日常用的东西）
+  { id: 'developer', icon: '🛠', label: '开发者' },
   { id: 'about', icon: 'ℹ', label: '关于' }
 ]
 
@@ -217,6 +228,11 @@ const SETTING_LABELS: Record<string, string> = {
 
 function settingLabel(key: string): string {
   return SETTING_LABELS[key] || key
+}
+
+/** 2026-10-01：开发者端入口（原先挂在左侧导航的「开发者」区，已移入设置） */
+function onOpenDevConsole(): void {
+  window.electronAPI?.openDevWindow()
 }
 
 function open(tab?: string) {
@@ -470,6 +486,18 @@ defineExpose({ open, close, visible })
 
 .sp-about-row span:first-child { color: #7a90a8; }
 .sp-about-row span:last-child { color: #c0d8f0; font-family: monospace; }
+/* 2026-10-01：设置 → 开发者（开发者端入口） */
+.sp-dev-open {
+  background: rgba(80, 160, 255, 0.12);
+  border: 1px solid rgba(80, 160, 255, 0.28);
+  color: #c0d8f0;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 10px;
+}
+.sp-dev-open:hover { background: rgba(80, 160, 255, 0.2); }
+.sp-dev-hint { color: #7a90a8; font-size: 11px; margin-top: 6px; }
 
 .settings-fade-enter-active { transition: opacity 0.15s; }
 .settings-fade-leave-active { transition: opacity 0.1s; }
