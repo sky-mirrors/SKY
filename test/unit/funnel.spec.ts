@@ -53,9 +53,32 @@ describe('M5：六层漏斗编排核', () => {
     if (outcome.kind === 'plan') {
       expect(outcome.source).toBe('L0')
       expect(outcome.plan.intent).toBe('l0')
-      expect(outcome.autoExecutable).toBe(false)
+      // 2026-10-01（对齐 L4 既有口径）：L0 直通计划无 shell ⇒ 自动执行。
+      // 原行为是 false（L0 落到 gateEvaluate 末尾的裸 return）⇒ 必弹确认条 ⇒ 零干预率恒为 0；
+      // 而 L4 探索模式早已能无 shell 无确认地执行写操作（V2-M03 实测无声写出 mp3），二者口径不一致。
+      expect(outcome.autoExecutable).toBe(true)
     }
     expect(calls).toEqual(['L0'])
+  })
+
+  it('L0 门评估（2026-10-01 对齐 L4 口径）：无 shell 计划自动执行；带 shell 仍确认', async () => {
+    const mk = (tool: string) => makeConfig({
+      layers: {
+        l0: () => ({
+          kind: 'plan',
+          plan: {
+            intent: 'l0', needs: [],
+            steps: [{ step: 1, description: 'x', tool, depends_on: [], params: {}, expectedOutput: '' }]
+          } as TaskPlan
+        }),
+        l05: miss, l1: miss, l2: miss, l3: miss,
+        l4: () => miss()
+      }
+    })
+    const noShell = await runFunnel(mk('create_directory'), 'x', {})
+    expect((noShell as { autoExecutable: boolean }).autoExecutable).toBe(true)
+    const withShell = await runFunnel(mk('shell_exec'), 'x', {})
+    expect((withShell as { autoExecutable: boolean }).autoExecutable).toBe(false)
   })
 
   it('逐层降级：L0/L0.5/L1 miss → L2 命中', async () => {

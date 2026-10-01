@@ -1242,6 +1242,8 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     if (source === 'L0') {
       addSystemNotice(`⚡ L0 Skill直通：${plan.intent}（${plan.needs.join('/')}域，${plan.steps.length}步L1执行）`)
+      // 2026-10-01：无 shell 的 L0 直通计划自动执行（对齐 L0.5/L4 口径），此通知让该行为可观测
+      if (autoExecutable) addSystemNotice('⚡ L0 直通自动执行（无shell操作）')
     } else if (source === 'L0.5') {
       const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
       const m = allL2.find(x => x.identity.id === macroManifestId)

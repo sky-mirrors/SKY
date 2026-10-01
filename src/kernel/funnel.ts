@@ -161,7 +161,12 @@ export async function runFunnel<T extends FunnelBaseContext>(
       const score = result.score ?? 0
       if (score < gates.l1Pass) return 'degrade'
     }
-    if (layer === 'L4') {
+    if (layer === 'L0' || layer === 'L4') {
+      // 2026-10-01：L0 直通（tryL0Skill 命中）对齐 L4 既有口径 —— 计划无 shell 即自动执行。
+      // 原实现 L0 落到末尾裸 return（不设 autoExecutable）⇒ 一律 acquirePausePoint('confirmation') 弹确认条
+      // ⇒ 零干预率恒为 0。实测（docs/exam-reports/2026-09-30-v2-full50.json，50 题）：39 题走 L0/L1 直通
+      // 全部要确认；而 L4 探索模式早在无 shell 时无确认地执行写操作（V2-M03 静默写出 mp3）。
+      // 二者同为零 shell 的写操作却口径不一，此处对齐（带 shell 的计划仍走确认）。
       return { ...result, autoExecutable: result.autoExecutable ?? !planContainsShellExec(result.plan) }
     }
     return result
