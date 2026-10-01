@@ -3,9 +3,8 @@
     <div class="titlebar">
       <div class="titlebar-left">
         <span class="titlebar-text">HoloStarmap</span>
-        <span class="debug-ring" :class="{ frozen: debugStore.frozen }" @click="onOpenDebugWindow" :title="debugStore.frozen ? '探针已冻结 - 点击打开调试窗口' : `探针 ${debugStore.activeProbes.length} - 点击打开调试窗口`">🔍{{ debugStore.activeProbes.length }}<span v-if="debugStore.frozen"> ❄️</span></span>
-        <span class="benchmark-btn" @click="onOpenBenchmarkWindow" title="Token优化压测台">📊</span>
-        <span class="rule-review-btn" @click="onOpenRuleReviewWindow" title="规则审核">⚖️</span>
+        <!-- 2026-10-01 UI 分端：探针 / 压测台 / 规则审核属开发者向，已从用户端顶栏移出，
+             经导航「开发者」区（调试中心 / 压测台 / 规则审核）进入。用户端只留主题 / 通知 / 设置。 -->
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换浅色模式' : configStore.theme === 'light' ? '切换护眼模式' : '切换深色模式'">{{ configStore.theme === 'dark' ? '☀️' : configStore.theme === 'light' ? '🌿' : '🌙' }}</span>
         <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心">🔔<span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
         <span class="settings-btn" @click="settingsPageRef?.open()" title="设置">⚙️</span>

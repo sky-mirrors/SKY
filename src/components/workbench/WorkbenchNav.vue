@@ -15,26 +15,6 @@
     </div>
 
     <div class="wb-nav-section">
-      <div v-if="!navCollapsed" class="wb-nav-section-label">工具窗口</div>
-      <button class="wb-nav-item" title="管线编辑器" @click="openWindow('openPipelineWindow')">
-        <span class="wb-nav-icon">🧩</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
-      </button>
-      <button class="wb-nav-item" title="调试中心" @click="openWindow('openDebugWindow')">
-        <span class="wb-nav-icon">🔍</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">调试中心</span>
-      </button>
-      <button class="wb-nav-item" title="Token 优化压测台" @click="openWindow('openBenchmarkWindow')">
-        <span class="wb-nav-icon">📊</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">压测台</span>
-      </button>
-      <button class="wb-nav-item" title="规则审核" @click="openWindow('openRuleReviewWindow')">
-        <span class="wb-nav-icon">⚖️</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">规则审核</span>
-      </button>
-    </div>
-
-    <div class="wb-nav-section">
       <div v-if="!navCollapsed" class="wb-nav-section-label">配置</div>
       <button class="wb-nav-item" title="模型网关配置" @click="emit('openApiSettings')">
         <span class="wb-nav-icon">🧠</span>
@@ -42,18 +22,47 @@
       </button>
     </div>
 
+    <!-- 2026-10-01 UI 分端：开发者工具收进默认折叠的「开发者」分区，用户端默认看不到它们。
+         空 shell 的 L0 自动执行、funnel 主路径开关、四个工具窗口都是开发者向，不进用户视野。 -->
     <div class="wb-nav-section">
-      <div v-if="!navCollapsed" class="wb-nav-section-label">运行时</div>
       <button
-        class="wb-nav-item"
-        :class="{ 'wb-nav-danger': !hotplugStore.funnelMainEnabled }"
-        :title="hotplugStore.funnelMainEnabled ? 'funnel 主路径运行中——点击回滚旧六层路由' : 'funnel 主路径已关闭——点击恢复'"
-        @click="hotplugStore.toggleFunnelMain()"
-      >
-        <span class="wb-nav-icon">{{ hotplugStore.funnelMainEnabled ? '🟢' : '🟠' }}</span>
-        <span v-if="!navCollapsed" class="wb-nav-item-text">funnel 主路径</span>
-        <span v-if="!navCollapsed" class="wb-nav-badge" :class="{ off: !hotplugStore.funnelMainEnabled }">{{ hotplugStore.funnelMainEnabled ? 'ON' : 'OFF' }}</span>
+        v-if="!navCollapsed"
+        class="wb-nav-section-label wb-nav-dev-toggle"
+        :title="devOpen ? '收起开发者工具' : '展开开发者工具'"
+        @click="devOpen = !devOpen"
+      >开发者 {{ devOpen ? '▾' : '▸' }}</button>
+      <button v-else class="wb-nav-item" :title="'开发者工具'" @click="devOpen = !devOpen">
+        <span class="wb-nav-icon">⚙</span>
       </button>
+
+      <template v-if="devOpen">
+        <button class="wb-nav-item" title="管线编辑器" @click="openWindow('openPipelineWindow')">
+          <span class="wb-nav-icon">🧩</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
+        </button>
+        <button class="wb-nav-item" title="调试中心" @click="openWindow('openDebugWindow')">
+          <span class="wb-nav-icon">🔍</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">调试中心</span>
+        </button>
+        <button class="wb-nav-item" title="Token 优化压测台" @click="openWindow('openBenchmarkWindow')">
+          <span class="wb-nav-icon">📊</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">压测台</span>
+        </button>
+        <button class="wb-nav-item" title="规则审核" @click="openWindow('openRuleReviewWindow')">
+          <span class="wb-nav-icon">⚖️</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">规则审核</span>
+        </button>
+        <button
+          class="wb-nav-item"
+          :class="{ 'wb-nav-danger': !hotplugStore.funnelMainEnabled }"
+          :title="hotplugStore.funnelMainEnabled ? 'funnel 主路径运行中——点击回滚旧六层路由' : 'funnel 主路径已关闭——点击恢复'"
+          @click="hotplugStore.toggleFunnelMain()"
+        >
+          <span class="wb-nav-icon">{{ hotplugStore.funnelMainEnabled ? '🟢' : '🟠' }}</span>
+          <span v-if="!navCollapsed" class="wb-nav-item-text">funnel 主路径</span>
+          <span v-if="!navCollapsed" class="wb-nav-badge" :class="{ off: !hotplugStore.funnelMainEnabled }">{{ hotplugStore.funnelMainEnabled ? 'ON' : 'OFF' }}</span>
+        </button>
+      </template>
     </div>
 
     <div class="wb-nav-section wb-nav-sessions">
@@ -93,6 +102,8 @@ const sessionStore = useSessionStore()
 const hotplugStore = useHotplugStore()
 
 const navCollapsed = ref(false)
+/** 2026-10-01 UI 分端：开发者分区默认折叠 —— 用户端默认看不到开发工具 */
+const devOpen = ref(false)
 
 const emit = defineEmits<{ openApiSettings: [] }>()
 
@@ -188,6 +199,20 @@ function onSwitchSession(sessionId: string) {
   padding: 2px 6px;
 }
 .wb-nav-new-session:hover { background: var(--wb-nav-hover-bg); }
+
+/* 2026-10-01 UI 分端：开发者分区标题做成可点击的折叠开关（默认收起，用户端更松） */
+.wb-nav-dev-toggle {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 1px;
+  padding: 0;
+  opacity: 0.7;
+}
+.wb-nav-dev-toggle:hover { opacity: 1; color: var(--wb-nav-text); }
 
 .wb-nav-item {
   display: flex;
