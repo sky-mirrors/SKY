@@ -41,11 +41,31 @@
                它属于哪个分组 / 哪个会话 / 还是仅全局。 -->
           <div class="kb-block">
             <div class="kb-block-head">
-              <span class="kb-block-title">📄 全部文件（{{ kbEntries.length }}）</span>
-              <span class="kb-block-desc">你上传的原始资料。可移入分组，或删除。</span>
+              <span class="kb-block-title">
+                <input type="checkbox" class="kf-check" :checked="allSelected" :disabled="kbEntries.length === 0" @change="toggleSelectAll" title="全选 / 取消全选" />
+                📄 全部文件（{{ kbEntries.length }}）
+              </span>
+              <span class="kb-block-desc">勾选可批量操作；也可单行操作。</span>
+            </div>
+            <!-- 2026-10-01（用户诉求）：批量操作条——勾选任意文件后出现 -->
+            <div class="kb-batch-bar" v-if="selectedEntryIds.size > 0">
+              <span class="kb-batch-count">已选 {{ selectedEntryIds.size }} 个</span>
+              <select class="kb-batch-sel" :disabled="knowledgeStore.knowledgeGroups.length === 0"
+                      @change="onBatchMoveToGroup(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).selectedIndex = 0">
+                <option value="">📁 移入分组…</option>
+                <option v-for="g in knowledgeStore.knowledgeGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
+              </select>
+              <select class="kb-batch-sel" :disabled="memoryStore.projectMemories.length === 0"
+                      @change="onBatchAddToProject(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).selectedIndex = 0">
+                <option value="">📦 加入项目…</option>
+                <option v-for="p in memoryStore.projectMemories" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <button class="kb-batch-del" @click="onBatchDelete">🗑️ 删除</button>
+              <button class="kb-batch-clear" @click="clearSelection">取消</button>
             </div>
             <div class="kb-file-list">
-              <div v-for="e in kbEntries.slice(0, 60)" :key="e.id" class="kb-file-row">
+              <div v-for="e in kbEntries.slice(0, 60)" :key="e.id" class="kb-file-row" :class="{ picked: selectedEntryIds.has(e.id) }">
+                <input type="checkbox" class="kf-check" :checked="selectedEntryIds.has(e.id)" @change="toggleSelect(e.id)" />
                 <span class="kf-name" :title="e.filename">{{ e.filename }}</span>
                 <span class="kf-chunks">{{ e.chunks }}块</span>
                 <span class="kf-owner" :class="{ unowned: ownerLabelOf(e.id).startsWith('全局') }" :title="ownerLabelOf(e.id)">{{ ownerLabelOf(e.id) }}</span>
@@ -222,6 +242,11 @@ function showNotice(msg: string) {
 
 function refreshKbEntries() {
   kbEntries.value = getKnowledgeEntries()
+  // 2026-10-01 事故防护：把选区里**已不存在**的条目剔除，避免陈旧选择悄悄累积到下一次操作。
+  if (selectedEntryIds.value.size > 0) {
+    const alive = new Set(kbEntries.value.map(e => e.id))
+    selectedEntryIds.value = new Set([...selectedEntryIds.value].filter(id => alive.has(id)))
+  }
 }
 
 const UPLOAD_ACCEPT = '.md,.txt,.json,.csv,.xml,.html,.css,.js,.ts,.py,.java,.c,.cpp,.h,.yaml,.yml,.toml,.ini,.cfg,.log,.sql,.sh,.bat,.ps1,.env,.gitignore,.editorconfig,.prettierrc,.eslintrc'
@@ -331,6 +356,66 @@ function onAddEntryToProject(projectId: string, entryId: string): void {
   showNotice(`📦 已把「${getEntryName(entryId)}」加入项目空间`)
 }
 
+// ===== 2026-10-01（用户诉求：批量删除 / 批量提交至分组或项目空间）=====
+const selectedEntryIds = ref<Set<string>>(new Set())
+const allSelected = computed(() =>
+  kbEntries.value.length > 0 && kbEntries.value.every(e => selectedEntryIds.value.has(e.id))
+)
+
+function toggleSelect(entryId: string): void {
+  const s = new Set(selectedEntryIds.value)
+  if (s.has(entryId)) s.delete(entryId); else s.add(entryId)
+  selectedEntryIds.value = s
+}
+
+function toggleSelectAll(): void {
+  selectedEntryIds.value = allSelected.value ? new Set() : new Set(kbEntries.value.map(e => e.id))
+}
+
+function clearSelection(): void {
+  selectedEntryIds.value = new Set()
+}
+
+async function onBatchDelete(): Promise<void> {
+  const ids = [...selectedEntryIds.value]
+  if (ids.length === 0) return
+  // 2026-10-01 事故防护：原先确认框只报「N 个」，删除前看不见到底是哪几个——
+  // 若选区里混进了残留勾选（不经意的旧选择），用户无从察觉。改成**列出文件名清单**。
+  const names = ids.map(id => getEntryName(id))
+  const preview = names.slice(0, 12).map(n => `· ${n}`).join('\n')
+  const more = names.length > 12 ? `\n…以及另外 ${names.length - 12} 个` : ''
+  if (!window.confirm(`确认删除以下 ${ids.length} 个文件？\n\n${preview}${more}\n\n它们的所有知识块与向量都会被移除，且无法撤销。`)) return
+  let ok = 0
+  for (const id of ids) {
+    if (await deleteKnowledgeEntry(id)) {
+      knowledgeStore.removeSharedEntryEverywhere(id) // 连带清理分组/项目里的悬空引用
+      ok++
+    }
+  }
+  clearSelection()
+  refreshKbEntries()
+  showNotice(`🗑️ 已删除 ${ok}/${ids.length} 个文件`)
+}
+
+function onBatchMoveToGroup(groupId: string): void {
+  if (!groupId) return
+  const ids = [...selectedEntryIds.value]
+  if (ids.length === 0) return
+  for (const id of ids) knowledgeStore.addSharedEntryToGroup(groupId, id)
+  const g = knowledgeStore.knowledgeGroups.find(x => x.id === groupId)
+  clearSelection()
+  showNotice(`📁 已把 ${ids.length} 个文件移入分组「${g?.name ?? ''}」`)
+}
+
+function onBatchAddToProject(projectId: string): void {
+  if (!projectId) return
+  const ids = [...selectedEntryIds.value]
+  if (ids.length === 0) return
+  for (const id of ids) memoryStore.addKnowledgeEntry(projectId, id)
+  clearSelection()
+  showNotice(`📦 已把 ${ids.length} 个文件加入项目空间`)
+}
+
 function onRemoveSharedEntry(groupId: string, entryId: string) {
   knowledgeStore.removeSharedEntryFromGroup(groupId, entryId)
 }
@@ -433,6 +518,17 @@ watch(() => knowledgeStore.entriesVersion, () => { refreshKbEntries() })
 .kb-file-list { display: flex; flex-direction: column; gap: 2px; max-height: 240px; overflow-y: auto; }
 .kb-file-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 3px; font-size: 10px; }
 .kb-file-row:hover { background: rgba(100, 180, 255, 0.05); }
+.kb-file-row.picked { background: rgba(100, 180, 255, 0.10); }
+.kf-check { accent-color: #5a9cff; flex-shrink: 0; margin: 0; }
+/* 2026-10-01（用户诉求：批量删除 / 批量提交至分组或项目空间） */
+.kb-batch-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 6px; margin-bottom: 4px; border: 1px solid rgba(100, 180, 255, 0.22); border-radius: 4px; background: rgba(100, 180, 255, 0.07); }
+.kb-batch-count { font-size: 10px; color: #8ab4ff; font-weight: 600; }
+.kb-batch-sel { font-size: 9px; background: rgba(20, 30, 50, 0.7); color: #8ab4d8; border: 1px solid rgba(100, 180, 255, 0.2); border-radius: 3px; padding: 1px 3px; }
+.kb-batch-sel:disabled { opacity: 0.4; }
+.kb-batch-del { font-size: 9px; padding: 2px 8px; background: rgba(255, 100, 100, 0.12); border: 1px solid rgba(255, 100, 100, 0.3); border-radius: 3px; color: #ff8888; cursor: pointer; }
+.kb-batch-del:hover { background: rgba(255, 100, 100, 0.22); }
+.kb-batch-clear { font-size: 9px; padding: 2px 8px; background: transparent; border: 1px solid rgba(150, 150, 150, 0.2); border-radius: 3px; color: #7a8a9a; cursor: pointer; }
+.kb-block-title .kf-check { margin-right: 4px; vertical-align: middle; }
 .kf-name { color: #c0d8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kf-chunks { color: #5a7a9a; font-size: 9px; flex-shrink: 0; }
 .kf-owner { color: #7dcea0; font-size: 9px; flex-shrink: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
