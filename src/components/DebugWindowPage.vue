@@ -38,7 +38,7 @@
               <span v-if="grp.tokens > 0" class="pg-tokens">{{ grp.tokens }}tok · {{ grp.cost.toFixed(4) }}¥</span>
             </div>
             <div v-for="probe in grp.probes" :key="probe.id"
-                 class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true }"
+                 class="probe-item" :class="{ selected: debugStore.selectedProbeId === probe.id, [`source-${probe.source}`]: true, dimmed: timeTravelIdx >= 0 && probe.globalIdx > timeTravelIdx }"
                  @click="debugStore.selectProbe(probe.id)">
               <span class="probe-source-icon">{{ sourceIcon(probe.source) }}</span>
               <span class="probe-step">S{{ probe.stepNum }}</span>
@@ -251,10 +251,11 @@ const probeGroups = computed(() => {
     sessionLabel: string
     traceId?: string
     traceLabel: string
-    probes: ProbeSnapshot[]
+    probes: (ProbeSnapshot & { globalIdx: number })[]
     tokens: number
     cost: number
   }>()
+  let globalIdx = 0
   for (const p of debugStore.activeProbes) {
     const sid = p.sessionId
     const tid = p.traceId
@@ -273,7 +274,9 @@ const probeGroups = computed(() => {
       }
       byKey.set(key, g)
     }
-    g.probes.push(p)
+    // 2026-10-01：带上**跨组全局序号**——时间旅行滑块的 dimmed 判定依赖它。
+    // 分组后若沿用组内索引，淡化范围会跨组错乱（这是分组改造时误删该效果的原因）。
+    g.probes.push({ ...p, globalIdx: globalIdx++ })
     if (p.tokenUsage) {
       g.tokens += p.tokenUsage.totalTokens
       g.cost += p.tokenUsage.estimatedCostCny
