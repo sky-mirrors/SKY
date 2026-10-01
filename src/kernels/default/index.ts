@@ -216,6 +216,18 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
     classifyTemplateInput(c.manifest, formInfo) !== 'reject'
   )
   if (cands.length === 0) return { kind: 'miss' }
+  // 2026-10-01（用户裁定）：输入门控把**原 top1** 滤掉、且剩余候选分数明显低于它时，返回 miss/澄清。
+  // 否则会"在剩下的里挑一个"——实测：一次**缺附件**的简历请求（top1=「简历初筛助手」conf 0.843，
+  // 但它 inputType='file' 被门控 reject）被悄悄跑成了完全无关的「文档翻译英文版」计划，
+  // 用户看不到任何提示。宁可返回 miss 交给上层澄清，也不要静默换成不相关的任务。
+  // 2026-10-01（用户裁定）：**原 top1 被输入门控滤掉**（形态不匹配，如 file 类模板但本次无附件）
+  // ⇒ 直接返回 miss，不要"在剩下的里挑一个"。实测：简历请求（top1「简历初筛助手」conf 0.843，
+  // 但 inputType='file' 被门控 reject）被悄悄跑成「文档翻译英文版」（其 score 0.661 并不低，
+  // 所以按分数阈值判"无关"不可靠）——形态不匹配才是判据。宁可 miss 交给上层澄清。
+  const top1StillUsable = cands.some(c => c.manifest.identity.id === raap.manifest.identity.id)
+  if (!top1StillUsable) {
+    return { kind: 'miss' }
+  }
   const disambigCtx = extractStrategyContext({
     content: input,
     entities: [],
