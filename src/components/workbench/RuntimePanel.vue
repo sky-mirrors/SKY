@@ -88,31 +88,10 @@
           <span v-for="p in hotplugStore.mountedPackIds" :key="p" class="wb-rt-chip">{{ p }}</span>
         </span>
       </div>
-      <div class="wb-rt-kv">
-        <span class="wb-rt-k">funnel 主路径</span>
-        <span class="wb-rt-v">
-          <span class="wb-rt-tag" :class="hotplugStore.funnelMainEnabled ? 'ok' : 'bad'">{{ hotplugStore.funnelMainEnabled ? '开启' : '已回滚' }}</span>
-        </span>
-      </div>
-      <!-- A6：浸泡验证汇总（数据源 soakStore；未启用 shadow 时显示启用指引） -->
-      <div class="wb-rt-card">
-        <div class="wb-rt-card-head">
-          浸泡验证
-          <span class="wb-rt-tag" :class="soakStore.soakEnabled ? 'ok' : 'warn'">{{ soakStore.soakEnabled ? '启用' : '未启用' }}</span>
-        </div>
-        <div class="wb-rt-card-body" v-if="soakStore.soakEnabled">
-          <div>样本 {{ soakStore.soakSummary.shadowTotal }}（一致 {{ (soakStore.soakSummary.matchRate * 100).toFixed(0) }}% / 不一致 {{ soakStore.soakSummary.mismatchCount }} / 待核对 {{ soakStore.soakSummary.manualReviewCount }}）</div>
-          <div>funnel 接管 {{ soakStore.soakSummary.handledCount }}/{{ soakStore.soakSummary.routedTotal }}</div>
-          <button
-            class="wb-rt-candidate-btn"
-            :disabled="soakStore.soakSummary.shadowTotal === 0 || soakExporting"
-            :title="soakStore.lastExportPath"
-            @click="exportSoakReport"
-          >{{ soakExportLabel }}</button>
-        </div>
-        <div class="wb-rt-card-body" v-else>DevTools 执行 vaultWrite('config','holo-funnel-shadow','1') 后重载启用</div>
-      </div>
-      <!-- EXAM-5：验收考试卡（ACCEPTANCE-SPEC v1.0，控制面在主窗，题目经 DialogPanel 真实主路径执行） -->
+      <!-- 2026-10-01：funnel 主路径状态与「浸泡验证」卡片都删去 —— 已定用六层漏斗，
+           这个开关（及其 shadow 对照：浸泡验证测的正是 funnel vs 旧路径的一致性）不再有意义
+           （用户裁定「funnel 主路径是否开启也不影响真正使用」「浸泡验证意义不明」）。 -->
+  <!-- EXAM-5：验收考试卡（ACCEPTANCE-SPEC v1.0，控制面在主窗，题目经 DialogPanel 真实主路径执行） -->
       <div class="wb-rt-card">
         <div class="wb-rt-card-head">
           验收考试
@@ -230,7 +209,6 @@ import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
 import { useDebugStore } from '@/domains/debug'
 import { useHotplugStore } from '@/stores/hotplugStore'
-import { useSoakStore } from '@/stores/soakStore'
 import { EXAM_CASE_SETS, useExamStore } from '@/stores/examStore'
 import { getBudgetMode, getSessionSpent } from '@/services/tokenBudget'
 import type { ProbeSnapshot } from '@/models'
@@ -240,7 +218,6 @@ const nodeStore = useNodeStore()
 const apiStore = useApiStore()
 const debugStore = useDebugStore()
 const hotplugStore = useHotplugStore()
-const soakStore = useSoakStore()
 const examStore = useExamStore()
 
 const budgetModeLabel = computed(() => {
@@ -298,20 +275,6 @@ function probeLabel(p: ProbeSnapshot): string {
 function openDebugWindow() {
   const api = (window as unknown as { electronAPI?: { openDebugWindow?: () => void } }).electronAPI
   api?.openDebugWindow?.()
-}
-
-// ===== A6：浸泡验证汇总导出（soakStore 数据管道，R15 证据采集） =====
-const soakExporting = ref(false)
-const soakExportLabel = ref('导出浸泡报告')
-
-async function exportSoakReport(): Promise<void> {
-  if (soakExporting.value) return
-  soakExporting.value = true
-  soakExportLabel.value = '导出中…'
-  const path = await soakStore.exportSoakReport()
-  soakExporting.value = false
-  soakExportLabel.value = path ? '已导出' : '导出失败'
-  setTimeout(() => { soakExportLabel.value = '导出浸泡报告' }, 3000)
 }
 
 // ===== EXAM-5：验收考试卡（状态在 examStore——EXAM-1/EXAM-6：模式切换不孤儿化，进度 reactive） =====
