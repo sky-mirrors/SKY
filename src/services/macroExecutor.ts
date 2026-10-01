@@ -59,7 +59,7 @@ function probeStep(
   // P1-39：get-step-cost 请求与探针发布分离——请求失败（无 handler）不再吞掉整个探针
   let tokenUsage: NonNullable<ProbeSnapshot['tokenUsage']> | undefined
   try {
-    const stepCost = globalBus.request<{ promptTokens: number; completionTokens: number; estimatedCostCny: number } | undefined>('debug:get-step-cost', { stepNum })
+    const stepCost = globalBus.request<{ promptTokens: number; completionTokens: number; estimatedCostCny: number } | undefined>('debug:get-step-cost', { stepNum, traceId })
     if (stepCost) {
       tokenUsage = {
         promptTokens: stepCost.promptTokens,
@@ -89,6 +89,38 @@ function probeStep(
     // P1-39：payload 须为 { snapshot } 包装——bridge 只认 payload.snapshot，旧扁平结构两分支均不命中
     globalBus.emit('debug:log-probe', { snapshot })
   } catch { /* non-critical */ }
+}
+
+/**
+ * 2026-10-01（用户诉求：每轮对话的每个步骤花费多少 token）：
+ * 步骤级 token 归因用**采样式**——步骤边界各取一次累计用量，差值即该步消耗。
+ * macroExecutor 顺序执行 DAG 步骤，采样足够；取不到（如测试环境无 handler）按 0 计。
+ */
+function readTokenUsage(): { promptTokens: number; completionTokens: number } {
+  try {
+    const u = globalBus.request<{ promptTokens: number; completionTokens: number } | undefined>('debug:get-token-usage', {})
+    return u ?? { promptTokens: 0, completionTokens: 0 }
+  } catch {
+    return { promptTokens: 0, completionTokens: 0 }
+  }
+}
+
+function recordStepTokens(
+  stepNum: number,
+  durationMs: number,
+  before: { promptTokens: number; completionTokens: number },
+  traceId?: string
+): void {
+  try {
+    const after = readTokenUsage()
+    globalBus.emit('debug:record-step-cost', {
+      stepNum,
+      durationMs,
+      promptTokens: Math.max(0, after.promptTokens - before.promptTokens),
+      completionTokens: Math.max(0, after.completionTokens - before.completionTokens),
+      traceId
+    })
+  } catch { /* 可选链路：归因不可用不影响执行 */ }
 }
 
 function sourceForTool(toolName: string): ProbeSource {
@@ -933,6 +965,7 @@ export async function executeStep(
   }
 
   const stepStartTime = Date.now()
+  const tokensBefore = readTokenUsage()
   const tier = step.modelTier || (manifest.execution.fallbackModelTier as string | undefined)
   try {
     const contextText = Object.values(stepResults).join('\n') + '\n' + (userInput.inputText || '') + '\n' + (userInput.context || '')
@@ -1045,6 +1078,7 @@ export async function executeStep(
 
     onStepDone?.(step.step, result)
     const dur = Date.now() - stepStartTime
+    recordStepTokens(step.step, dur, tokensBefore, traceId)
     const tierConfig = tier ? getTierConfig(tier) : null
     probeStep(manifest.identity.id, step.step, step.tool, sourceForTool(step.tool), `${step.tool} @ tier=${tier || 'default'}`, resolvedArgs, result, dur, {
       modelTier: tier,
@@ -1058,6 +1092,7 @@ export async function executeStep(
     }
     const errMsg = err instanceof Error ? err.message : String(err)
     const errStack = err instanceof Error ? err.stack : undefined
+    recordStepTokens(step.step, Date.now() - stepStartTime, tokensBefore, traceId)
     probeStep(manifest.identity.id, step.step, step.tool, 'error', errMsg, resolvedArgs, '', Date.now() - stepStartTime, { errorStack: errStack }, traceId)
 
     try {

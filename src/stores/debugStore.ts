@@ -59,7 +59,7 @@ export const useDebugStore = defineStore('debug', () => {
   const consoleFilterLevel = ref<ConsoleLogLevel | ''>('')
   const consoleFilterCategory = ref<ConsoleCategory | ''>('')
   const totalTokenUsage = ref({ promptTokens: 0, completionTokens: 0, totalTokens: 0, estimatedCostCny: 0 })
-  const stepCosts = ref<Record<number, { durationMs: number; promptTokens: number; completionTokens: number; estimatedCostCny: number }>>({})
+  const stepCosts = ref<Record<string, { durationMs: number; promptTokens: number; completionTokens: number; estimatedCostCny: number }>>({})
   const budgetStatus = ref<BudgetStatus | null>(null)
   const costByTier = ref<Record<string, { cost: number; callCount: number; totalTokens: number }>>({})
   const costByCategory = ref<Record<string, { cost: number; callCount: number }>>({})
@@ -133,14 +133,27 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  function recordStepCost(stepNum: number, durationMs: number, promptTokens: number, completionTokens: number) {
+  /**
+   * 2026-10-01（用户诉求：token 预算/探针细粒度到「每轮对话的每个步骤」）：
+   * 键从裸 stepNum 改为 `traceId:stepNum`——原先跨轮的第 N 步会互相覆盖，
+   * 看不出「每轮」。traceId 缺省时落 `_:stepNum`（无 trace 场景仍可读）。
+   */
+  function stepCostKey(stepNum: number, traceId?: string): string {
+    return `${traceId ?? '_'}:${stepNum}`
+  }
+
+  function recordStepCost(stepNum: number, durationMs: number, promptTokens: number, completionTokens: number, traceId?: string) {
     const cost = calculateCost(promptTokens, completionTokens, 0)
-    stepCosts.value[stepNum] = {
+    stepCosts.value[stepCostKey(stepNum, traceId)] = {
       durationMs,
       promptTokens,
       completionTokens,
       estimatedCostCny: cost.totalCost
     }
+  }
+
+  function getStepCost(stepNum: number, traceId?: string) {
+    return stepCosts.value[stepCostKey(stepNum, traceId)]
   }
 
   let _skipNextCapture = false
@@ -508,6 +521,7 @@ export const useDebugStore = defineStore('debug', () => {
     refreshMechanismStats,
     setConstraintFeedbackStats,
     recordStepCost,
+    getStepCost,
     recordTokenUsage,
     refreshBudgetStatus,
     activate,

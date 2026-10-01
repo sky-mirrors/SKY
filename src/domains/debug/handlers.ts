@@ -11,6 +11,7 @@ type Disposer = (() => void) | null
 
 let _disposeProbe: Disposer = null
 let _disposeRecordCost: Disposer = null
+let _disposeRecordStepCost: Disposer = null
 let _disposeLogEvent: Disposer = null
 let _disposeRegisterAbort: Disposer = null
 let _disposeClearAbort: Disposer = null
@@ -36,9 +37,28 @@ export function registerDebugHandlers(bus: HoloEventBus) {
   _disposeProbe = bus.on('debug:log-probe', probeHandler as (payload: unknown) => unknown)
 
   // P1-39：stepCosts 查询——probeStep 经 request() 调用，registerHandler 即可达
-  bus.registerHandler('debug:get-step-cost', (payload: { stepNum?: number }) => {
+  // 2026-10-01：键改为 `traceId:stepNum`，查询同步带 traceId（区分「每轮对话」）
+  bus.registerHandler('debug:get-step-cost', (payload: { stepNum?: number; traceId?: string }) => {
     const store = useDebugStore()
-    return store.stepCosts[payload?.stepNum ?? -1] ?? undefined
+    if (payload?.stepNum == null) return undefined
+    return store.getStepCost(payload.stepNum, payload.traceId)
+  })
+
+  // 2026-10-01（用户诉求：每轮对话的每个步骤花费多少 token）：
+  // 此前 stepCosts 零写入方（probeStep 查它恒 undefined）。现由 macroExecutor 在步骤边界
+  // 采样 token 差值后经本通道回填。
+  const recordStepCostHandler = (payload: { stepNum: number; durationMs: number; promptTokens: number; completionTokens: number; traceId?: string }) => {
+    if (!payload || typeof payload.stepNum !== 'number') return
+    useDebugStore().recordStepCost(payload.stepNum, payload.durationMs, payload.promptTokens, payload.completionTokens, payload.traceId)
+  }
+  bus.registerHandler('debug:record-step-cost', recordStepCostHandler)
+  _disposeRecordStepCost?.()
+  _disposeRecordStepCost = bus.on('debug:record-step-cost', recordStepCostHandler as (payload: unknown) => unknown)
+
+  // 2026-10-01：供 macroExecutor 采样式归因（步骤前/后各取一次，差值为该步消耗）
+  bus.registerHandler('debug:get-token-usage', () => {
+    const t = useDebugStore().totalTokenUsage
+    return { promptTokens: t.promptTokens, completionTokens: t.completionTokens }
   })
 
   // P1-40：record-cost 经 emit() 发布 → 必须 on() 桥接（带 tier/category/traceId/local 落记账）

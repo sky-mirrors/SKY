@@ -50,7 +50,7 @@
                 <div class="wf-bar" :class="`bar-${probe.source}`" :style="{ width: barWidth(probe.durationMs) + '%' }"></div>
               </div>
               <span class="wf-ms">{{ probe.durationMs }}ms</span>
-              <span v-if="debugStore.stepCosts[probe.stepNum]" class="wf-cost">{{ debugStore.stepCosts[probe.stepNum].estimatedCostCny.toFixed(4) }}¥</span>
+              <span v-if="stepCostOf(probe)" class="wf-cost" :title="`prompt ${stepCostOf(probe)?.promptTokens} / completion ${stepCostOf(probe)?.completionTokens}`">{{ (stepCostOf(probe)?.promptTokens ?? 0) + (stepCostOf(probe)?.completionTokens ?? 0) }}tok · {{ stepCostOf(probe)?.estimatedCostCny.toFixed(4) }}¥</span>
             </div>
           </div>
         </div>
@@ -157,7 +157,7 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
 import { useDebugStore } from '@/domains/debug'
-import type { ProbeSource, ConsoleLogEntry, ConsoleCategory } from '@/models'
+import type { ProbeSource, ConsoleLogEntry, ConsoleCategory, ProbeSnapshot } from '@/models'
 
 const debugStore = useDebugStore()
 const inputExpanded = ref(false)
@@ -219,6 +219,11 @@ function onEntryClick(entry: ConsoleLogEntry) {
 function barWidth(ms: number): number {
   const maxMs = Math.max(...debugStore.activeProbes.map(p => p.durationMs), 1)
   return Math.max(2, (ms / maxMs) * 100)
+}
+
+// 2026-10-01：步骤成本键为 `traceId:stepNum`（区分每轮对话），经 store 统一取
+function stepCostOf(probe: ProbeSnapshot) {
+  return debugStore.getStepCost(probe.stepNum, probe.traceId)
 }
 
 async function onExport() {
