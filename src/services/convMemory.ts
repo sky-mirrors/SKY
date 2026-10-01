@@ -66,14 +66,25 @@ export async function indexConversationRound(messages: DialogMessage[]): Promise
 
   if (newMsgs.length === 0) return
 
-  const batchText = newMsgs.map(m =>
-    `${m.role === 'user' ? '用户' : 'AI'}：${m.content.substring(0, 500)}`
-  ).join('\n\n')
+  // 2026-10-01（用户要求：改粒度）：原先把「这一批新消息」整体压成**一条**索引，
+  // 检索时颗粒过粗——命中一次会带出整段无关对白。改为**按轮切分**：
+  // 以 user 消息为轮首，其后的 assistant 消息并入该轮，直到下一条 user。
+  const rounds: DialogMessage[][] = []
+  for (const m of newMsgs) {
+    if (m.role === 'user' || rounds.length === 0) rounds.push([m])
+    else rounds[rounds.length - 1].push(m)
+  }
 
-  try {
-    await ingestText(batchText, { type: 'conversation' }, `conv-round-${Date.now()}`)
-    setWatermark(newMsgs[newMsgs.length - 1].timestamp)
-  } catch { /* non-critical */ }
+  for (const round of rounds) {
+    const roundText = round
+      .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content.substring(0, 500)}`)
+      .join('\n\n')
+    try {
+      // 命名用**该轮首条消息的时间戳**（原本用 Date.now()，同一毫秒内的多轮会撞名）
+      await ingestText(roundText, { type: 'conversation' }, `conv-round-${round[0].timestamp}`)
+    } catch { /* 单轮失败不拖垮其余轮 */ }
+  }
+  setWatermark(newMsgs[newMsgs.length - 1].timestamp)
 }
 
 export async function searchConversationContext(query: string, topK: number = 3): Promise<string[]> {
