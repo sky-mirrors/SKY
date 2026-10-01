@@ -18,6 +18,8 @@ vi.mock('@/services/embedder', () => ({
   generatePseudoVector: vi.fn(() => new Array(8).fill(0)),
   generateVector: vi.fn(async () => new Array(8).fill(0)),
   generateVectorWithMeta: vi.fn(async () => ({ vector: new Array(8).fill(0), isPseudo: true })),
+  // 2026-10-01：摄取改为批量生成向量（性能），mock 需同步提供该导出
+  generateVectorsWithMeta: vi.fn(async (ts: string[]) => ts.map(() => ({ vector: new Array(8).fill(0), isPseudo: true }))),
   cosineSimilarity: vi.fn(() => 0),
   needsReembedding: vi.fn(() => false),
 }))

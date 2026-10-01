@@ -1,6 +1,6 @@
 import { KnowledgeEntry, SearchResult, KnowledgeAdapter } from '@/models'
 import { saveChunksToFile, loadChunksFromFile, migrateFromLocalStorage, listVectorEntries, deleteChunksFile } from './vectorStore'
-import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, generateVectorWithMeta, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
+import { getEmbedder, generatePseudoVector as _pseudoVector, generateVector, generateVectorWithMeta, generateVectorsWithMeta, cosineSimilarity, isEmbedderReady as _isEmbReady, needsReembedding, VECTOR_DIM } from './embedder'
 import { debugLog } from '@/services/debugLog'
 import { estimateTokens } from '@/services/tokenEstimate'
 import { globalBus } from '@/kernel/bus'
@@ -270,10 +270,12 @@ export async function ingestFile(file: File, target: IngestTarget = { type: 'glo
   const chunkRecords: ChunkRecord[] = []
   // C-25：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
   const entryId = `kb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  // 2026-10-01（性能）：批量生成向量（同 ingestFile）——把 N 次固定开销压成 1 次
+  const vectors = await generateVectorsWithMeta(chunks)
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
     // P1-12：记录伪向量标记，供检索期迁移循环识别
-    const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
+    const { vector, isPseudo } = vectors[idx]
     chunkRecords.push({
       text: chunkText,
       entryId,
@@ -342,9 +344,12 @@ async function ingestTextCore(
   const chunkRecords: ChunkRecord[] = []
   // C-25：毫秒时间戳 ID 并发摄取同毫秒可碰撞互相覆盖，追加随机段保证唯一
   const entryId = `kb-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  // 2026-10-01（性能）：批量生成向量——单次 embed 有约 500ms 固定开销（与长度无关），
+  // 逐 chunk 串行会让 70 块的文件等几十秒。一次算完把 N 次开销压成 1 次。
+  const vectors = await generateVectorsWithMeta(chunks)
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunkText = chunks[idx]
-    const { vector, isPseudo } = await generateVectorWithMeta(chunkText)
+    const { vector, isPseudo } = vectors[idx]
     chunkRecords.push({
       text: chunkText,
       entryId,

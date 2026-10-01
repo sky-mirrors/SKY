@@ -51,6 +51,8 @@ vi.mock('@/services/embedder', () => ({
     await new Promise(r => setTimeout(r, 10))
     return { vector: new Array(384).fill(0.01), isPseudo: false }
   }),
+  // 2026-10-01：摄取改为批量生成向量（性能），mock 需同步提供该导出
+  generateVectorsWithMeta: vi.fn(async (ts: string[]) => ts.map(() => ({ vector: new Array(384).fill(0.01), isPseudo: false }))),
   generateVector: vi.fn(async () => new Array(384).fill(0.01)),
   generatePseudoVector: vi.fn(() => new Array(384).fill(0.01)),
   needsReembedding: vi.fn(() => false),

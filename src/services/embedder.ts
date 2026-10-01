@@ -2,7 +2,7 @@ import { debugLog } from '@/services/debugLog'
 
 export const VECTOR_DIM = 384
 
-type Embedder = { embed: (text: string) => Promise<number[]> }
+type Embedder = { embed: (text: string) => Promise<number[]>; embedBatch: (texts: string[]) => Promise<number[][]> }
 
 let embedder: Embedder | null = null
 let embedderPromise: Promise<Embedder | null> | null = null
@@ -62,6 +62,21 @@ export async function getEmbedder(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<
         async embed(text: string): Promise<number[]> {
           const output = await extractor(text, { pooling: 'mean', normalize: true })
           return Array.from(output.data) as number[]
+        },
+        /**
+         * 2026-10-01（性能）：批量嵌入——一次把多个文本交给 pipeline。
+         * 单次调用有约 500ms 固定开销（实测与文本长度基本无关：700字符与2800字符同为 ~550ms），
+         * 批量把 N 次开销压成 1 次。pipeline 返回的 data 是展平的（N×384），按维度切片。
+         */
+        async embedBatch(texts: string[]): Promise<number[][]> {
+          if (texts.length === 0) return []
+          const output = await extractor(texts as unknown as string, { pooling: 'mean', normalize: true })
+          const flat = Array.from(output.data) as number[]
+          const out: number[][] = []
+          for (let i = 0; i < texts.length; i++) {
+            out.push(flat.slice(i * VECTOR_DIM, (i + 1) * VECTOR_DIM))
+          }
+          return out
         }
       }
       embedderReady = true
@@ -153,6 +168,61 @@ export function clearVectorCache(): void {
   vectorCache.clear()
 }
 
+/** 写入缓存（超限淘汰最早一条） */
+function cacheSet(text: string, value: VectorWithMeta): void {
+  if (vectorCache.size >= VECTOR_CACHE_LIMIT) {
+    const oldest = vectorCache.keys().next().value
+    if (oldest !== undefined) vectorCache.delete(oldest)
+  }
+  vectorCache.set(textKey(text), value)
+}
+
+/**
+ * 2026-10-01（性能：上传很卡）：**批量**生成。
+ * 实测单次 embed 有约 500ms 固定开销且与长度无关（175字符→165ms / 700字符→554ms /
+ * 2800字符→545ms 饱和），而摄取原先逐 chunk 串行调用 ⇒ 70 块的文件要几十秒。
+ * 批量把 N 次固定开销压成 1 次；已缓存的条目直接复用，不参与批。
+ */
+export async function generateVectorsWithMeta(texts: readonly string[]): Promise<VectorWithMeta[]> {
+  if (texts.length === 0) return []
+  const results: (VectorWithMeta | null)[] = new Array(texts.length).fill(null)
+  const missIdx: number[] = []
+  const missTexts: string[] = []
+
+  texts.forEach((t, i) => {
+    const hit = vectorCache.get(textKey(t))
+    if (hit) results[i] = hit
+    else { missIdx.push(i); missTexts.push(t) }
+  })
+
+  if (missTexts.length > 0) {
+    const emb = await getEmbedder()
+    if (emb) {
+      try {
+        const vecs = await emb.embedBatch(missTexts)
+        missIdx.forEach((idx, k) => {
+          const v = vecs[k]
+          if (Array.isArray(v)) {
+            const vm: VectorWithMeta = { vector: v as number[], isPseudo: false }
+            results[idx] = vm
+            cacheSet(texts[idx], vm)
+          }
+        })
+      } catch { /* 整体失败 → 逐条降级为伪向量 */ }
+    }
+    // 未成功的（embedder 不可用 / 批量抛错 / 个别缺项）退化为伪向量
+    missIdx.forEach((idx) => {
+      if (!results[idx]) {
+        const vm: VectorWithMeta = { vector: generatePseudoVector(texts[idx]), isPseudo: true }
+        results[idx] = vm
+        cacheSet(texts[idx], vm)
+      }
+    })
+  }
+
+  return results as VectorWithMeta[]
+}
+
 export async function generateVectorWithMeta(text: string): Promise<VectorWithMeta> {
   const key = textKey(text)
   const cached = vectorCache.get(key)
@@ -169,13 +239,7 @@ export async function generateVectorWithMeta(text: string): Promise<VectorWithMe
   } else {
     result = { vector: generatePseudoVector(text), isPseudo: true }
   }
-
-  // 超限时淘汰最早的一条（够用即可；不做精确 LRU 以免引入额外开销）
-  if (vectorCache.size >= VECTOR_CACHE_LIMIT) {
-    const oldest = vectorCache.keys().next().value
-    if (oldest !== undefined) vectorCache.delete(oldest)
-  }
-  vectorCache.set(key, result)
+  cacheSet(text, result)
   return result
 }
 
