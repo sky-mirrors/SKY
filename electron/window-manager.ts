@@ -8,6 +8,7 @@ let mainWindow: BrowserWindow | null = null
 let pipelineWindow: BrowserWindow | null = null
 let debugWindow: BrowserWindow | null = null
 let devWindow: BrowserWindow | null = null
+let knowledgeWindow: BrowserWindow | null = null
 let benchmarkWindow: BrowserWindow | null = null
 let onPipelineWindowReady: (() => void) | null = null
 
@@ -259,6 +260,58 @@ export function createDevWindow(): BrowserWindow {
 
 export function getDevWindow(): BrowserWindow | null {
   return devWindow && !devWindow.isDestroyed() ? devWindow : null
+}
+
+/**
+ * 2026-10-01 知识库独立窗口（用户裁定：知识库管理应出现在独立窗口，而非指令区右栏的全屏覆盖层）。
+ * 与 dev / benchmark / rule-review 窗同一套多窗口接线。
+ */
+export function createKnowledgeWindow(): BrowserWindow {
+  if (knowledgeWindow && !knowledgeWindow.isDestroyed()) {
+    knowledgeWindow.focus()
+    return knowledgeWindow
+  }
+
+  knowledgeWindow = new BrowserWindow({
+    width: 900,
+    height: 680,
+    minWidth: 560,
+    minHeight: 400,
+    show: true,
+    frame: false,
+    backgroundColor: '#050510',
+    title: 'HoloStarmap - 知识库',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  knowledgeWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  guardWindow(knowledgeWindow)
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    knowledgeWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/knowledge.html`)
+  } else {
+    knowledgeWindow.loadFile(join(__dirname, '../renderer/knowledge.html'))
+  }
+
+  knowledgeWindow.on('closed', () => {
+    knowledgeWindow = null
+  })
+  return knowledgeWindow
+}
+
+export function getKnowledgeWindow(): BrowserWindow | null {
+  return knowledgeWindow && !knowledgeWindow.isDestroyed() ? knowledgeWindow : null
 }
 
 export function getBenchmarkWindow(): BrowserWindow | null {

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow, createKnowledgeWindow, getKnowledgeWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
 // 避免 WAL 文件残留与数据未 checkpoint 落盘
@@ -101,6 +101,17 @@ app.whenReady().then(async () => {
     if (mw) { mw.webContents.send('store:applyUpdate', data) }
   })
 
+  // 2026-10-01 知识库窗口：主窗 store 变更下发给知识库窗。
+  // 知识库数据是静态的（打开后不自发变更），故窗口就绪后由本窗请求、主窗回推一次全量快照
+  // （knowledge:request-snapshot → 主窗 knowledge:push-snapshot → pushKnowledgeSnapshot）。
+  ipcMain.on('store:syncToKnowledge', (_event, data: { storeId: string; state: Record<string, unknown> }) => {
+    getKnowledgeWindow()?.webContents.send('store:applyUpdate', data)
+  })
+  ipcMain.on('knowledge:request-snapshot', () => {
+    const mw = getMainWindow()
+    if (mw) { mw.webContents.send('knowledge:push-snapshot') }
+  })
+
   ipcMain.on('pipeline:toggleFloat', (_event, isFloat: boolean) => {
     const pw = getPipelineWindow()
     if (pw) {
@@ -122,6 +133,17 @@ app.whenReady().then(async () => {
     if (w) { w.isMaximized() ? w.unmaximize() : w.maximize() }
   })
   ipcMain.on('dev:window:close', () => { getDevWindow()?.close() })
+
+  // 2026-10-01 知识库独立窗口（用户裁定：知识库管理出现在独立窗口）
+  ipcMain.on('open:knowledge-window', () => {
+    createKnowledgeWindow()
+  })
+  ipcMain.on('knowledge:window:minimize', () => { getKnowledgeWindow()?.minimize() })
+  ipcMain.on('knowledge:window:maximize', () => {
+    const kw = getKnowledgeWindow()
+    if (kw) { kw.isMaximized() ? kw.unmaximize() : kw.maximize() }
+  })
+  ipcMain.on('knowledge:window:close', () => { getKnowledgeWindow()?.close() })
 
   let debugWindowReady = false
   let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []

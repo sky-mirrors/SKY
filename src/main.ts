@@ -7,12 +7,16 @@ import { serializeStoreState, filterPatchForStore } from './services/storeSync'
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []
 let pendingPipelineSyncs: { storeId: string; state: Record<string, unknown> }[] = []
+let pendingKnowledgeSyncs: { storeId: string; state: Record<string, unknown> }[] = []
 // P1-36：应用子窗口回传的 store 更新期间抑制本地 $subscribe 转发，防止主窗↔子窗同步回环
 let applyingRemoteUpdate = false
 
 const DEBUG_SYNC_STORES = ['debug', 'api', 'node']
 // P1-38：主→流水线窗口同步的 store 白名单（PipelinePage/ToolSelector 实际消费的 store）
 const PIPELINE_SYNC_STORES = ['node', 'pipeline']
+// 2026-10-01 主→知识库窗口同步的 store 白名单：knowledge/memory 是知识库面板的展示源，
+// dialog 供「对话引用」tab。增量广播 + 打开时另由 pushKnowledgeSnapshot 推一次全量。
+const KNOWLEDGE_SYNC_STORES = ['knowledge', 'memory', 'dialog']
 
 function installStoreSync(): ReturnType<typeof createPinia> {
   const pinia = createPinia()
@@ -36,6 +40,14 @@ function installStoreSync(): ReturnType<typeof createPinia> {
           pendingPipelineSyncs.push(entry)
         }
       }
+      if (KNOWLEDGE_SYNC_STORES.includes(store.$id)) {
+        const existing = pendingKnowledgeSyncs.findIndex(s => s.storeId === store.$id)
+        if (existing >= 0) {
+          pendingKnowledgeSyncs[existing] = entry
+        } else {
+          pendingKnowledgeSyncs.push(entry)
+        }
+      }
       if (!syncTimer) {
         syncTimer = setTimeout(() => {
           for (const sync of pendingDebugSyncs) {
@@ -46,6 +58,10 @@ function installStoreSync(): ReturnType<typeof createPinia> {
             window.electronAPI?.storeSyncToPipeline(sync)
           }
           pendingPipelineSyncs = []
+          for (const sync of pendingKnowledgeSyncs) {
+            window.electronAPI?.storeSyncToKnowledge(sync)
+          }
+          pendingKnowledgeSyncs = []
           syncTimer = null
         }, 100)
       }
@@ -68,6 +84,19 @@ function installStoreSync(): ReturnType<typeof createPinia> {
       }
     })
   }
+
+  // 2026-10-01 知识库窗挂载后请求全量快照：知识库数据是静态的，不像 debug 窗那样
+  // 靠后续增量自发对齐，故这里一次性把白名单 store 的当前态推过去
+  window.electronAPI?.onKnowledgePushSnapshot?.(() => {
+    for (const id of KNOWLEDGE_SYNC_STORES) {
+      const target = pinia._s.get(id)
+      if (!target) continue
+      window.electronAPI?.storeSyncToKnowledge?.({
+        storeId: id,
+        state: serializeStoreState(target.$state as Record<string, unknown>)
+      })
+    }
+  })
 
   return pinia
 }

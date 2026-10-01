@@ -132,6 +132,14 @@ interface ElectronAPI {
   devWindowMinimize: () => void
   devWindowMaximize: () => void
   devWindowClose: () => void
+  /** 2026-10-01 知识库独立窗口 */
+  openKnowledgeWindow: () => void
+  knowledgeWindowMinimize: () => void
+  knowledgeWindowMaximize: () => void
+  knowledgeWindowClose: () => void
+  storeSyncToKnowledge: (data: { storeId: string; state: Record<string, unknown> }) => void
+  knowledgeRequestSnapshot: () => void
+  onKnowledgePushSnapshot: (callback: () => void) => () => void
   openBenchmarkWindow: () => void
   openRuleReviewWindow: () => void
   debugWindowMinimize: () => void

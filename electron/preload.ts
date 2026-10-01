@@ -308,6 +308,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   devWindowMaximize: () => ipcRenderer.send('dev:window:maximize'),
   devWindowClose: () => ipcRenderer.send('dev:window:close'),
 
+  // 2026-10-01 知识库独立窗口
+  openKnowledgeWindow: () => ipcRenderer.send('open:knowledge-window'),
+  knowledgeWindowMinimize: () => ipcRenderer.send('knowledge:window:minimize'),
+  knowledgeWindowMaximize: () => ipcRenderer.send('knowledge:window:maximize'),
+  knowledgeWindowClose: () => ipcRenderer.send('knowledge:window:close'),
+  storeSyncToKnowledge: (data: { storeId: string; state: Record<string, unknown> }) =>
+    ipcRenderer.send('store:syncToKnowledge', data),
+  // 知识库窗挂载后请主窗推一次全量快照（静态数据——不像 debug 窗那样靠增量自发对齐）
+  knowledgeRequestSnapshot: () => ipcRenderer.send('knowledge:request-snapshot'),
+  onKnowledgePushSnapshot: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('knowledge:push-snapshot', handler)
+    return () => ipcRenderer.removeListener('knowledge:push-snapshot', handler)
+  },
+
   debugWindowMinimize: () => ipcRenderer.send('debug:window:minimize'),
   debugWindowMaximize: () => ipcRenderer.send('debug:window:maximize'),
   debugWindowClose: () => ipcRenderer.send('debug:window:close'),

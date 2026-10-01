@@ -26,7 +26,7 @@
         <!-- 2026-10-01：💬「会话」按钮已移除 —— 会话列表由左导航承担（此前指令区与左导航各有一份
              会话功能，重叠且对用户不清晰）。会话级操作（添加附件 / 连接知识库）改由左导航发起，
              经 `ui:session-panel` 事件回到这里开面板（逻辑只有一份）。 -->
-        <button class="qa-btn primary" title="知识库" @click="showPanel = showPanel === 'kb' ? '' : 'kb'">📚</button>
+        <button class="qa-btn primary" title="知识库" @click="openKnowledgeWindow()">📚</button>
         <button class="qa-btn primary" title="设置" @click="showPanel = showPanel === 'settings' ? '' : 'settings'">⚙️</button>
         <ZolWidget />
         <div class="qa-more">
@@ -267,119 +267,7 @@
       </div>
       </div>
 
-      <!-- 2026-10-01（用户裁定）：知识库管理应出现在**独立界面**，不再挤在指令区右栏里。
-           用全屏修饰类把它提为覆盖层；会话面板仍保持侧栏形态。 -->
-      <div class="side-panel" :class="{ 'side-panel-full': showPanel === 'kb' }" v-if="showPanel">
-        <div v-if="showPanel === 'kb'" class="kb-panel">
-          <div class="panel-title">📚 知识库</div>
-          <div class="kb-toolbar">
-            <button class="kb-upload-btn" @click="onAttach('knowledge-base')">📤 上传文件</button>
-            <span class="kb-count">{{ kbEntries.length }} 文件 / {{ totalChunks }} 块</span>
-          </div>
-          <div class="kb-tabs">
-            <button class="kb-tab" :class="{ active: kbTab === 'browse' }" @click="kbTab = 'browse'">浏览</button>
-            <button class="kb-tab" :class="{ active: kbTab === 'refs' }" @click="kbTab = 'refs'">对话引用</button>
-          </div>
-          <template v-if="kbTab === 'browse'">
-          <div class="kb-search-row">
-            <input class="kb-search-input" v-model="kbSearchQuery" placeholder="搜索知识库..." @keydown.enter="onKbSearch" />
-            <button class="kb-search-btn" @click="onKbSearch" :disabled="kbSearching">{{ kbSearching ? '⏳' : '🔍' }}</button>
-          </div>
-          <div class="kb-search-results" v-if="kbSearchResults.length > 0">
-            <div v-for="(r, i) in kbSearchResults" :key="i" class="kb-result-item">
-              <span class="kb-result-score">{{ (r.score * 100).toFixed(0) }}%</span>
-              <span class="kb-result-text">{{ r.text.substring(0, 80) }}{{ r.text.length > 80 ? '...' : '' }}</span>
-            </div>
-          </div>
-          <div class="kb-search-empty" v-else-if="kbSearched && !kbSearching">
-            🔍 未找到相关知识
-          </div>
-          <div class="kb-group-toolbar">
-            <input class="kb-grp-input" v-model="newGroupName" placeholder="新分组名..." />
-            <button class="kb-grp-btn" @click="onCreateGroup" :disabled="!newGroupName.trim()">📁 新建</button>
-          </div>
-          <div class="kb-tree">
-            <div v-for="group in knowledgeStore.knowledgeGroups" :key="group.id" class="kb-group-node">
-              <div class="kb-group-header" @click="toggleKbGroup(group.id)">
-                <span class="kb-group-arrow">{{ expandedGroups.has(group.id) ? '▼' : '▶' }}</span>
-                <span class="kb-group-icon">📁</span>
-                <span class="kb-group-name">{{ group.name }}</span>
-                <span class="kb-group-meta">{{ group.sharedEntryIds.length }}共享</span>
-                <button class="kb-grp-del" @click.stop="knowledgeStore.deleteGroup(group.id, memoryStore.projectMemories)">✕</button>
-              </div>
-              <div v-if="expandedGroups.has(group.id)" class="kb-group-children">
-                <div class="kb-shared-section">
-                  <span class="kb-section-label">📂 共享知识库</span>
-                  <div v-for="eid in group.sharedEntryIds" :key="eid" class="kb-tree-entry">
-                    <span class="kb-te-name">{{ getEntryName(eid) }}</span>
-                    <button class="kb-te-del" @click="onRemoveSharedEntry(group.id, eid)">✕</button>
-                  </div>
-                  <div v-if="group.sharedEntryIds.length === 0" class="kb-tree-empty">暂无共享文件</div>
-                </div>
-                <div v-for="proj in knowledgeStore.getGroupProjects(group.id, memoryStore.projectMemories)" :key="proj.id" class="kb-proj-node">
-                  <span class="kb-proj-icon">💬</span>
-                  <span class="kb-proj-name">{{ proj.name }}</span>
-                  <span class="kb-proj-meta">{{ proj.knowledgeEntryIds.length }}文件</span>
-                </div>
-              </div>
-            </div>
-            <div class="kb-ungrouped" v-if="ungroupedProjects.length > 0">
-              <div class="kb-section-label">📌 未分组项目</div>
-              <div v-for="proj in ungroupedProjects" :key="proj.id" class="kb-proj-node">
-                <span class="kb-proj-icon">💬</span>
-                <span class="kb-proj-name">{{ proj.name }}</span>
-                <span class="kb-proj-meta">{{ proj.knowledgeEntryIds.length }}文件</span>
-                <select class="kb-grp-select" @change="onAssignGroup(proj.id, ($event.target as HTMLSelectElement).value)">
-                  <option value="">移入分组...</option>
-                  <option v-for="g in knowledgeStore.knowledgeGroups" :key="g.id" :value="g.id">{{ g.name }}</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div class="mem-section">
-            <div class="mem-section-title">项目空间</div>
-            <div class="mem-proj-list" v-if="memoryStore.projectMemories.length > 0">
-              <div v-for="p in memoryStore.projectMemories" :key="p.id" class="mem-proj-item" :class="{ active: p.id === memoryStore.activeProjectId }" @click="memoryStore.setActiveProject(p.id)">
-                <span class="mp-name">{{ p.name }}</span>
-                <span class="mp-meta">{{ p.fileFingerprints.length }}指纹 · {{ p.knowledgeEntryIds.length }}知识</span>
-              </div>
-            </div>
-            <div v-else class="mem-empty">暂无项目</div>
-            <div class="mem-add-row">
-              <input class="mem-add-input" v-model="newProjectName" placeholder="新建项目名..." />
-              <button class="mem-add-btn" @click="onAddProject">+</button>
-            </div>
-          </div>
-          <div class="mem-section">
-            <div class="mem-section-title">提示词模板</div>
-            <div v-if="memoryStore.globalMemory.promptTemplates.length > 0" class="mem-tpl-list">
-              <div v-for="t in memoryStore.globalMemory.promptTemplates" :key="t.id" class="mem-tpl-item">
-                <span class="mt-name">{{ t.name }}</span>
-                <button class="mt-del" @click="memoryStore.removePromptTemplate(t.id)">✕</button>
-              </div>
-            </div>
-            <div v-else class="mem-empty">暂无模板</div>
-            <div class="mem-add-row">
-              <input class="mem-add-input" v-model="newTplName" placeholder="模板名..." />
-              <input class="mem-add-input" v-model="newTplContent" placeholder="模板内容..." />
-              <button class="mem-add-btn" @click="onAddTemplate">+</button>
-            </div>
-          </div>
-          </template>
-          <div v-if="kbTab === 'refs'" class="kb-ref-list">
-            <div v-for="msg in dialogStore.messages.filter(m => m.role === 'user' && m.content.length > 10)" :key="msg.id" class="kb-ref-item">
-              <span class="kb-ref-text">{{ msg.content.substring(0, 60) }}{{ msg.content.length > 60 ? '...' : '' }}</span>
-              <span class="kb-ref-time">{{ new Date(msg.timestamp).toLocaleTimeString('zh-CN') }}</span>
-            </div>
-            <div v-if="dialogStore.messages.filter(m => m.role === 'user').length === 0" class="mem-empty">暂无对话引用</div>
-          </div>
-          <div class="kb-stats">
-            <div class="kb-stat">文件: <strong>{{ kbEntries.length }}</strong></div>
-            <div class="kb-stat">分组: <strong>{{ knowledgeStore.knowledgeGroups.length }}</strong></div>
-            <div class="kb-stat">知识块: <strong>{{ totalChunks }}</strong></div>
-          </div>
-        </div>
-
+      <div class="side-panel" v-if="showPanel">
         <div v-if="showPanel === 'session'" class="session-panel">
           <div class="panel-title">💬 会话</div>
           <div class="session-toolbar">
@@ -668,7 +556,7 @@ import { useFeedbackStore, computeQueryFingerprint } from '@/domains/feedback'
 import { useSessionStore } from '@/domains/app'
 import { useMemoryStore } from '@/domains/memory'
 import { useKnowledgeStore } from '@/domains/knowledge'
-import { ingestFile, getKnowledgeEntries, deleteKnowledgeEntry, hybridSearch } from '@/domains/knowledge'
+import { ingestFile } from '@/domains/knowledge'
 import { useSkillStore } from '@/domains/app'
 import { useConfigStore } from '@/domains/config'
 import { DialogMessage, ThoughtStep, TaskPlan, L2ToolManifest, McpCatalogItem, JobRole, BudgetMode } from '@/models'
@@ -720,7 +608,6 @@ const showPanel = ref('')
 let uiSessionPanelDisposer: (() => void) | null = null
 const moreMenu = ref(false)
 const pipelineNodeIds = ref<string[]>([])
-const kbEntries = ref<{ id: string; filename: string; chunks: number; createdAt: number }[]>([])
 const macroName = ref('')
 const macroKeywords = ref('')
 const macroSteps = ref('')
@@ -736,9 +623,6 @@ const timelineOutputExpanded = ref(false)
 const editingSessionId = ref('')
 const renameValue = ref('')
 const ctxMenu = reactive({ visible: false, x: 0, y: 0, sessionId: '', sessionName: '' })
-const newProjectName = ref('')
-const newTplName = ref('')
-const newTplContent = ref('')
 const newPrefKey = ref('')
 const newPrefVal = ref('')
 
@@ -749,16 +633,9 @@ const cacheStats = ref({ size: 0, hits: 0, misses: 0 })
 const checkpointList = ref<Array<{ id: string; manifestId: string; completedResults: Record<number, string>; failedSteps: number[]; skipSteps: number[]; totalSteps: number; updatedAt: number }>>([])
 // 2026-09-25（机制体检）：resume 候选集合——供列表标出「可恢复」（此前 getIncompleteCheckpoints 零消费者）
 const resumableIds = ref<Set<string>>(new Set())
-const kbSearchQuery = ref('')
-const kbSearching = ref(false)
-const kbSearched = ref(false)
-const kbSearchResults = ref<Array<{ score: number; text: string }>>([])
-const kbTab = ref<'browse' | 'refs'>('browse')
 const pipeSource = ref<'l1' | 'skill' | 'mcp'>('l1')
 const dagDeps = ref<number[][]>([])
 const dagDragIdx = ref<number | null>(null)
-const expandedGroups = ref<Set<string>>(new Set())
-const newGroupName = ref('')
 const pipeBindSessionId = ref('')
 const pipeUploadTarget = ref(false)
 const pipeUploadDest = ref<'knowledge' | 'pipeline'>('knowledge')
@@ -781,6 +658,11 @@ watch([panelWidth, isCollapsed], () => {
 
 function openPipelineWindow() {
   window.electronAPI?.openPipelineWindow?.()
+}
+
+// 2026-10-01（用户裁定）：知识库管理在**独立窗口**中打开，不再是指令区右栏的覆盖层
+function openKnowledgeWindow() {
+  window.electronAPI?.openKnowledgeWindow?.()
 }
 
 const selectedTimelineLog = computed(() => {
@@ -806,10 +688,6 @@ function selectTimelineLog(id: string) {
 }
 
 const l1Nodes = computed(() => nodeStore.nodes.filter(n => n.level === 'L1'))
-
-const totalChunks = computed(() => kbEntries.value.reduce((sum, e) => sum + e.chunks, 0))
-
-const ungroupedProjects = computed(() => memoryStore.projectMemories.filter(p => !p.parentGroupId))
 
 const currentPipelineSessionName = computed(() => {
   const pipelines = pipelineStore.pipelines
@@ -873,9 +751,6 @@ watch(() => showPanel.value, async (val) => {
   }
   if (val === 'cache') {
     cacheStats.value = getRouteCacheStats()
-  }
-  if (val === 'attachment' || val === 'kb') {
-    refreshKbEntries()
   }
 })
 
@@ -1021,7 +896,6 @@ function onAttach(target: 'session' | 'pipeline' | 'knowledge-base') {
     attachedFiles.value.push(...results.map(r => ({ name: r.name, content: r.content, size: r.size })))
     const names = results.map(r => r.name).join(', ')
     dialogStore.addSystemNotice(`已附加 ${results.length} 个文件: ${names}`)
-    refreshKbEntries()
   }
   input.click()
 }
@@ -1423,10 +1297,6 @@ async function runPipeline() {
   dagDeps.value = []
 }
 
-function refreshKbEntries() {
-  kbEntries.value = getKnowledgeEntries()
-}
-
 function loadMemory(msg: DialogMessage) {
   inputText.value = msg.content
   dialogStore.addSystemNotice('已载入历史内容到输入框')
@@ -1595,20 +1465,6 @@ function onExportSession(sessionId: string, mode: 'qa' | 'narrative') {
   dialogStore.showTransientHint(`💾 已导出会话 (${mode === 'qa' ? '对话式' : '整合式'})`)
 }
 
-function onAddProject() {
-  if (!newProjectName.value.trim()) return
-  const result = memoryStore.addProjectMemory(newProjectName.value.trim())
-  if (!result) { dialogStore.addSystemNotice('⚠️ 项目空间名称已存在'); return }
-  newProjectName.value = ''
-}
-
-function onAddTemplate() {
-  if (!newTplName.value.trim() || !newTplContent.value.trim()) return
-  memoryStore.addPromptTemplate({ name: newTplName.value.trim(), content: newTplContent.value.trim() })
-  newTplName.value = ''
-  newTplContent.value = ''
-}
-
 function onAddPreference() {
   if (!newPrefKey.value.trim() || !newPrefVal.value.trim()) return
   memoryStore.setPreference(newPrefKey.value.trim(), newPrefVal.value.trim())
@@ -1722,64 +1578,6 @@ async function loadCheckpoints() {
   resumableIds.value = new Set(incomplete.map(c => c.id))
 }
 
-async function onKbSearch() {
-  if (!kbSearchQuery.value.trim()) return
-  kbSearching.value = true
-  kbSearched.value = false
-  try {
-    const results = await hybridSearch(kbSearchQuery.value.trim(), 5)
-    kbSearchResults.value = results.map(r => ({ score: r.score, text: r.text }))
-    kbSearched.value = true
-  } catch {
-    dialogStore.addSystemNotice('❌ 知识库搜索失败')
-    kbSearched.value = true
-  } finally {
-    kbSearching.value = false
-  }
-}
-
-async function onDeleteAttachment(entryId: string, filename: string) {
-  const deleted = await deleteKnowledgeEntry(entryId)
-  if (deleted) {
-    refreshKbEntries()
-    dialogStore.addSystemNotice(`🗑️ 已删除附件: ${filename} (向量已清除)`)
-    const idx = attachedFiles.value.findIndex(f => f.name === filename)
-    if (idx >= 0) attachedFiles.value.splice(idx, 1)
-  } else {
-    dialogStore.addSystemNotice(`❌ 删除失败: ${filename}`)
-  }
-}
-
-function toggleKbGroup(groupId: string) {
-  if (expandedGroups.value.has(groupId)) {
-    expandedGroups.value.delete(groupId)
-  } else {
-    expandedGroups.value.add(groupId)
-  }
-}
-
-function onCreateGroup() {
-  if (!newGroupName.value.trim()) return
-  const name = newGroupName.value.trim()
-  const result = knowledgeStore.createGroup(name)
-  if (!result) { dialogStore.addSystemNotice('⚠️ 分组名称已存在'); return }
-  newGroupName.value = ''
-  dialogStore.addSystemNotice(`📁 已创建分组: ${name}`)
-}
-
-function getEntryName(entryId: string): string {
-  const entry = kbEntries.value.find(e => e.id === entryId)
-  return entry?.filename || entryId
-}
-
-function onRemoveSharedEntry(groupId: string, entryId: string) {
-  knowledgeStore.removeSharedEntryFromGroup(groupId, entryId)
-}
-
-function onAssignGroup(projectId: string, groupId: string) {
-  memoryStore.setProjectGroup(projectId, groupId || undefined)
-  dialogStore.addSystemNotice(groupId ? `📦 已移入分组` : '📌 已移出分组')
-}
 </script>
 
 <style scoped>
@@ -2555,16 +2353,6 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
   scrollbar-color: rgba(80, 160, 255, 0.2) transparent;
 }
 
-/* 2026-10-01：知识库管理的「独立界面」形态 —— 全屏覆盖，脱离 240px 侧栏 */
-.side-panel.side-panel-full {
-  position: fixed;
-  inset: 0;
-  width: auto;
-  z-index: 60;
-  background: rgba(6, 9, 20, 0.98);
-  border-left: none;
-  padding: 16px 20px;
-}
 .panel-title {
   font-size: 11px;
   color: #8ab4ff;
