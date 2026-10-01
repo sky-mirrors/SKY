@@ -57,6 +57,10 @@ class VaultClient {
    * 一个 key、不碰写队列，供「写前对齐」这种高频场景使用。
    */
   async syncKey(namespace: string, key: string): Promise<void> {
+    // 必须先把本窗的待写改动落盘再读——否则读回的「磁盘值」其实还是旧的
+    // （writeThrough 是 100ms 延迟 flush），会把刚做的改动原样撤销回去。
+    // 这个坑实测踩到过：连删 163 条只生效了 4 条。
+    try { await this.flushNow() } catch { /* 落盘失败则按现有磁盘值继续 */ }
     const fullKey = this.fullKeyOf(namespace, key)
     const fresh = await this.readFromDisk(namespace, key)
     if (fresh !== null) this.cache.set(fullKey, fresh)
