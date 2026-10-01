@@ -1,5 +1,6 @@
 import { KernelRegistry } from './kernelRegistry'
 import { createDefaultKernelPlugin } from '@/kernels/default/plugin'
+import { createLiteKernelPlugin } from '@/kernels/lite/plugin'
 
 /**
  * 内核运行时（Phase 3 灰度接线）：
@@ -20,6 +21,12 @@ export function initKernelRuntime(): Promise<void> {
       const reg = kernelRegistry.register(plugin)
       if (!reg.ok) {
         throw new Error(`kernel register failed: ${reg.reason}`)
+      }
+      // 2026-10-01（用户裁定）：池中再入一个「直通内核」，让「换内核」有得换。
+      // 注册失败只告警不阻断——默认内核仍是唯一保底，热插拔是增量能力（fail-visible 不 fail-fatal）。
+      const liteReg = kernelRegistry.register(createLiteKernelPlugin())
+      if (!liteReg.ok) {
+        console.warn(`[kernel-runtime] 直通内核注册失败：${liteReg.reason}（不影响默认内核）`)
       }
       const act = await kernelRegistry.activate(plugin.id)
       if (!act.ok) {
