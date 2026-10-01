@@ -401,8 +401,25 @@ export const useDialogStore = defineStore('dialog', () => {
         : '教学模式：解释每个步骤的原理，引导用户理解工具如何协作。'
   }
 
-  async function buildVariableContext(userContent: string): Promise<string> {
-    const selectedNode = globalBus.request('node:get-selected-node', {})
+  /**
+   * 2026-10-01（用户反馈）：把「本会话已挂载的文件」清单拼进**喂给路由的输入**。
+   * 主路径（funnel）只接收这段文本，所以清单必须在这里带上——放进 buildVariableContext 无效
+   * （那只服务 funnel 失败后的兜底路径，实测用户「依旧没拿到任何目录」）。
+   * 无附件则原样返回，不影响既有行为。
+   */
+  function withSessionFilesContext(content: string): string {
+    const ids = useSessionStore().activeSession?.attachedEntryIds ?? []
+    if (ids.length === 0) return content
+    const all = getKnowledgeEntries()
+    const files = ids.map(id => all.find(e => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e)
+    if (files.length === 0) return content
+    return `${content}
+
+【本会话已挂载的文件（请直接依据此清单回答，不要反问目录）】
+${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
+  }
+
+  async function buildVariableContext(userContent: string): Promise<string> {    const selectedNode = globalBus.request('node:get-selected-node', {})
     const selectedInfo = selectedNode
       ? `当前选中节点：${selectedNode.name}(${selectedNode.level})，可用 MCP 工具：${(globalBus.request('mcp:get-tools-as-nodes', {}) as any[]).length} 个`
       : '未选中任何节点'
@@ -1502,7 +1519,14 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       // 2026-10-01（用户裁定「六层漏斗全部功能留着，旧逻辑、完全用不着的删去」）：
       // funnel 主路径**无条件**走 —— 灰度开关（holo-funnel-main）及其"回滚旧内联"分支已删。
       // routeViaFunnel 内部在 error/适配层异常时返回 false，落到下方兜底。
-      if (await routeViaFunnel(content, allMcpTools, recentUserMsg)) return ''
+      // 2026-10-01（用户反馈：加入文件后问「会话内都有什么文件」，模型依然答不出只能反问目录）：
+      // 上一版把清单注入了 buildVariableContext —— 但那只在 **funnel 失败后的兜底路径**里用得上，
+      // 而主路径无条件走 routeViaFunnel（它只收 content/allMcpTools/recentUserMsg），
+      // 所以对用户完全无效（实测「依旧没拿到任何目录」）。
+      // 这里改为注入**真正喂给路由与 L1 的 content**：消息展示用的仍是原文（另存于消息列表），
+      // 故用户看不到这层拼接，只有模型看得到。
+      const routeInput = withSessionFilesContext(content)
+      if (await routeViaFunnel(routeInput, allMcpTools, recentUserMsg)) return ''
 
       let plan: TaskPlan | undefined = undefined
       let macroManifestId: string | null = null
