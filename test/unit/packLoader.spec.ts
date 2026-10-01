@@ -426,3 +426,45 @@ describe('PackLoader M16/A2-9：manifest 归因、竞标权重与已注入约束
     expect(loader.getMountedConstraintIds('testpack')).toEqual([])
   })
 })
+
+// 2026-10-01：执行层供给路由（用户裁定：热插拔不该"等待认领"）
+// 原语义：pack 的 execution/manifests.json 只被读成 manifestIds（M16 归因），
+// 实现必须预先存在于 src/data/l2Manifests.ts —— pack 只能"认领"已注册的 id。
+// 新语义：pack 自带 manifest（含 routing/execution）即自动进入路由候选集，无需内置表预注册。
+describe('execution 层供给路由（2026-10-01 · 不等待认领）', () => {
+  const PACK_NATIVE_TOOL = {
+    identity: { id: 'l2-pack-native-tool-v1', name: '包内原生工具', version: '1.0.0' },
+    routing: {
+      keywords: ['包内工具'], targetRoles: ['general'], requiredL1: [], inputType: 'text',
+      retrievalSummary: 'pack 自带工具', userSummary: 'pack 自带工具', confidenceThreshold: 0.7
+    },
+    execution: { dagPlan: { steps: [] } }
+  }
+
+  it('挂载后 getExecutionManifests() 暴露 pack 自带 manifest', async () => {
+    const { loader } = makeLoader({
+      testpack: { manifest: GOOD_MANIFEST, execution: { manifests: [PACK_NATIVE_TOOL] } }
+    })
+    const r = await loader.mountPack('testpack')
+    expect(r.ok).toBe(true)
+    const ids = loader.getExecutionManifests().map(m => m.identity?.id)
+    expect(ids).toContain('l2-pack-native-tool-v1')
+  })
+
+  it('卸载不留痕迹：该 pack 的 manifest 从供给集消失（热插拔可逆）', async () => {
+    const { loader } = makeLoader({
+      testpack: { manifest: GOOD_MANIFEST, execution: { manifests: [PACK_NATIVE_TOOL] } }
+    })
+    await loader.mountPack('testpack')
+    expect(loader.getExecutionManifests().map(m => m.identity?.id)).toContain('l2-pack-native-tool-v1')
+    await loader.unmountPack('testpack')
+    expect(loader.getExecutionManifests().map(m => m.identity?.id)).not.toContain('l2-pack-native-tool-v1')
+  })
+
+  it('未挂载的 pack 不供给（供给集随 mounted 变动，无残留缓存）', async () => {
+    const { loader } = makeLoader({
+      testpack: { manifest: GOOD_MANIFEST, execution: { manifests: [PACK_NATIVE_TOOL] } }
+    })
+    expect(loader.getExecutionManifests()).toEqual([])
+  })
+})

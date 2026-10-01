@@ -1,4 +1,5 @@
 import { PackLoader } from './pack/loader'
+import type { PackExecutionManifest } from './pack/types'
 
 /**
  * pack 运行时（P3.5 约束主路径切换，R12）：
@@ -27,6 +28,15 @@ export function getPackWeight(packId: string): number {
 /** A2-9：pack 已注入约束 id 集转发（快照副本；未挂载返回空数组） */
 export function getMountedConstraintIds(packId: string): string[] {
   return packLoader.getMountedConstraintIds(packId)
+}
+
+/**
+ * 2026-10-01：汇总已挂载 pack 自带的执行层 manifest（路由候选集装配用）。
+ * 用户裁定「下载后自动接到路由，不等待认领」——装配点把它并入 ctx.allL2Manifests，
+ * pack 提供的工具即刻可被漏斗匹配；卸载后自动消失（热插拔可逆）。
+ */
+export function getPackExecutionManifests(): PackExecutionManifest[] {
+  return packLoader.getExecutionManifests()
 }
 
 let initPromise: Promise<void> | null = null

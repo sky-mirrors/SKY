@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { DialogMessage, ThoughtStep, TaskPlan, TaskCase, WorkflowCard, ToolCallLog } from '@/models'
 import type { DecisionContext, RewriteStrategy, DisambigStrategy, DetectedDomain, L2ToolManifest } from '@/models'
+import { getPackExecutionManifests } from '@/host/packRuntime'
+import { mergePackManifests } from '@/host/pack/merge'
 import { globalBus } from '@/kernel/bus'
 import { searchKnowledge, SearchScope } from '@/services/knowledgeBase'
 import { planTask, reflectOnResult, saveTaskCase, replan, disambiguateChoice, translateIntent } from '@/services/promptTranslator'
@@ -851,7 +853,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         if (payload?.message) legacyTrail.push(String(payload.message))
       })
       try {
-        const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
+        // 2026-10-01：内置表 ∪ 已挂载 pack 的执行层供给（用户裁定「下载后自动接到路由，不等待认领」）。
+        // pack 未挂载/卸载后 getPackExecutionManifests() 即不含它 ⇒ 候选集随之收缩，热插拔可逆。
+        const allL2 = mergePackManifests(
+          globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[],
+          getPackExecutionManifests()
+        )
         const lastAssistantMsgs = messages.value.filter(m => m.role === 'assistant')
         const lastAssistantContent = lastAssistantMsgs.length > 0 ? lastAssistantMsgs[lastAssistantMsgs.length - 1].content : ''
         const ctx: DefaultKernelContext = {

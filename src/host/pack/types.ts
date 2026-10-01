@@ -95,10 +95,24 @@ export interface PackTerminology {
   terms?: Array<{ from: string; to: string }>
 }
 
+/**
+ * 2026-10-01：pack 执行层自带的 manifest（用户裁定「下载后自动接到路由，不等待认领」）。
+ * `identity` 必填；`routing` / `execution` 等实现字段可选——缺失部分由装配点与内置表
+ * 深度合并补全。只写 `identity` 即等价于旧的「认领」语义（对既有 3 个 pack 向后兼容）。
+ */
+export interface PackExecutionManifest {
+  identity: { id: string; name?: string; version?: string }
+  routing?: Record<string, unknown>
+  visual?: Record<string, unknown>
+  execution?: Record<string, unknown>
+  cacheMeta?: Record<string, unknown>
+  ruleBasedFallback?: Record<string, unknown>
+}
+
 export interface PackExecution {
   routing?: PackRouting
   terminology?: PackTerminology
-  manifests?: unknown[]
+  manifests?: PackExecutionManifest[]
   cases?: unknown[]
 }
 

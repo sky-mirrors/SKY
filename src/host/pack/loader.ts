@@ -15,6 +15,7 @@ import type {
   PackConstraint,
   PackEvaluatorModule,
   PackExecution,
+  PackExecutionManifest,
   PackKnowledgeFile,
   PackLifecycleEvent,
   PackManifest,
@@ -42,6 +43,8 @@ interface MountedPack {
   injectedConstraintIds: string[]
   knowledgeEntryIds: string[]
   manifestIds: string[]
+  /** 2026-10-01：执行层自带的 manifest 原文（供给路由候选集；随 mounted 存亡，卸载无残留） */
+  executionManifests: PackExecutionManifest[]
   warnings: string[]
 }
 
@@ -237,6 +240,16 @@ export class PackLoader {
     return undefined
   }
 
+  /**
+   * 2026-10-01：汇总已挂载 pack 自带的执行层 manifest（路由候选集装配用）。
+   * 直接遍历 mounted ⇒ 卸载即消失，无需单独清理步骤（热插拔可逆、不留痕迹）。
+   */
+  getExecutionManifests(): PackExecutionManifest[] {
+    const out: PackExecutionManifest[] = []
+    for (const m of this.mounted.values()) out.push(...m.executionManifests)
+    return out
+  }
+
   /** M16：pack 竞标权重（manifest.weight ?? 1.0；未挂载同样返回默认值） */
   getWeight(packId: string): number {
     const m = this.mounted.get(packId)
@@ -395,10 +408,14 @@ export class PackLoader {
     }
     // M16：收集 execution/manifests.json 声明的 manifest identity.id（manifest→packId 归因表）
     const manifestIds: string[] = []
+    const executionManifests: PackExecutionManifest[] = []
     if (Array.isArray(execution?.manifests)) {
       for (const item of execution.manifests) {
         const id = (item as { identity?: { id?: unknown } } | null)?.identity?.id
-        if (typeof id === 'string' && id.length > 0) manifestIds.push(id)
+        if (typeof id === 'string' && id.length > 0) {
+          manifestIds.push(id)
+          executionManifests.push(item as PackExecutionManifest)
+        }
       }
     }
 
@@ -407,6 +424,7 @@ export class PackLoader {
       injectedConstraintIds: injection.injected,
       knowledgeEntryIds,
       manifestIds,
+      executionManifests,
       warnings
     })
     this.emit({ type: 'pack:mounted', packId })
