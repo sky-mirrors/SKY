@@ -317,3 +317,19 @@
 :root[data-theme="green"] button {
   transition: transform 0.14s ease;
 }
+
+
+/* ---------- 滚动条与下拉选项（从 App.vue / DialogPanel.vue 旧主题块收编，2026-10-07） ----------
+ * 这两处原先分散在 App.vue / DialogPanel.vue 的 :root[data-theme=...] 块里、按旧配色写，
+ * 与三档令牌并存会冲突（同类里 tokens 靠 !important 取胜，但滚动条 track / select option 无覆盖、
+ * 旧值仍在生效）。此处收编为唯一定义处并对齐令牌，App.vue/DialogPanel.vue 的旧块随之删除。 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
+:root[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(92, 58, 76, 0.08); }
+:root[data-theme="green"] ::-webkit-scrollbar-track { background: rgba(44, 70, 52, 0.08); }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover,
+:root[data-theme="green"] ::-webkit-scrollbar-thumb:hover { background: var(--t-accent) !important; }
+:root[data-theme="dark"] select option,
+:root[data-theme="light"] select option,
+:root[data-theme="green"] select option { background: var(--t-bg); color: var(--t-text); }

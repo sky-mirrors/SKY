@@ -1876,13 +1876,16 @@ async function loadCheckpoints() {
 .system-msg {
   display: inline-block;
   padding: 4px 16px;
-  background: rgba(100, 180, 255, 0.06);
+  /* 系统提示要有实底：对话面板背景是插画，裸文字直接压在插画上可读性差（浅色档尤甚）。
+     底色/字色一律走三档令牌，不再硬编码蓝（旧值 #5a7a9a / rgba(100,180,255,0.06)）。 */
+  background: var(--t-panel);
+  border: 1px solid var(--t-line);
   border-radius: 10px;
-  color: #5a7a9a;
+  color: var(--t-dim);
   font-size: var(--font-sm);
   animation: fadeIn 0.5s ease-out;
 }
-.system-notice-text { color: #7a9cc6; }
+.system-notice-text { color: var(--t-dim); }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-5px); }
@@ -2793,16 +2796,7 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
 .set-collapse-arrow { font-size: var(--font-xs); color: #5a7a9a; }
 .set-collapsible-body { padding: 4px 0 4px 8px; border-left: 2px solid rgba(100,180,255,0.1); margin-left: 8px; margin-bottom: 4px; }
 
-:root[data-theme="green"] .dialog-panel { background: rgba(26,42,26,0.95); border-color: rgba(80,160,80,0.2); color: #a8c8a8; }
-:root[data-theme="green"] .dialog-panel * { border-color: rgba(80,160,80,0.15); }
-:root[data-theme="green"] .dialog-panel .mode-btn { color: #7aaa7a; border-color: rgba(80,160,80,0.2); }
-:root[data-theme="green"] .dialog-panel .mode-btn.active { background: rgba(80,160,80,0.2); color: #44bb66; border-color: rgba(80,160,80,0.4); }
-:root[data-theme="green"] .dialog-panel .chat-input textarea { background: rgba(20,36,20,0.8); color: #a8c8a8; border-color: rgba(80,160,80,0.15); }
-:root[data-theme="green"] .dialog-panel .msg-content { color: #a8c8a8; }
-:root[data-theme="green"] .dialog-panel .msg-user .msg-content { background: rgba(80,160,80,0.12); }
-:root[data-theme="green"] .dialog-panel .msg-assistant .msg-content { background: rgba(40,60,40,0.3); }
-:root[data-theme="green"] .dialog-panel select { background: #1a2a1a; color: #a8c8a8; border-color: rgba(80,160,80,0.2); }
-:root[data-theme="green"] .dialog-panel select option { background: #1a2a1a; color: #a8c8a8; }
-:root[data-theme="green"] .dialog-panel ::-webkit-scrollbar-thumb { background: rgba(80,160,80,0.25); }
-:root[data-theme="green"] .dialog-panel ::-webkit-scrollbar-thumb:hover { background: rgba(80,160,80,0.4); }
+/* 旧 green 主题块（.dialog-panel / .mode-btn / .msg-content / select / 滚动条）已于 2026-10-07 清除：
+ * 主题唯一定义处是 src/styles/tokens.css。这些旧规则按"深绿底"写，会被 tokens 的新绿档覆盖
+ * （注入顺序 + !important），是纯冲突源；其中 tokens 未覆盖的 select option 已并入 tokens.css。 */
 </style>

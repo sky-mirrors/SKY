@@ -797,56 +797,9 @@ html, body, #app {
   background: rgba(150, 150, 200, 0.2);
 }
 
-:root[data-theme="light"] .titlebar {
-  background: rgba(230, 235, 245, 0.95);
-  border-bottom-color: rgba(0, 0, 0, 0.1);
-}
-:root[data-theme="light"] .titlebar-text {
-  color: #222;
-}
-:root[data-theme="light"] .dialog-panel {
-  background: rgba(240, 244, 250, 0.95) !important;
-  color: #333 !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
-}
-:root[data-theme="light"] .dialog-panel .mode-btn {
-  color: #555 !important;
-}
-
-:root[data-theme="green"] .titlebar {
-  background: rgba(26, 42, 26, 0.95);
-  border-bottom-color: rgba(80, 160, 80, 0.2);
-}
-:root[data-theme="green"] .titlebar-text {
-  color: rgba(120, 180, 120, 0.4);
-}
-:root[data-theme="green"] .dialog-panel {
-  background: rgba(26, 42, 26, 0.95) !important;
-  color: #a8c8a8 !important;
-  border-color: rgba(80, 160, 80, 0.2) !important;
-}
-:root[data-theme="green"] .dialog-panel .mode-btn {
-  color: #7aaa7a !important;
-}
-
-:root[data-theme="dark"] ::-webkit-scrollbar { width: 6px; height: 6px; }
-:root[data-theme="dark"] ::-webkit-scrollbar-track { background: rgba(5, 5, 16, 0.4); }
-:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(80, 160, 255, 0.25); border-radius: 3px; }
-:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(80, 160, 255, 0.4); }
-:root[data-theme="dark"] select { background: #0a0f1e; color: #c0d0e0; border-color: rgba(80, 160, 255, 0.2); }
-
-:root[data-theme="light"] ::-webkit-scrollbar { width: 6px; height: 6px; }
-:root[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(230, 235, 245, 0.5); }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(80, 80, 100, 0.2); border-radius: 3px; }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(80, 80, 100, 0.35); }
-:root[data-theme="light"] select { background: #f0f0f5; color: #333; border-color: rgba(0, 0, 0, 0.15); }
-:root[data-theme="light"] select option { background: #fff; color: #333; }
-
-:root[data-theme="green"] ::-webkit-scrollbar { width: 6px; height: 6px; }
-:root[data-theme="green"] ::-webkit-scrollbar-track { background: rgba(26, 42, 26, 0.5); }
-:root[data-theme="green"] ::-webkit-scrollbar-thumb { background: rgba(80, 160, 80, 0.25); border-radius: 3px; }
-:root[data-theme="green"] ::-webkit-scrollbar-thumb:hover { background: rgba(80, 160, 80, 0.4); }
-:root[data-theme="green"] select { background: #1a2a1a; color: #a8c8a8; border-color: rgba(80, 160, 80, 0.2); }
-:root[data-theme="green"] select option { background: #1a2a1a; color: #a8c8a8; }
+/* 旧三档主题块（light/green 的 titlebar / dialog-panel / mode-btn / select / 滚动条）已于 2026-10-07 清除：
+ * 主题唯一定义处是 src/styles/tokens.css。这些旧规则用旧配色，与新三档冲突
+ * （同特异性 !important 靠注入顺序取胜，脆弱；滚动条 track / select option 无覆盖、旧值曾实际生效）。
+ * 其中仍需要的能力（滚动条尺寸/track/hover、select option）已并入 tokens.css。 */
 
 </style>
