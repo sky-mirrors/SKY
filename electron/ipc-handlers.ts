@@ -355,10 +355,40 @@ export function setupIpc(_win: BrowserWindow | null) {
   // SHELL_ALLOWED_COMMANDS 不含 ren / move / Move-Item / del，所以 Q15「图片按日期重命名」
   // 即使生成 shell_exec 命令也会被白名单拒绝。走 IPC 直连 fs 可绕开 shell 白名单；
   // 源路径用 validatePath、目标路径用 validateWritePath（与 file:write 同一写类口径）。
-  ipcMain.handle('file:move', (_event, opts: { from: string; to: string }) => {
-    const srcCheck = validatePath(opts.from)
+  ipcMain.handle('file:move', (_event, opts: { from?: string; to?: string; fromDir?: string; ext?: string; toDir?: string }) => {
+    // 2026-10-07 新增**批量形态**：{ fromDir, ext?, toDir } —— 把 fromDir 下（可选按扩展名过滤）的文件
+    // 全部移入 toDir。动机（真实用户对话实测）：用户说「将桌面上的docx文档全都放在一个新建的文件夹中」，
+    // 而 file_move 只有单文件形态 ⇒ 静态两步计划（create_directory + file_move）**表达不了"全部"**，
+    // 于是请求落到 L2 候选消歧并被错配成 create_docx（详见 l0SkillRouter 的『建文件夹并归类文件』规则注释）。
+    // 校验口径与单文件一致：源目录用 validatePath（读）、目标用 validateWritePath（写）。
+    if (opts?.fromDir && opts?.toDir) {
+      const srcDirCheck = validatePath(opts.fromDir)
+      if (!srcDirCheck.safe) return { success: false, error: srcDirCheck.reason }
+      const dstDirCheck = validateWritePath(opts.toDir)
+      if (!dstDirCheck.safe) return { success: false, error: dstDirCheck.reason }
+      try {
+        if (!existsSync(srcDirCheck.resolved)) return { success: false, error: `源目录不存在: ${srcDirCheck.resolved}` }
+        if (!existsSync(dstDirCheck.resolved)) mkdirSync(dstDirCheck.resolved, { recursive: true })
+        const wantExt = String(opts.ext || '').replace(/^\./, '').toLowerCase()
+        const names = readdirSync(srcDirCheck.resolved, { withFileTypes: true })
+          .filter(d => d.isFile())
+          .map(d => d.name)
+          .filter(n => !wantExt || n.toLowerCase().endsWith('.' + wantExt))
+        const moved: string[] = []
+        const failed: string[] = []
+        for (const n of names) {
+          const from = join(srcDirCheck.resolved, n)
+          const to = join(dstDirCheck.resolved, n)
+          try { renameSync(from, to); moved.push(n) } catch (e: unknown) { failed.push(`${n}: ${e instanceof Error ? e.message : String(e)}`) }
+        }
+        return { success: true, moved: moved.length, files: moved, failed, toDir: dstDirCheck.resolved }
+      } catch (e: unknown) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    const srcCheck = validatePath(String(opts?.from || ''))
     if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
-    const dstCheck = validateWritePath(opts.to)
+    const dstCheck = validateWritePath(String(opts?.to || ''))
     if (!dstCheck.safe) return { success: false, error: dstCheck.reason }
     if (srcCheck.resolved === dstCheck.resolved) return { success: false, error: '源与目标路径相同' }
     try {

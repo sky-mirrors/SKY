@@ -514,6 +514,47 @@ const skillRules: L0SkillRule[] = [
     }
   },
   {
+    // 2026-10-07：补「建文件夹 + 归类文件」**组合意图**（真实用户对话实测的缺陷）。
+    // 病理链：用户说「将桌面上的docx文档全都放在一个新建的文件夹中」→
+    //   ① 既有『创建文件夹』规则的 trigger 要求「新建文件夹」紧邻，用户写的是「新建**的**文件夹」⇒ 不命中；
+    //   ② 且该规则 forbiddenPatterns 含 `文档|docx|…`，用户句含 docx ⇒ **主动禁用**；
+    //   ③ 于是落到 L2 候选消歧，而候选池**不含 create_directory**（它刻意不进模型工具表，见 nativeTools.ts:18-24）
+    //      ⇒ 给出 create_docx/doc_extract/文档翻译/合同风险审查 等完全不沾边的候选；
+    //   ④ 用户在无正确选项下被迫选 1 ⇒ 真去**创建了一份 Word 文档**，并把 list_directory 原始返回当答案吐回。
+    // 本规则覆盖这一类组合（建目录 + 按类型批量移动），产出**确定性两步计划**，不经候选消歧。
+    name: '建文件夹并归类文件',
+    domain: 'file',
+    triggerPatterns: [
+      // 「把/将 … 放/移/归档/整理 … 文件夹/目录」——注意「放在…文件夹里」是最常见说法，方位词要含「在」
+      /(把|将).{0,40}?(放|移|归档|整理|收)(进|入|到|在).{0,20}?(文件夹|目录|folder)/i,
+      /(放|移|归档|整理|收)(进|入|到|在).{0,15}?(新建|创建|新|一个|你).{0,10}?(文件夹|目录|folder)/i
+    ],
+    // 不设禁用词：本规则的触发式已足够具体（必须同时出现"把/将 + 位移动词 + 文件夹"）
+    forbiddenPatterns: [],
+    async buildPlan(input: string): Promise<L0DirectPlan | null> {
+      const dir = extractDirPath(input) || '%USERPROFILE%\\Desktop'
+      // 目标文件夹名：显式「名为X」优先，否则用默认名（用户说"无需命名"即走默认）
+      const nameMatch = input.match(/(?:名为|叫|命名)\s*["「『“”']?([^"」』“”'\s]{1,30})/i)
+      let folderName = '新建文件夹'
+      if (nameMatch) {
+        const cleaned = sanitizeFileName(nameMatch[1])
+        if (cleaned.length >= 2) folderName = cleaned
+      }
+      // 要归类的文件类型（取首个出现的扩展名；无则移动所有文件）
+      const extRaw = (input.match(/\.?(docx?|pdf|xlsx?|pptx?|txt|md|csv|png|jpe?g|gif|bmp|zip|rar|mp[34]|wav|mov)\b/i) || [])[1] || ''
+      const ext = extRaw.toLowerCase().replace(/^jpeg$/, 'jpg').replace(/^doc$/, 'docx').replace(/^xls$/, 'xlsx').replace(/^ppt$/, 'pptx')
+      const target = `${dir}\\${folderName}`
+      return {
+        intent: ext ? `新建文件夹并把 ${ext} 文件收进去：${folderName}` : `新建文件夹并把文件收进去：${folderName}`,
+        steps: [
+          { step: 1, description: `创建目标文件夹`, tool: 'create_directory', params: { path: target }, expectedOutput: `目标文件夹: ${folderName}` },
+          { step: 2, description: `把 ${dir} 下的${ext ? ' ' + ext + ' ' : ''}文件移入该文件夹`, tool: 'file_move', params: { fromDir: dir, ext, toDir: target }, expectedOutput: '移动结果（含移动数量与文件名）' }
+        ],
+        isExploration: false
+      }
+    }
+  },
+  {
     name: '创建文件夹',
     domain: 'file',
     triggerPatterns: [

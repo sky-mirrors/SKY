@@ -276,6 +276,23 @@ export async function callToolDirectWithTier(
   // 故不走 shell_exec；且返回值带上 from→to，便于上游如实报告"改成了什么名字"。
   if (fullName === 'file_move') {
     if (!window.electronAPI?.fileMove) throw new Error('file_move not available')
+    // 2026-10-07：**批量形态** { fromDir, ext?, toDir } —— 把目录下（可按扩展名过滤）的文件全部移入目标目录。
+    // 单文件形态表达不了"全部 docx"，而 L0 的『建文件夹并归类文件』规则产出的静态计划需要它。
+    const fromDir = String(args.fromDir || '')
+    const toDir = String(args.toDir || '')
+    if (fromDir && toDir) {
+      const rd = await resolveFilePath(fromDir)
+      const td = await resolveFilePath(toDir)
+      if (!rd) throw new Error('file_move: missing fromDir')
+      if (!td) throw new Error('file_move: missing toDir')
+      const r = await window.electronAPI.fileMove({ fromDir: rd, ext: String(args.ext || ''), toDir: td })
+      if (!r.success) throw new Error(r.error || 'file_move(batch) failed')
+      const n = Number((r as { moved?: number }).moved || 0)
+      const names = ((r as { files?: string[] }).files || []).slice(0, 20).join('、')
+      const failedList = (r as { failed?: string[] }).failed || []
+      if (n === 0) return `⚠️ 未移动任何文件（${rd} 下没有匹配的文件${args.ext ? `（*.${args.ext}）` : ''}）——请确认目录与文件类型。`
+      return `已移动 ${n} 个文件到 ${td}：${names}${failedList.length ? `；${failedList.length} 个失败：${failedList.slice(0, 5).join('；')}` : ''}`
+    }
     const from = await resolveFilePath(String(args.from || args.path || args.source || ''))
     if (!from) throw new Error('file_move: missing from')
     const to = await resolveFilePath(String(args.to || args.target || args.newPath || ''))

@@ -216,14 +216,17 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'file_move',
-    description: '重命名或移动本机文件/文件夹（源路径 → 目标路径）。用于按规则批量重命名图片、整理文件等。',
+    description: '重命名/移动本机文件。两种用法：① 单文件——给 from 与 to；② **批量**——给 fromDir（源目录）与 toDir（目标目录），可再加 ext 只移动某类文件（如把桌面所有 docx 收进一个文件夹）。用于整理文件、批量改名。',
     parameters: {
       type: 'object',
       properties: {
-        from: { type: 'string', description: '源文件绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
-        to: { type: 'string', description: '目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' }
+        from: { type: 'string', description: '【单文件】源文件绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
+        to: { type: 'string', description: '【单文件】目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' },
+        fromDir: { type: 'string', description: '【批量】源**目录**绝对路径。与 toDir 搭配使用；给定后忽略 from/to。' },
+        ext: { type: 'string', description: '【批量·可选】只移动该扩展名的文件（如 docx / pdf，不带点）。' },
+        toDir: { type: 'string', description: '【批量】目标**目录**绝对路径（不存在会自动创建）。' }
       },
-      required: ['from', 'to']
+      required: []
     }
   },
   {

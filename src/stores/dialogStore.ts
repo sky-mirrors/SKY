@@ -780,6 +780,21 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     // 与 file_write/file_convert 同路径：先过 O10 写门再执行；返回值带 from→to，便于如实报告改成了什么名字。
     // 参数键与 nativeTools 的 file_move 定义（from/to）及别名（path/source、target/newPath）对齐。
     if (fullName === 'file_move') {
+      // 2026-10-07：与 macroExecutor 同口径支持**批量形态** { fromDir, ext?, toDir }（见该处注释）
+      const bFromDir = String(args.fromDir || '')
+      const bToDir = String(args.toDir || '')
+      if (bFromDir && bToDir) {
+        if (!(await requestWriteApproval('file_move', args))) {
+          return 'file_move: ⚠️ 用户拒绝执行（未做任何改动）'
+        }
+        if (!window.electronAPI?.fileMove) throw new Error('file_move not available')
+        const br = await window.electronAPI.fileMove({ fromDir: bFromDir, ext: String(args.ext || ''), toDir: bToDir })
+        if (!br.success) return `file_move 批量移动失败：${br.error || '未知错误'}`
+        const bn = Number((br as { moved?: number }).moved || 0)
+        const bnames = ((br as { files?: string[] }).files || []).slice(0, 20).join('、')
+        if (bn === 0) return `⚠️ 未移动任何文件（${bFromDir} 下没有匹配的文件${args.ext ? `（*.${args.ext}）` : ''}）——请确认目录与文件类型。`
+        return `已移动 ${bn} 个文件到 ${bToDir}：${bnames}`
+      }
       const from = String(args.from || args.path || args.source || args.fromPath || '')
       const to = String(args.to || args.target || args.newPath || args.toPath || '')
       if (!from) return 'file_move: 缺少 from 参数（源文件绝对路径）'
