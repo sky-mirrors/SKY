@@ -3145,8 +3145,37 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     const manifest = globalBus.request<L2ToolManifest | null>('node:get-l2-manifest', { id: picked.manifestId })
     if (!manifest) {
-      // 2026-10-07：候选清单里的 id 与 L2 manifest id 空间可能不一致（MCP 工具候选即如此），
-      // 此处必须**如实告知**而非只写 system 通知——否则用户看到的就是「零回复」。
+      // 2026-10-07：候选也可能来自 **MCP 工具集**——MCP 歧义分支（本文件 candidatePick 赋值处）
+      // 直接存入 `c.item.id`，即 MCP 工具的规范全名（`{safeConnId}___{safeToolName}`），
+      // 而本函数只查 L2 manifest ⇒ 这类候选**必然**落「查不到」。
+      // 这里按 MCP 工具名再试一次：命中则走与「非歧义 MCP 分支」完全相同的调用路径，
+      // 让 MCP 候选真正可执行，而不是只能给一句「没做成」。
+      // `buildMcpTools()` 内部会经 bus 取 MCP 连接（无连接时该通道可能未注册而抛错），
+      // 故整段回退必须**自包含 try 保护**——否则异常会逃逸并绕过下面的「失败可读」。
+      try {
+        const mcpTools = buildMcpTools()
+        const mcpTool = mcpTools.find(t => t.name === picked.manifestId)
+        const mcpInput = originalInput || messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
+        if (mcpTool && mcpInput) {
+          const apiResult = await globalBus.requestAsync('api:chat-completion', {
+            messages: [{ role: 'user', content: mcpInput }],
+            stream: true,
+            tools: withAlwaysAvailableTools(mcpTool, mcpTools)
+          }) as { content?: string; toolCalls?: { id: string; name: string; arguments: string }[] }
+          if (apiResult) {
+            const toolOutput = await executeMcpToolCalls(apiResult.toolCalls || [])
+            const outText = toolOutput ?? (apiResult.content || '(模型未发起工具调用)')
+            addAssistantMessage(outText)
+            isProcessing.value = false
+            return outText
+          }
+        }
+      } catch (err) {
+        const errStr = err instanceof Error ? err.message : String(err)
+        globalBus.emit('debug:log-probe', { level: 'error', domain: 'tool', message: `MCP 候选回退失败: ${errStr}`, detail: errStr })
+      }
+      // 失败必须可读（见本文件 2026-10-07 的同类修复）：既非 L2 manifest 也非可执行的 MCP 工具时，
+      // 明确告知而非只写 system 通知——否则用户看到的就是「零回复」。
       addAssistantMessage(`⚠️ 我没能执行「${picked.manifestName}」——这个候选项在当前内核里找不到对应的执行入口，我没有做任何改动。请换个说法重新描述需求，或直接说明你要产出的文件/结果。`)
       isProcessing.value = false
       return ''

@@ -753,4 +753,30 @@ describe('pickCandidate 失败路径必须产出可读回复（消除静默失�
     expect(last?.role).toBe('assistant')
     expect((last?.content || '').length).toBeGreaterThan(0)
   })
+
+  /**
+   * MCP 工具候选（2026-10-07）：
+   *   MCP 歧义分支把 `c.item.id`（= MCP 工具规范全名 `{safeConnId}___{safeToolName}`）存进 manifestId，
+   *   而 pickCandidate 原先只查 L2 manifest ⇒ 这类候选必然落到「查不到」。
+   *   修法：查不到 L2 manifest 时按 MCP 工具名再试，命中则走与「非歧义 MCP 分支」相同的调用路径。
+   */
+  it('MCP 工具候选 → 走 MCP 调用路径，产出真实结果（而非只能报「没做成」）', async () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => setTimeout(() => cb(0), 0) as unknown as number)
+    // 真实环境该通道由 nodeStore 注册；测试须显式提供，否则 bus.request 抛错。
+    globalBus.registerHandler('node:get-l2-manifest', () => null)
+    globalBus.registerHandler('mcp:get-connections', () => ([
+      { id: 'srv1', name: 'Srv', isConnected: true, tools: [{ name: 'do_thing', description: 'x', inputSchema: { type: 'object', properties: {} } }] }
+    ]))
+    globalBus.registerHandler('mcp:call-tool', async () => 'MCP_OK')
+    globalBus.registerHandler('api:chat-completion', async () => ({
+      content: '', toolCalls: [{ id: 't1', name: 'srv1___do_thing', arguments: '{}' }]
+    }))
+    store.addUserMessage('用那个工具做件事')
+    store.pendingCandidateList = [{ manifestId: 'srv1___do_thing', manifestName: '某 MCP 工具', score: 0.9 }]
+    store.awaitingCandidatePick = true
+    await store.pickCandidate(0)
+    const last = store.messages[store.messages.length - 1]
+    expect(last?.role).toBe('assistant')
+    expect(last?.content || '').toContain('MCP_OK')
+  })
 })
