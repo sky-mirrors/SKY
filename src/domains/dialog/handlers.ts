@@ -60,6 +60,20 @@ export function registerDialogHandlers(bus: HoloEventBus) {
     }
   })
 
+  // 2026-10-07：会话级知识检索供**宏路径**调用。
+  // 背景：带会话 knowledgeGroupId scope 的检索原先只在 dialogStore 主/兜底路径跑；
+  // 请求走 manifest/宏路径时从不检索 ⇒ 用户「把会话合并进项目空间后对话里查不到」。
+  // 异步 handler（与 api:chat-completion 同形），调用方用 bus.requestAsync。
+  bus.registerHandler('dialog:get-kb-context', async (payload) => {
+    const store = useDialogStore()
+    try {
+      const q = String((payload as { query?: string } | undefined)?.query || '')
+      return q ? await store.buildKbContext(q) : ''
+    } catch {
+      return ''
+    }
+  })
+
   bus.registerHandler('dialog:request-takeover', (payload) => {
     const store = useDialogStore()
     return store.requestTakeover(payload.stepNum)

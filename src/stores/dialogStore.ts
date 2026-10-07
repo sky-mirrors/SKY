@@ -431,6 +431,31 @@ ${SESSION_FILES_CONTEXT_MARKER}
 ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
   }
 
+  /**
+   * 会话级知识检索（2026-10-07 抽出，供宏路径复用）。
+   *
+   * 背景：带 `session.knowledgeGroupId` scope 的知识检索**原先只写在 `buildVariableContext` 里**，
+   * 而它只在 dialogStore 的主/兜底路径被调用（`:1628` / `:2570`）。请求一旦走 manifest/宏路径
+   * （macroExecutor 自己组装 messages），**从未做过带会话 scope 的检索** ⇒
+   * 用户「把会话合并进项目空间后，对话里查不到」即此（实测：会话连着 holo 组、组内 23 条，但宏路径不问）。
+   * 抽成独立入口并经 bus 暴露给宏路径，避免两处各写一份。
+   */
+  async function buildKbContext(query: string): Promise<string> {
+    try {
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: 'working' })
+      const sessionStore3 = useSessionStore()
+      const scope: SearchScope | undefined = sessionStore3.activeSession?.knowledgeGroupId
+        ? { groupIds: [sessionStore3.activeSession.knowledgeGroupId] }
+        : undefined
+      const kbResults = await searchKnowledge(query, 5, scope)
+      globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: kbResults.length > 0 ? 'success' : 'idle' })
+      if (kbResults.length === 0) return ''
+      return '\n\n【知识库检索结果 - 以下是与用户问题相关的已投喂文档片段】\n' + kbResults.map((r, i) => `[${i + 1}] ${r}`).join('\n\n')
+    } catch {
+      return ''
+    }
+  }
+
   async function buildVariableContext(userContent: string): Promise<string> {    const selectedNode = globalBus.request('node:get-selected-node', {})
     const selectedInfo = selectedNode
       ? `当前选中节点：${selectedNode.name}(${selectedNode.level})，可用 MCP 工具：${(globalBus.request('mcp:get-tools-as-nodes', {}) as any[]).length} 个`
@@ -438,17 +463,9 @@ ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
 
     currentEngine.value = (globalBus.request('api:get-config', {}) as any)?.activeModel || '未配置'
 
-    globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: 'working' })
+    const kbContext = await buildKbContext(userContent)
     const sessionStore3 = useSessionStore()
-    const scope: SearchScope | undefined = sessionStore3.activeSession?.knowledgeGroupId
-      ? { groupIds: [sessionStore3.activeSession.knowledgeGroupId] }
-      : undefined
-    const kbResults = await searchKnowledge(userContent, 5, scope)
-    globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: kbResults.length > 0 ? 'success' : 'idle' })
-    let kbContext = ''
-    if (kbResults.length > 0) {
-      kbContext = '\n\n【知识库检索结果 - 以下是与用户问题相关的已投喂文档片段】\n' + kbResults.map((r, i) => `[${i + 1}] ${r}`).join('\n\n')
-    }
+    const kbResultCount = (kbContext.match(/^\[\d+\]/gm) || []).length
 
     // 2026-10-01（用户反馈：上传文件后问「会话内都有什么文件」，模型却反问要具体目录）：
     // 会话附件（session.attachedEntryIds）此前**只写不读**——从未进入模型上下文，模型自然答不出。
@@ -480,7 +497,7 @@ ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
 - ${selectedInfo}
 - 当前引擎：${(globalBus.request('api:get-config', {}) as any)?.activeModel || '未配置'} (${globalBus.request('api:is-ready', {}) ? '已连接' : '离线'})
 - 已连接 MCP：${(globalBus.request('mcp:get-connections', {}) as any[]).filter(c => c.isConnected).length} 个
-- 知识库：${kbResults.length} 条相关上下文已自动检索
+- 知识库：${kbResultCount} 条相关上下文已自动检索
 ${kbContext}${filesContext}
 
 ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工具，只能进行文本对话。'}`
@@ -3764,6 +3781,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     transientHint,
     showTransientHint,
     lastDecisionContext,
-    getRecentAssistantOutput
+    getRecentAssistantOutput,
+    buildKbContext
   }
 })

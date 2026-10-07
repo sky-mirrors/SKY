@@ -158,9 +158,18 @@ describe('宏路径承接上下文（V2-T02/T04 第二轮根因：宏看不到�
 describe('宏路径承接上下文：全路径走查（防单侧修复）', () => {
   const src = readFileSync(join(process.cwd(), 'src/services/macroExecutor.ts'), 'utf-8')
 
-  it('四处调用点全部透传最近上下文', () => {
-    const uses = src.match(/buildMacroLlmMessages\([A-Za-z_][A-Za-z0-9_]*,\s*recentDialogContext\(\)\)/g) || []
-    expect(uses.length).toBe(4)
+  it('四处调用点全部透传最近上下文与知识库上下文（防单侧修复）', () => {
+    // 2026-10-07：契约升级——除最近对话上下文外，还必须透传会话级知识检索结果
+    //（否则「把会话合并进项目空间后对话查不到」在宏路径上依旧存在）。
+    const full = src.match(/buildMacroLlmMessages\([A-Za-z_][A-Za-z0-9_]*,\s*recentDialogContext\(\),\s*await kbContextFor\([A-Za-z_.]+\)\)/g) || []
+    expect(full.length).toBe(4)
+  })
+
+  it('kb 上下文的 bus 通道有注册点，且数据源已暴露', () => {
+    const handlers = readFileSync(join(process.cwd(), 'src/domains/dialog/handlers.ts'), 'utf-8')
+    expect(handlers).toContain('dialog:get-kb-context')
+    const store = readFileSync(join(process.cwd(), 'src/stores/dialogStore.ts'), 'utf-8')
+    expect(store).toContain('buildKbContext')
   })
 
   it('提供最近上下文的 bus 通道有注册点', () => {

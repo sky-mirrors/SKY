@@ -31,15 +31,24 @@ export const MACRO_OUTPUT_DISCIPLINE = `【输出纪律｜必须遵守，优先�
  * 有 `test/unit/macroOutputDiscipline.spec.ts` 的源码级断言守住这条不变量。
  */
 export const MACRO_RECENT_CONTEXT_LIMIT = 2000
+/** 会话级知识检索结果注入上限（2026-10-07）；比承接上下文宽松些——检索片段本身已是精选 */
+export const MACRO_KB_CONTEXT_LIMIT = 4000
 
 export function buildMacroLlmMessages(
   userContent: string,
-  recentContext?: string
+  recentContext?: string,
+  kbContext?: string
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp?: number }> {
   const ctx = (recentContext || '').trim()
+  const kb = (kbContext || '').trim()
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp?: number }> = [
     { role: 'system', content: MACRO_OUTPUT_DISCIPLINE }
   ]
+  // 2026-10-07：会话级知识检索结果（带 session.knowledgeGroupId scope）。
+  // 此前宏路径从不做会话级检索 ⇒ 用户「把会话合并进项目空间后，对话里查不到」。
+  if (kb) {
+    messages.push({ role: 'system', content: kb.slice(0, MACRO_KB_CONTEXT_LIMIT) })
+  }
   // V2-T02/T04：宏每一步 LLM 调用原先都看不到会话历史，承接类请求（「把那份改成…」）
   // 里的「那份」无从指代。此处把近期对话前置。
   // 2026-10-07：数据源由「最近一条 assistant 产出」扩为「最近若干轮 user+assistant」——
