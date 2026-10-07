@@ -14,6 +14,18 @@ import type { ToolDef } from './nativeToolTypes'
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
 export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract'] as const
 
+/**
+ * 关于 `create_directory`（2026-10-07 落定：**刻意不注入模型工具表**）
+ *
+ * 它是「可执行但不注入」的原生能力——执行面齐全：renderer 分支（macroExecutor.ts:371）+
+ * 主进程 IPC（ipc-handlers.ts:392）+ preload（preload.ts:81），由 L0「创建文件夹」规则
+ * **确定性触发**（用户说「新建一个 X 文件夹」时造 J 规则直通）。
+ *
+ * **不进本名单的理由**：`create_directory` **不在 `src/services/writeGate.ts` 的 WRITE_TOOLS** 内。
+ * 一旦把它注入模型工具表，模型就能在**不过 O10 写门**的情况下自由建目录——与其放宽写授权边界，
+ * 不如让它只走"规则确定性触发"这条窄路。若将来把它纳入写门，可一并注入并更新本注释。
+ */
+
 /** 判定某工具名是否为「常驻工具」——供 filterToolsByPlan / activeTools 过滤保留 */
 export function isAlwaysAvailableTool(name: string): boolean {
   return (NATIVE_TOOL_NAMES as readonly string[]).includes(name)

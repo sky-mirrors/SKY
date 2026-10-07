@@ -802,6 +802,34 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         : `已处理 ${ok.length} 个：${summary}`
     }
 
+    // 2026-10-07：file_copy / doc_extract —— 与 macroExecutor 的分发器保持同集。
+    // 此前本函数独缺这两个分支，模型在 mcp-direct 回路里调它们会落到下方函数尾的
+    // 「无效工具名」抛错——与 :695-698 记录的 file_move 历史空洞同型（补过一次又漏两个）。
+    // 不变量由 test/unit/toolDispatchParity.spec.ts（NATIVE_TOOL_NAMES 必须在两处都有分支）守住。
+    if (fullName === 'file_copy') {
+      const from = String(args.from || args.path || args.source || '')
+      const to = String(args.to || args.target || args.dest || '')
+      if (!from) return 'file_copy: 缺少 from 参数（源文件绝对路径）'
+      if (!to) return 'file_copy: 缺少 to 参数（目标文件绝对路径）'
+      if (!(await requestWriteApproval('file_copy', args))) {
+        return 'file_copy: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileCopy) throw new Error('file_copy not available')
+      const r = await window.electronAPI.fileCopy({ from, to })
+      return r.success
+        ? `已复制: ${r.from || from} → ${r.to || to}`
+        : `复制失败: ${r.error || ''}`
+    }
+    // doc_extract 是**读类**工具（不在 writeGate.WRITE_TOOLS），故无需写授权。
+    if (fullName === 'doc_extract') {
+      const p = String(args.path || args.source || args.filePath || '')
+      if (!p) return 'doc_extract: 缺少 path 参数（源文档绝对路径）'
+      if (!window.electronAPI?.docExtractFromPath) throw new Error('doc_extract not available')
+      const r = await window.electronAPI.docExtractFromPath(p)
+      if (!r.success) return `文档提取失败: ${r.error || ''}`
+      return r.text || ''
+    }
+
     const sepIdx = fullName.indexOf('___')
     if (sepIdx < 0) throw new Error(`无效工具名: ${fullName}`)
     const mcpIdRaw = fullName.substring(0, sepIdx)
