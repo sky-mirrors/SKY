@@ -302,6 +302,27 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_move failed')
   }
 
+  // 2026-10-08：按类型分拣（对应主进程 file:sortByType）——把目录顶层文件按类别搬进各自子目录。
+  // 与 file_move 批量形态同口径：先展开路径模板（%USERPROFILE% 等）再调用；如实报告
+  // 「建了哪些目录、各搬了几个、哪些跳过/失败」，零产出不谎报完成（本仓的老毛病，见 0b9821b）。
+  if (fullName === 'file_sort_by_type') {
+    if (!window.electronAPI?.fileSortByType) throw new Error('file_sort_by_type not available')
+    const fromDir = await resolveFilePath(String(args.fromDir || args.dir || ''))
+    if (!fromDir) throw new Error('file_sort_by_type: missing fromDir')
+    const toDirRaw = String(args.toDir || '')
+    const toDir = toDirRaw ? await resolveFilePath(toDirRaw) : ''
+    const r = await window.electronAPI.fileSortByType({ fromDir, ...(toDir ? { toDir } : {}) })
+    if (!r.success) throw new Error(r.error || 'file_sort_by_type failed')
+    const failed = (r as { failed?: string[] }).failed || []
+    const folders = ((r as { folders?: { name: string; moved: string[] }[] }).folders || [])
+      .map(f => `${f.name}（${f.moved.length}）`).join('、')
+    const tail = failed.length ? `；${failed.length} 个跳过/失败：${failed.slice(0, 5).join('；')}` : ''
+    if (Number((r as { moved?: number }).moved || 0) === 0) {
+      return `⚠️ 未分拣任何文件（${fromDir} 下没有可归类的顶层文件）${tail}`
+    }
+    return `已按类型分拣 ${(r as { moved?: number }).moved} 个文件到 ${folders}${tail}`
+  }
+
   // 2026-09-30：复制文件（与 file_move 同校验口径；主进程 file:copy）。
   // 写授权门由本函数顶部的 requestWriteApproval 统一覆盖（file_copy 已在 WRITE_TOOLS 内）。
   if (fullName === 'file_copy') {

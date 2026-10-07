@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 2026-09-30：复制文件（与 file:move 同校验口径）
   fileCopy: (opts: { from: string; to: string }) =>
     ipcRenderer.invoke('file:copy', opts),
+  // 2026-10-08：按类型分拣（一个动作产出多个目录并按类型分派）——CI-06 缺口的算子
+  fileSortByType: (opts: { fromDir: string; toDir?: string }) =>
+    ipcRenderer.invoke('file:sortByType', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),

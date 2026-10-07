@@ -66,6 +66,9 @@ interface ElectronAPI {
   fileMove: (opts: { from?: string; to?: string; fromDir?: string; ext?: string; toDir?: string }) => Promise<{ success: boolean; from?: string; to?: string; error?: string; moved?: number; files?: string[]; failed?: string[]; toDir?: string }>
   /** 2026-09-30：复制文件（与 fileMove 同校验口径） */
   fileCopy: (opts: { from: string; to: string }) => Promise<{ success: boolean; from?: string; to?: string; error?: string }>
+  /** 2026-10-08：按类型分拣（一个动作产出多个目录并按类型分派）—— 把 fromDir 顶层文件按类别搬进各自子目录；
+   *  只搬文件不碰子目录；目标同名文件跳过不覆盖（可重复执行） */
+  fileSortByType: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; moved?: number; folders?: { name: string; dir: string; moved: string[] }[]; files?: string[]; failed?: string[]; fromDir?: string; error?: string }>
   createDirectory: (dirPath: string) => Promise<{ success: boolean; path?: string; error?: string }>
   createDocx: (opts: { filePath: string; content?: string; title?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
   docConvertToPdf: (opts: { source: string; target: string }) => Promise<{ success: boolean; path?: string; bytes?: number; title?: string; error?: string }>

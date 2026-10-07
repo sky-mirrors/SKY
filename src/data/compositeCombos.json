@@ -31,6 +31,16 @@
         { "tool": "rename_images_by_date", "description": "按拍摄日期批量重命名 {extLabel}（EXIF 优先，无 EXIF 取文件系统时间）", "params": { "dir": "{dir}" } },
         { "tool": "file_move", "description": "把重命名后的 {extLabel}移入该文件夹", "params": { "fromDir": "{dir}", "ext": "{ext}", "toDir": "{target}" } }
       ]
+    },
+    {
+      "id": "sort-by-type",
+      "name": "按类型分拣到多个文件夹",
+      "enabled": true,
+      "intent": "把 {dir} 下的文件按类型分拣到各自的文件夹",
+      "when": { "patternsAllOf": ["按.{0,6}(类型|格式|种类|后缀).{0,8}(分|归|整理)|每类一个|分类整理"] },
+      "plan": [
+        { "tool": "file_sort_by_type", "description": "按类型分拣 {dir} 下的文件（每类一个子目录：图片 / 音视频 / 文档 / 文本 / 表格 / 幻灯片 / PDF / 压缩包 / 代码，其余按扩展名；无扩展名归「无扩展名」）", "params": { "fromDir": "{dir}" } }
+      ]
     }
   ],
 
@@ -52,12 +62,6 @@
       "reason": "「批量改扩展名」缺少算子：file_move 只能把文件搬到指定目标路径（可顺带改名），没有「只改扩展名、留在原位」的批量形态。",
       "alternative": "告诉我具体要改哪些文件（完整路径），我可以逐个改名。",
       "when": { "patternsAllOf": ["改后缀|改扩展名|改成\\s*\\.?[A-Za-z0-9]{1,5}\\s*(?:后缀|扩展名)"] }
-    },
-    {
-      "id": "split-by-type",
-      "reason": "「按类型分拣成多个文件夹」需要多目标形态（一个动作产出多个目录并按类型分派），现有 create_directory / file_move 都只支持单目标。",
-      "alternative": "一次说一类：「把桌面上的 pdf 都放进一个新建的文件夹」——我可以逐类做。",
-      "when": { "patternsAllOf": ["按.{0,6}(类型|格式|种类|后缀).{0,8}(分|归|整理)|每类一个"] }
     }
   ]
 }

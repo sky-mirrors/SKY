@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { listDirectoryWithMeta } from './fileListing'
 import { searchFiles } from './fileSearch'
 import { parseExtSpec, matchesExtSpec } from './fileMoveBatch'
+import { planSortByType } from './fileSortByType'
 import { editFileOnDisk } from './fileEdit'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
@@ -402,6 +403,49 @@ export function setupIpc(_win: BrowserWindow | null) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       renameSync(srcCheck.resolved, dstCheck.resolved)
       return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 2026-10-08 新增「按类型分拣」原生工具（CI-06 缺口登记册里那条「多目标」缺口的算子）。
+  // 语义：把 fromDir **顶层**的文件按类别搬进各自的子目录（图片/音视频/文档/文本/表格/幻灯片/PDF/压缩包/代码，
+  // 未归并的按扩展名；无扩展名归「无扩展名」）。类别判定是纯函数（electron/fileSortByType.ts，有单测）。
+  // 校验口径与 file:move 批量形态一致：源目录 validatePath（读）、每个目标子目录 validateWritePath（写）。
+  // 两条安全约束（都是"要不要动用户文件"的问题）：
+  //   ① 只搬**文件**、不碰子目录（withFileTypes + isFile）——不会把用户的文件夹卷进来；
+  //   ② 目标已存在同名文件 ⇒ **跳过并上报**，绝不覆盖；因此重复执行是安全的（第二次基本为 no-op）。
+  ipcMain.handle('file:sortByType', (_event, opts: { fromDir?: string; toDir?: string }) => {
+    const srcCheck = validatePath(String(opts?.fromDir || ''))
+    if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
+    const baseCheck = opts?.toDir ? validateWritePath(String(opts.toDir)) : srcCheck
+    if (!baseCheck.safe) return { success: false, error: baseCheck.reason }
+    try {
+      if (!existsSync(srcCheck.resolved)) return { success: false, error: `源目录不存在: ${srcCheck.resolved}` }
+      const names = readdirSync(srcCheck.resolved, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name)
+      const groups = planSortByType(names)
+      const folders: { name: string; dir: string; moved: string[] }[] = []
+      const files: string[] = []
+      const failed: string[] = []
+      for (const g of groups) {
+        const dirCheck = validateWritePath(join(baseCheck.resolved, g.folder))
+        if (!dirCheck.safe) { failed.push(`${g.folder}: ${dirCheck.reason}`); continue }
+        if (!existsSync(dirCheck.resolved)) mkdirSync(dirCheck.resolved, { recursive: true })
+        const moved: string[] = []
+        for (const n of g.files) {
+          const to = join(dirCheck.resolved, n)
+          if (existsSync(to)) { failed.push(`${n}: 目标已存在，跳过`); continue }
+          try {
+            renameSync(join(srcCheck.resolved, n), to)
+            moved.push(n)
+            files.push(`${n} → ${g.folder}\\`)
+          } catch (e: unknown) {
+            failed.push(`${n}: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        }
+        if (moved.length > 0) folders.push({ name: g.folder, dir: dirCheck.resolved, moved })
+      }
+      return { success: true, moved: files.length, folders, files, failed, fromDir: srcCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }

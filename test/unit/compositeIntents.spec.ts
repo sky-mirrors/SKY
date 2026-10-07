@@ -48,13 +48,22 @@ describe('组合意图 · 已覆盖（契约生效，必须通过）', () => {
     expect(String(plan!.steps[0].params.dir)).toContain('Desktop')
     expect(String(plan!.steps[1].params.ext).split(',').filter(Boolean).length).toBeGreaterThan(0)
   })
+
+  it('CI-06 按类型分拣：把桌面文件按类型各归到一个文件夹（2026-10-08 由缺口翻牌：新增算子 file_sort_by_type）', async () => {
+    // 缺口原由：静态计划表达不了「一个动作产出多个目录并按类型分派」（create_directory / file_move 都只支持单目标）
+    // ⇒ 补批处理算子（与 rename_images_by_date 同型），组合表里从 $missing 移到 combos。
+    const plan = await tryL0Skill('把桌面上的文件按类型分好类，每类一个文件夹')
+    expect(planTools(plan)).toEqual(['file_sort_by_type'])
+    expect(String(plan!.steps[0].params.fromDir)).toContain('Desktop')
+  })
 })
 
 describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外通过"，届时移入已覆盖组）', () => {
   // 2026-10-08：登记册从「感觉缺东西」升级为「可机读缺口」——同一份缺口现在有两面：
   //   · 数据面：src/data/compositeCombos.json 的 $missing（引擎据此**如实拒绝**，绝不"少做一半"）；
   //   · 契约面：本组的 it.fails（实现后翻牌，防止缺口被遗忘）。
-  // 两面的 id 一一对应：CI-05↔archive-collect、CI-06↔split-by-type、CI-07↔change-ext-collect、CI-03↔convert-collect。
+  // 两面的 id 一一对应：CI-05↔archive-collect、CI-07↔change-ext-collect、CI-03↔convert-collect。
+  // （CI-04↔rename-collect 与 CI-06↔split-by-type 已分别于 2026-10-08 实现并翻牌，见上一组。）
   it.fails('CI-03 转换 + 归档：把桌面的 md 都转成 pdf 并收进新建文件夹', async () => {
     const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
     expect(planTools(plan)).toEqual(['file_convert', 'file_move'])
@@ -67,11 +76,6 @@ describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外
     const hasExtract = tools.some(t => /extract|unzip|archive|decompress/i.test(t))
     expect(hasExtract).toBe(true)
     expect(tools).toContain('file_move')
-  })
-
-  it.fails('CI-06 按类型分拣：把桌面文件按类型各归到一个文件夹', async () => {
-    const plan = await tryL0Skill('把桌面上的文件按类型分好类，每类一个文件夹')
-    expect(planTools(plan).filter(t => t === 'create_directory').length).toBeGreaterThanOrEqual(2)
   })
 
   it.fails('CI-07 改扩展名 + 归类：把桌面的 txt 都改成 md 并收进新建文件夹', async () => {
@@ -113,16 +117,6 @@ describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"'
     const plan = await tryL0Skill('把桌面上还没解压的压缩包都放进一个新建的文件夹里')
     const steps = plan?.steps || []
     expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir), '应正常批量移动 zip').toBe(true)
-  })
-
-  it('按类型分拣成多个文件夹：不得产出"单目标"半成品，也不得静默下沉（应如实说要逐类做）', async () => {
-    // 2026-10-08 补：这条请求靠 mkdir 家族（「一个文件夹」）才进得了组合规则，本身一个内容动作都不含；
-    // 若组合规则在 $missing 之前就返回 null，它会静默下沉到 L2 候选消歧（用户被迫在无关候选里选）
-    // ——正是上两轮在修的那条病理。故这里钉住「如实说明缺口」这个出口。
-    const plan = await tryL0Skill('把桌面上的文件按类型分好类，每类一个文件夹')
-    const steps = plan?.steps || []
-    expect(steps.some(s => s.tool === 'llm_generate'), '应如实说明缺口并给替代做法').toBe(true)
-    expect(steps.some(s => s.tool === 'create_directory'), '不得只建一个文件夹就交差（多目标能力缺失）').toBe(false)
   })
 
   it('批量转格式 + 归类：必须走缺口如实说明，不得被单文件转换规则抢去"要完整路径"', async () => {

@@ -808,6 +808,24 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         ? `已重命名/移动: ${r.from || from} → ${r.to || to}`
         : `重命名/移动失败: ${r.error || ''}`
     }
+    // 2026-10-08：按类型分拣（与 file_move 批量形态同口径：先过 O10 写门再执行，如实报告产物）
+    if (fullName === 'file_sort_by_type') {
+      if (!(await requestWriteApproval('file_sort_by_type', args))) {
+        return 'file_sort_by_type: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileSortByType) throw new Error('file_sort_by_type not available')
+      const sf = String(args.fromDir || args.dir || '')
+      const st = String(args.toDir || '')
+      if (!sf) throw new Error('file_sort_by_type: missing fromDir')
+      const sr = await window.electronAPI.fileSortByType({ fromDir: sf, ...(st ? { toDir: st } : {}) })
+      if (!sr.success) return `按类型分拣失败：${sr.error || '未知错误'}`
+      const sn = Number((sr as { moved?: number }).moved || 0)
+      const sfolders = ((sr as { folders?: { name: string; moved: string[] }[] }).folders || [])
+        .map(f => `${f.name}（${f.moved.length}）`).join('、')
+      const sfailed = (sr as { failed?: string[] }).failed || []
+      if (sn === 0) return `⚠️ 未分拣任何文件（${sf} 下没有可归类的顶层文件${sfailed.length ? `；${sfailed.slice(0, 5).join('；')}` : ''}）`
+      return `已按类型分拣 ${sn} 个文件到 ${sfolders}${sfailed.length ? `；${sfailed.length} 个跳过/失败：${sfailed.slice(0, 5).join('；')}` : ''}`
+    }
     // 2026-09-25（HANDOFF 下一步 5）：Q15 执行层确定性化——一次调用跑完「图片按拍摄日期重命名」整批，
     // 不让弱模型在自由回路里逐文件决策（实测它只会反复 list_directory 再编造 shell 结果）。
     if (fullName === 'rename_images_by_date') {
