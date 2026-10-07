@@ -40,17 +40,24 @@ describe('组合意图 · 已覆盖（契约生效，必须通过）', () => {
     const plan = await tryL0Skill('新建一个名为 mydir 的文件夹')
     expect(planTools(plan)).toEqual(['create_directory'])
   })
+
+  it('CI-04 重命名 + 归类：把桌面图片按日期重命名后收进新建文件夹（2026-10-08 由缺口翻牌）', async () => {
+    const plan = await tryL0Skill('把桌面上的图片按拍摄日期重命名，然后都归到一个新建文件夹里')
+    expect(planTools(plan)).toEqual(['rename_images_by_date', 'file_move'])
+    // 重命名按目录、归类按扩展名集——两处参数都必须落在真实目录/真实扩展名上（不是空串）
+    expect(String(plan!.steps[0].params.dir)).toContain('Desktop')
+    expect(String(plan!.steps[1].params.ext).split(',').filter(Boolean).length).toBeGreaterThan(0)
+  })
 })
 
 describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外通过"，届时移入已覆盖组）', () => {
+  // 2026-10-08：登记册从「感觉缺东西」升级为「可机读缺口」——同一份缺口现在有两面：
+  //   · 数据面：src/data/compositeCombos.json 的 $missing（引擎据此**如实拒绝**，绝不"少做一半"）；
+  //   · 契约面：本组的 it.fails（实现后翻牌，防止缺口被遗忘）。
+  // 两面的 id 一一对应：CI-05↔archive-collect、CI-06↔split-by-type、CI-07↔change-ext-collect、CI-03↔convert-collect。
   it.fails('CI-03 转换 + 归档：把桌面的 md 都转成 pdf 并收进新建文件夹', async () => {
     const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
     expect(planTools(plan)).toEqual(['file_convert', 'file_move'])
-  })
-
-  it.fails('CI-04 重命名 + 归类：把桌面图片按日期重命名后收进新建文件夹', async () => {
-    const plan = await tryL0Skill('把桌面上的图片按拍摄日期重命名，然后都归到一个新建文件夹里')
-    expect(planTools(plan)).toEqual(['rename_images_by_date', 'file_move'])
   })
 
   it.fails('CI-05 解压 + 归类：把桌面的压缩包都解开并各自放好', async () => {
@@ -72,5 +79,33 @@ describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外
     // 关键：不能只是 [create_directory, file_move]——那会把 txt 原样搬走，后缀没改
     expect(planTools(plan)).not.toEqual(['create_directory', 'file_move'])
     expect(planTools(plan)).toContain('file_move')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 缺口的**当前行为**契约（2026-10-08）：能力还没补上时，系统必须"如实说做不到"，
+// 而不是产出「少做一半」的计划——只把 zip 搬个家却不解压、只搬 txt 却不改后缀，
+// 都是对用户的静默降级（用户以为成了，产物不符）。
+// 这一组随缺口实现而更新（与上一组 it.fails 同进同退）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"', () => {
+  it('解压 + 归类：不得仅产出「建目录 + 批量移动」（那只是把 zip 搬家）', async () => {
+    const plan = await tryL0Skill('把桌面上的 zip 压缩包都解压，然后放进一个新建的文件夹里')
+    const steps = plan?.steps || []
+    expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir)).toBe(false)
+    expect(steps.some(s => s.tool === 'llm_generate')).toBe(true)
+  })
+
+  it('改扩展名 + 归类：不得仅产出「建目录 + 批量移动」（那只是把 txt 搬家）', async () => {
+    const plan = await tryL0Skill('把桌面上所有 txt 文件改成 md 后缀，然后放进一个新建的文件夹')
+    const steps = plan?.steps || []
+    expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir)).toBe(false)
+    expect(steps.some(s => s.tool === 'llm_generate')).toBe(true)
+  })
+
+  it('域词（写周报 + 放进文件夹）不得被当成"归类桌面已有文件"', async () => {
+    const plan = await tryL0Skill('帮我写一份周报，存成 docx，然后放进一个新建的文件夹里')
+    const steps = plan?.steps || []
+    expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir)).toBe(false)
   })
 })

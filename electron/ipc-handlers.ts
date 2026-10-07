@@ -7,6 +7,7 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync, copyFileSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
 import { searchFiles } from './fileSearch'
+import { parseExtSpec, matchesExtSpec } from './fileMoveBatch'
 import { editFileOnDisk } from './fileEdit'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
@@ -369,11 +370,15 @@ export function setupIpc(_win: BrowserWindow | null) {
       try {
         if (!existsSync(srcDirCheck.resolved)) return { success: false, error: `源目录不存在: ${srcDirCheck.resolved}` }
         if (!existsSync(dstDirCheck.resolved)) mkdirSync(dstDirCheck.resolved, { recursive: true })
-        const wantExt = String(opts.ext || '').replace(/^\./, '').toLowerCase()
+        // 2026-10-08：ext 支持**扩展名集**（逗号分隔），过滤逻辑抽到 fileMoveBatch.ts 以便单测。
+        // 动机：类型词请求（「把桌面上的图片都放进一个新建的文件夹」）用单一扩展名表达不了（图片 ≠ 只有 .jpg），
+        // 而空串的语义是「目录下**全部**文件」——拿它兜底会把用户没点名的文件一起搬走
+        // （真实风险，见 test/unit/l0CollectFilter.spec.ts）。单个扩展名的行为逐字不变。
+        const wantExts = parseExtSpec(opts.ext)
         const names = readdirSync(srcDirCheck.resolved, { withFileTypes: true })
           .filter(d => d.isFile())
           .map(d => d.name)
-          .filter(n => !wantExt || n.toLowerCase().endsWith('.' + wantExt))
+          .filter(n => matchesExtSpec(n, wantExts))
         const moved: string[] = []
         const failed: string[] = []
         for (const n of names) {

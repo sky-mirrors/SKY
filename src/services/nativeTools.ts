@@ -223,7 +223,7 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         from: { type: 'string', description: '【单文件】源文件绝对路径。【必须使用用户请求里给出的真实路径，不要使用任何示例路径】' },
         to: { type: 'string', description: '【单文件】目标文件绝对路径（可与源同目录以仅改名）。【必须基于用户请求里的真实路径推导，不要使用任何示例路径】' },
         fromDir: { type: 'string', description: '【批量】源**目录**绝对路径。与 toDir 搭配使用；给定后忽略 from/to。' },
-        ext: { type: 'string', description: '【批量·可选】只移动该扩展名的文件（如 docx / pdf，不带点）。' },
+        ext: { type: 'string', description: '【批量·可选】只移动该扩展名（或**扩展名集**，逗号分隔，如 jpg,png）的文件；不带点。留空 = 移动目录下全部文件（只有用户明确说"全部/所有文件"时才可留空）。' },
         toDir: { type: 'string', description: '【批量】目标**目录**绝对路径（不存在会自动创建）。' }
       },
       required: []

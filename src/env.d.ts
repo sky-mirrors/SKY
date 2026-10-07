@@ -61,7 +61,8 @@ interface ElectronAPI {
   onMcpStatus: (callback: (data: { id: string; status: string; error?: string; initResult?: unknown }) => void) => () => void
   onMcpTools: (callback: (data: { id: string; tools: { name: string; description: string; inputSchema: Record<string, unknown> }[] }) => void) => () => void
   fileWrite: (opts: { filePath: string; content: string; encoding?: BufferEncoding }) => Promise<{ success: boolean; path?: string; error?: string }>
-  /** 2026-10-07：新增**批量形态**（fromDir + ext? + toDir）—— 把目录下（可按扩展名过滤）的文件全部移入目标目录 */
+  /** 2026-10-07：新增**批量形态**（fromDir + ext? + toDir）—— 把目录下（可按扩展名过滤）的文件全部移入目标目录
+   *  2026-10-08：ext 支持**扩展名集**（逗号分隔，如 'jpg,png'）；留空 = 目录下全部文件 */
   fileMove: (opts: { from?: string; to?: string; fromDir?: string; ext?: string; toDir?: string }) => Promise<{ success: boolean; from?: string; to?: string; error?: string; moved?: number; files?: string[]; failed?: string[]; toDir?: string }>
   /** 2026-09-30：复制文件（与 fileMove 同校验口径） */
   fileCopy: (opts: { from: string; to: string }) => Promise<{ success: boolean; from?: string; to?: string; error?: string }>

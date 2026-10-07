@@ -4,6 +4,7 @@ import { debugLog } from '@/services/debugLog'
 import { extractInstructionSegment } from '@/services/inputForm'
 import { extractListingExt, isListingIntent } from '@/services/fileListing'
 import { stripSessionFilesContext } from '@/services/sessionFilesContext'
+import { matchCompositePlan, resolveCollectFilter } from '@/services/compositeIntent'
 
 interface L0SkillRule {
   name: string
@@ -486,7 +487,12 @@ const skillRules: L0SkillRule[] = [
       /(审查|合规|条款|风险|法律|合同|分析|报告|周报|总结|竞品|财报|KPI|预算|摘要|说明|简介)/,
       // P1-D5：列查/查看/转换类输入禁入——它们要的是"读/列举/转格式"而非"创建文件"，
       // 首考 Q14 误路由即因缺此类禁词
-      /(列出|清单|有哪些|看一下|查看|找出|搜索|查找|列举|转成|转为|转换为|转换)/
+      /(列出|清单|有哪些|看一下|查看|找出|搜索|查找|列举|转成|转为|转换为|转换)/,
+      // 2026-10-08：**归类请求禁入**——本规则的触发 `/新建.*(文档|文件)/` 会被「新建**文件夹**」里的
+      // 「文件」二字命中，于是「把桌面上的图片按拍摄日期重命名，然后都归到一个新建文件夹里」
+      // 被本规则抢走并按 create_docx/file_write 出计划（CI-04 实测：命中规则显示为『文件创建』）。
+      // 把文件收进文件夹是**组合意图**，归『建文件夹并归类文件』规则——组合优先于单动作。
+      /(放进|放到|放入|放在|移进|移到|归到|归入|收进|收到|整理|归类|归档|分拣).{0,12}?(文件夹|目录|folder)/
     ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
       const ext = resolveExt(input)
@@ -527,10 +533,20 @@ const skillRules: L0SkillRule[] = [
     triggerPatterns: [
       // 「把/将 … 放/移/归档/整理 … 文件夹/目录」——注意「放在…文件夹里」是最常见说法，方位词要含「在」
       /(把|将).{0,40}?(放|移|归档|整理|收)(进|入|到|在).{0,20}?(文件夹|目录|folder)/i,
-      /(放|移|归档|整理|收)(进|入|到|在).{0,15}?(新建|创建|新|一个|你).{0,10}?(文件夹|目录|folder)/i
+      /(放|移|归档|整理|收)(进|入|到|在).{0,15}?(新建|创建|新|一个|你).{0,10}?(文件夹|目录|folder)/i,
+      // 2026-10-08：**触发式不再当第二套动词表**。上面两条只认「放|移|归档|整理|收」，而家族判据
+      // （compositeIntent 的 ACTION_FAMILIES.move）还认「归到|归入|收进|集中…」——两张表漂移的代价实测到了：
+      // 「把桌面上的图片按拍摄日期重命名，然后都**归到**一个新建文件夹里」不命中本规则，
+      // 被后面的『创建文件夹』抢去只建了个空文件夹（CI-04 实测命中规则=『创建文件夹』）。
+      // 故这里放宽为「把/将 … 文件夹/目录」，由引擎的家族+类型词判据决定要不要出计划（无组合→null 下沉）。
+      /(把|将).{0,60}?(文件夹|目录|folder)/i
     ],
-    // 不设禁用词：本规则的触发式已足够具体（必须同时出现"把/将 + 位移动词 + 文件夹"）
-    forbiddenPatterns: [],
+    // 2026-10-08：**域词交给 L2**（与『文件移动重命名』『文件复制』同款边界）。
+    // 「帮我写一份周报，然后放进一个新建的文件夹里」是**生成 + 归档**，不是"把桌面已有文件归类"；
+    // 不挡就会命中本规则并把桌面上所有 docx 搬进新文件夹（实测会命中）。
+    forbiddenPatterns: [
+      /(审查|合规|条款|风险|法律|合同|报告|周报|竞品|财报|KPI|预算|摘要|翻译|排版)/
+    ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
       const dir = extractDirPath(input) || '%USERPROFILE%\\Desktop'
       // 目标文件夹名：显式「名为X」优先，否则用默认名（用户说"无需命名"即走默认）
@@ -540,18 +556,18 @@ const skillRules: L0SkillRule[] = [
         const cleaned = sanitizeFileName(nameMatch[1])
         if (cleaned.length >= 2) folderName = cleaned
       }
-      // 要归类的文件类型（取首个出现的扩展名；无则移动所有文件）
-      const extRaw = (input.match(/\.?(docx?|pdf|xlsx?|pptx?|txt|md|csv|png|jpe?g|gif|bmp|zip|rar|mp[34]|wav|mov)\b/i) || [])[1] || ''
-      const ext = extRaw.toLowerCase().replace(/^jpeg$/, 'jpg').replace(/^doc$/, 'docx').replace(/^xls$/, 'xlsx').replace(/^ppt$/, 'pptx')
-      const target = `${dir}\\${folderName}`
-      return {
-        intent: ext ? `新建文件夹并把 ${ext} 文件收进去：${folderName}` : `新建文件夹并把文件收进去：${folderName}`,
-        steps: [
-          { step: 1, description: `创建目标文件夹`, tool: 'create_directory', params: { path: target }, expectedOutput: `目标文件夹: ${folderName}` },
-          { step: 2, description: `把 ${dir} 下的${ext ? ' ' + ext + ' ' : ''}文件移入该文件夹`, tool: 'file_move', params: { fromDir: dir, ext, toDir: target }, expectedOutput: '移动结果（含移动数量与文件名）' }
-        ],
-        isExploration: false
-      }
+      // 2026-10-08：计划不再硬编码在本规则里，改由**数据驱动引擎**产出
+      // （表 src/data/compositeCombos.json + 引擎 compositeIntent.matchCompositePlan）。
+      // 本规则只负责准备上下文三件：源目录 / 目标目录 / 过滤器（归哪些文件）。
+      // 引擎次序本身是契约：① 缺能力（$missing）→ 如实说明，绝不"少做一半"；
+      //                        ② 过滤器映射不出扩展名集 → fail-closed（空串 = 搬走目录下**全部**文件）；
+      //                        ③ 组合按特异性取最优；④ 无组合 → null 下沉，不猜。
+      return matchCompositePlan(input, {
+        dir,
+        target: `${dir}\\${folderName}`,
+        folderName,
+        filter: resolveCollectFilter(input)
+      })
     }
   },
   {
