@@ -780,3 +780,49 @@ describe('pickCandidate 失败路径必须产出可读回复（消除静默失�
     expect(last?.content || '').toContain('MCP_OK')
   })
 })
+
+
+// —— V2-T02/T04：宏路径承接上下文的数据源（dialog:get-recent-context） ——
+describe('dialogStore.getRecentAssistantOutput（宏承接上下文数据源）', () => {
+  it('返回最近一条 assistant 文本产出', () => {
+    const s = createStore()
+    s.addUserMessage('帮我写一份会议通知')
+    s.addAssistantMessage('会议通知\n各位同事：兹定于下午三点召开会议。')
+    expect(s.getRecentAssistantOutput()).toContain('会议通知')
+  })
+
+  it('无 assistant 文本产出时返回空串', () => {
+    const s = createStore()
+    s.addUserMessage('你好')
+    expect(s.getRecentAssistantOutput()).toBe('')
+  })
+
+  it('多条产出时取最近一条', () => {
+    const s = createStore()
+    s.addAssistantMessage('第一条产出内容')
+    s.addAssistantMessage('第二条产出内容')
+    expect(s.getRecentAssistantOutput()).toBe('第二条产出内容')
+  })
+})
+
+
+// —— V2-T02/T04：宏承接上下文——bus 通道端到端（注册 → 请求 → 取到 store 数据） ——
+describe('dialog:get-recent-context 通道（宏承接上下文端到端）', () => {
+  it('注册后经 bus 请求，取到最近一条 assistant 产出', async () => {
+    globalBus.clear()
+    const s = createStore()
+    s.addAssistantMessage('上一轮的会议通知正文：兹定于下午三点召开会议。')
+    const { registerDialogHandlers } = await import('@/domains/dialog/handlers')
+    registerDialogHandlers(globalBus)
+    const ctx = globalBus.request<string>('dialog:get-recent-context', {})
+    expect(String(ctx)).toContain('上一轮的会议通知正文')
+  })
+
+  it('无产出时通道返回空串（不抛）', async () => {
+    globalBus.clear()
+    createStore()
+    const { registerDialogHandlers } = await import('@/domains/dialog/handlers')
+    registerDialogHandlers(globalBus)
+    expect(String(globalBus.request<string>('dialog:get-recent-context', {}))).toBe('')
+  })
+})

@@ -114,3 +114,60 @@ describe('宏提示词并入用户原始请求', () => {
     expect(out.endsWith(JOB)).toBe(true)
   })
 })
+
+
+describe('宏路径承接上下文（V2-T02/T04 第二轮根因：宏看不到会话历史）', () => {
+  it('提供最近上下文时，作为 assistant 轮次插入到纪律与用户内容之间', () => {
+    const msgs = buildMacroLlmMessages('把那份改成下午三点', '会议通知\n各位同事：…')
+    expect(msgs).toHaveLength(3)
+    expect(msgs[0].role).toBe('system')
+    expect(msgs[0].content).toBe(MACRO_OUTPUT_DISCIPLINE)
+    expect(msgs[1].role).toBe('assistant')
+    expect(msgs[1].content).toBe('会议通知\n各位同事：…')
+    expect(msgs[2].role).toBe('user')
+    expect(msgs[2].content).toBe('把那份改成下午三点')
+  })
+
+  it('无上下文（undefined / 空串 / 纯空白）时与旧行为逐字一致（零回归）', () => {
+    const base = buildMacroLlmMessages('用户内容')
+    for (const ctx of [undefined, '', '   ']) {
+      const msgs = buildMacroLlmMessages('用户内容', ctx)
+      expect(msgs).toHaveLength(2)
+      expect(msgs.map(m => m.role)).toEqual(base.map(m => m.role))
+      expect(msgs[0].content).toBe(MACRO_OUTPUT_DISCIPLINE)
+      expect(msgs[1].content).toBe('用户内容')
+    }
+  })
+
+  it('上下文超长时截断到 2000 字', () => {
+    const long = 'A'.repeat(5000)
+    const msgs = buildMacroLlmMessages('x', long)
+    expect(msgs[1].content.length).toBe(2000)
+  })
+
+  it('上下文原样透传，且不改写用户内容（作业指令仍逐字保留）', () => {
+    const raw = '你是会议纪要专家。\n\n会议记录：{{step_1_result}}'
+    const msgs = buildMacroLlmMessages(raw, '上一轮产出')
+    expect(msgs[1].content).toBe('上一轮产出')
+    expect(msgs[2].content).toBe(raw)
+  })
+})
+
+describe('宏路径承接上下文：全路径走查（防单侧修复）', () => {
+  const src = readFileSync(join(process.cwd(), 'src/services/macroExecutor.ts'), 'utf-8')
+
+  it('四处调用点全部透传最近上下文', () => {
+    const uses = src.match(/buildMacroLlmMessages\([A-Za-z_][A-Za-z0-9_]*,\s*recentDialogContext\(\)\)/g) || []
+    expect(uses.length).toBe(4)
+  })
+
+  it('提供最近上下文的 bus 通道有注册点', () => {
+    const handlers = readFileSync(join(process.cwd(), 'src/domains/dialog/handlers.ts'), 'utf-8')
+    expect(handlers).toContain('dialog:get-recent-context')
+  })
+
+  it('dialogStore 暴露 getRecentAssistantOutput 数据源', () => {
+    const store = readFileSync(join(process.cwd(), 'src/stores/dialogStore.ts'), 'utf-8')
+    expect(store).toContain('getRecentAssistantOutput')
+  })
+})

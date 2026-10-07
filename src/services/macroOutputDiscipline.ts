@@ -30,13 +30,24 @@ export const MACRO_OUTPUT_DISCIPLINE = `【输出纪律｜必须遵守，优先�
  * 四处必须共用本函数，否则新调用点会再次绕过纪律（快照 §8.2 批评的"单侧修复模式"）。
  * 有 `test/unit/macroOutputDiscipline.spec.ts` 的源码级断言守住这条不变量。
  */
+export const MACRO_RECENT_CONTEXT_LIMIT = 2000
+
 export function buildMacroLlmMessages(
-  userContent: string
-): Array<{ role: 'system' | 'user'; content: string; timestamp?: number }> {
-  return [
-    { role: 'system', content: MACRO_OUTPUT_DISCIPLINE },
-    { role: 'user', content: userContent, timestamp: Date.now() }
+  userContent: string,
+  recentContext?: string
+): Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp?: number }> {
+  const ctx = (recentContext || '').trim()
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string; timestamp?: number }> = [
+    { role: 'system', content: MACRO_OUTPUT_DISCIPLINE }
   ]
+  // V2-T02/T04：宏每一步 LLM 调用原先都看不到会话历史，承接类请求（「把那份改成…」）
+  // 里的「那份」无从指代。把最近一轮 assistant 产出作为 assistant 轮次前置；
+  // 无上下文（未提供/空串/纯空白）时不插入，消息与旧行为逐字一致（零回归）。
+  if (ctx) {
+    messages.push({ role: 'assistant', content: ctx.slice(0, MACRO_RECENT_CONTEXT_LIMIT) })
+  }
+  messages.push({ role: 'user', content: userContent, timestamp: Date.now() })
+  return messages
 }
 
 /**

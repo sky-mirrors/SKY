@@ -609,6 +609,16 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     return history
   }
 
+  /**
+   * 宏路径承接上下文的数据源（V2-T02/T04 第二轮「当前对话里没有那份文稿」修复）：
+   * 返回最近一条 assistant **文本**产出的内容（截断 maxLen 字），无则空串。
+   * 经 bus 通道 `dialog:get-recent-context` 供 macroExecutor 注入宏的每步 LLM 调用。
+   */
+  function getRecentAssistantOutput(maxLen = 2000): string {
+    const last = [...messages.value].reverse().find(m => m.role === 'assistant' && m.type === 'text' && !!m.content.trim())
+    return last ? last.content.slice(0, maxLen) : ''
+  }
+
   let summaryGenPromise: Promise<void> | null = null
   async function generateHistorySummary() {
     if (summaryGenPromise) return
@@ -3644,6 +3654,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     exportCurrentSession,
     transientHint,
     showTransientHint,
-    lastDecisionContext
+    lastDecisionContext,
+    getRecentAssistantOutput
   }
 })

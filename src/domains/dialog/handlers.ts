@@ -49,6 +49,17 @@ export function registerDialogHandlers(bus: HoloEventBus) {
     }
   })
 
+  // V2-T02/T04：宏路径承接上下文的数据源——最近一条 assistant 文本产出（无则空串）。
+  // 宏的每步 LLM 调用原先都不带会话历史，承接类请求（「把那份改成…」）无从指代。
+  bus.registerHandler('dialog:get-recent-context', () => {
+    const store = useDialogStore()
+    try {
+      return store.getRecentAssistantOutput()
+    } catch {
+      return ''
+    }
+  })
+
   bus.registerHandler('dialog:request-takeover', (payload) => {
     const store = useDialogStore()
     return store.requestTakeover(payload.stepNum)

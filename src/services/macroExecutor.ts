@@ -154,6 +154,15 @@ function getCompiledPrompt(template: string) {
   return compiled
 }
 
+/** 宏路径承接上下文（V2-T02/T04）：经 bus 取主对话最近一条 assistant 产出；通道未注册/异常一律空串（零回归）。 */
+function recentDialogContext(): string {
+  try {
+    return String(globalBus.request<string>('dialog:get-recent-context', {}) || '')
+  } catch {
+    return ''
+  }
+}
+
 export async function callToolDirectWithTier(
   fullName: string,
   args: Record<string, unknown>,
@@ -534,7 +543,7 @@ export async function callToolDirectWithTier(
         // P0-10：原请求 llm:chat-completion 死频道（全仓无注册，每次必抛）；改走 api:chat-completion，
         // routingOptions 携带 callerId 使宏路径进入语义缓存/预算/路由体系
         const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-          messages: buildMacroLlmMessages(llmInput),
+          messages: buildMacroLlmMessages(llmInput, recentDialogContext()),
           // 2026-09-23：宏步骤此前完全不传 tools —— 插桩实测（handlers.ts 汇聚点）
           // `chan=nonstream tools=0 caller=macro:nano`，即模型看不到 read_file/list_directory/
           // file_write/shell_exec 的存在，只能回"我无法访问你电脑上的本地路径/没有文件系统权限"
@@ -587,7 +596,7 @@ export async function callToolDirectWithTier(
             const followUp = `${convo}请继续：如果用户的任务尚未完成，**直接调用相应工具继续执行**，不要反问用户已经在请求里给出的信息；如果已全部完成，再用中文汇报实际做了什么、涉及多少文件、每个文件的新名字。`
             try {
               const resp2 = await globalBus.requestAsync<{ content: string; toolCalls?: Array<{ id?: string; name?: string; arguments?: string }> }>('api:chat-completion', {
-                messages: buildMacroLlmMessages(followUp),
+                messages: buildMacroLlmMessages(followUp, recentDialogContext()),
                 tools: Array.isArray(NATIVE_TOOL_DEFS) ? NATIVE_TOOL_DEFS : undefined,
                 maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
                 signal: controller.signal,
@@ -628,7 +637,7 @@ export async function callToolDirectWithTier(
           try {
             const wrapPrompt = `${convo}【收口】以上是全部工具执行结果，任务已执行完毕。请**不要再调用任何工具**，直接用中文汇报：一共处理了多少个文件、每个文件的新名字（或新位置）、是否有失败项。`
             const resp3 = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-              messages: buildMacroLlmMessages(wrapPrompt),
+              messages: buildMacroLlmMessages(wrapPrompt, recentDialogContext()),
               maxTokens: Math.min(16384, Math.max(maxTokens, getTierConfig(currentTier).maxTokens)),
               signal: controller.signal,
               routingOptions: { taskType: 'llm_generate', callerId: `macro:${currentTier}`, temperature: getTierConfig(currentTier).temperature, ...(traceId ? { traceId } : {}) }
@@ -1358,7 +1367,7 @@ async function runMacroBody(
     const prompt = fillCompiledPrompt(compiled, variables)
     // P0-10：同上——死频道 llm:chat-completion 改走 api:chat-completion
     const resp = await globalBus.requestAsync<{ content: string }>('api:chat-completion', {
-      messages: buildMacroLlmMessages(prompt),
+      messages: buildMacroLlmMessages(prompt, recentDialogContext()),
       maxTokens: execution.directCall.maxTokens,
       signal: macroController.signal,
       routingOptions: { taskType: 'raap', callerId: 'macro_directCall', ...(traceId ? { traceId } : {}) }
