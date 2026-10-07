@@ -54,7 +54,10 @@ onMounted(() => {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  background: #050510;
+  /* 底色随三档主题（原为写死的旧深蓝 #050510 / light #eef1f8 / green #0a140a）。
+     平时被 nav/center/runtime 子元素铺满、不可见，但有缝隙或挂载期会露底，故一并主题化。
+     无 data-theme 时兜底到原深色。 */
+  background: var(--t-bg, #050510);
 }
 
 .wb-main {
@@ -71,6 +74,5 @@ onMounted(() => {
   flex-direction: column;
 }
 
-:root[data-theme='light'] .wb-shell { background: #eef1f8; }
-:root[data-theme='green'] .wb-shell { background: #0a140a; }
+/* 旧三档底色覆盖（light #eef1f8 / green #0a140a）已于 2026-10-07 清除 —— 改由 .wb-shell 统一走 var(--t-bg)，见上。 */
 </style>

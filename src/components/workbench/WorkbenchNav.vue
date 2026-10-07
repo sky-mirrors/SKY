@@ -172,12 +172,14 @@ function onSwitchSession(sessionId: string) {
 
 <style scoped>
 .wb-nav {
-  --wb-nav-bg: rgba(6, 9, 20, 0.92);
-  --wb-nav-border: rgba(80, 160, 255, 0.1);
-  --wb-nav-text: #b8c6dd;
-  --wb-nav-text-dim: #6b7a94;
-  --wb-nav-active-bg: rgba(80, 160, 255, 0.12);
-  --wb-nav-hover-bg: rgba(80, 160, 255, 0.07);
+  /* 底色/字色直接消费三档令牌（原为写死的旧深蓝一套）。active/hover 用主题强调色按原比例混出。
+     无 data-theme 时逐项兜底到原深色。 */
+  --wb-nav-bg: var(--t-panel, rgba(6, 9, 20, 0.92));
+  --wb-nav-border: var(--t-line, rgba(80, 160, 255, 0.1));
+  --wb-nav-text: var(--t-text, #b8c6dd);
+  --wb-nav-text-dim: var(--t-dim, #6b7a94);
+  --wb-nav-active-bg: color-mix(in srgb, var(--t-accent, #8ab4ff) 14%, transparent);
+  --wb-nav-hover-bg: color-mix(in srgb, var(--t-accent, #8ab4ff) 7%, transparent);
   width: 200px;
   flex-shrink: 0;
   display: flex;
@@ -328,21 +330,5 @@ function onSwitchSession(sessionId: string) {
 }
 .wb-nav-footer-text { font-size: var(--font-sm); color: var(--wb-nav-text-dim); }
 
-/* 2026-10-07：对齐三档新配色（原值为"浅灰蓝 / 深绿底"，与新的浅色萝莉/浅绿生机冲突） */
-:root[data-theme='light'] .wb-nav {
-  --wb-nav-bg: rgba(255, 246, 250, 0.97);
-  --wb-nav-border: rgba(255, 119, 170, 0.3);
-  --wb-nav-text: #5c3a4c;
-  --wb-nav-text-dim: #856572;
-  --wb-nav-active-bg: rgba(255, 119, 170, 0.14);
-  --wb-nav-hover-bg: rgba(255, 119, 170, 0.07);
-}
-:root[data-theme='green'] .wb-nav {
-  --wb-nav-bg: rgba(241, 251, 243, 0.97);
-  --wb-nav-border: rgba(38, 178, 104, 0.28);
-  --wb-nav-text: #2c4634;
-  --wb-nav-text-dim: #5a7a64;
-  --wb-nav-active-bg: rgba(38, 178, 104, 0.14);
-  --wb-nav-hover-bg: rgba(38, 178, 104, 0.07);
-}
+/* light/green 的旧覆盖块（2026-10-07 e8fa384 补的）已删除 —— 基底已直接消费 --t-* 令牌，无需再逐档覆盖。 */
 </style>

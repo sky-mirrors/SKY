@@ -60,9 +60,10 @@ const dagDoneCount = computed(() => {
 
 <style scoped>
 .wb-statusbar {
-  --sb-bg: rgba(5, 8, 16, 0.95);
-  --sb-border: rgba(80, 160, 255, 0.1);
-  --sb-text: #8a99b3;
+  /* 底色/字色直接消费三档令牌（原为写死的旧深蓝一套）。 */
+  --sb-bg: var(--t-panel, rgba(5, 8, 16, 0.95));
+  --sb-border: var(--t-line, rgba(80, 160, 255, 0.1));
+  --sb-text: var(--t-dim, #8a99b3);
   height: 26px;
   flex-shrink: 0;
   display: flex;
@@ -98,15 +99,5 @@ const dagDoneCount = computed(() => {
 }
 .wb-sb-circuit:hover { background: rgba(224, 106, 106, 0.2); }
 
-/* 2026-10-07：对齐三档新配色（原值为"浅灰蓝 / 深绿底"，与新的浅色萝莉/浅绿生机冲突） */
-:root[data-theme='light'] .wb-statusbar {
-  --sb-bg: rgba(255, 246, 250, 0.97);
-  --sb-border: rgba(255, 119, 170, 0.3);
-  --sb-text: #5c3a4c;
-}
-:root[data-theme='green'] .wb-statusbar {
-  --sb-bg: rgba(241, 251, 243, 0.97);
-  --sb-border: rgba(38, 178, 104, 0.28);
-  --sb-text: #2c4634;
-}
+/* light/green 的旧覆盖块（2026-10-07 e8fa384 补的）已删除 —— 基底已直接消费 --t-* 令牌。 */
 </style>
