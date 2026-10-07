@@ -2958,9 +2958,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
       try {
         const macroResult = await executeMacro(manifest, { inputText: ti.originalInput, context: ti.params ? JSON.stringify(ti.params) : '' }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
-        addSystemNotice(`✅ 执行完成: ${macroResult.lastResult.substring(0, 200)}`)
+        // 2026-10-07：同 pickCandidate —— 宏结果经统一呈现点（否则用户收不到回复、结果不入会话记忆）
+        const finalText = stripHtml(beautify(macroResult.lastResult || '(执行完成)'))
+        await presentExecutionOutput(finalText, macroResult.lineage)
+        globalBus.emit('node:mark-task-chain-complete', {})
+        setTimeout(() => { globalBus.emit('node:clear-dag-chain', {}) }, 3000)
         isProcessing.value = false
-        return macroResult.lastResult
+        return finalText
       } catch (err) {
         const errMsg = String(err)
         if (errMsg.startsWith('FactGuard:')) {
@@ -3046,9 +3050,13 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const lastUserMsg = messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
       try {
         const macroResult = await executeMacro(manifest, { inputText: lastUserMsg, context: filledSlots ? JSON.stringify(filledSlots) : '' }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
-        addSystemNotice(`✅ 执行完成: ${macroResult.lastResult.substring(0, 200)}`)
+        // 2026-10-07：同 pickCandidate —— 宏结果经统一呈现点（否则用户收不到回复、结果不入会话记忆）
+        const finalText = stripHtml(beautify(macroResult.lastResult || '(执行完成)'))
+        await presentExecutionOutput(finalText, macroResult.lineage)
+        globalBus.emit('node:mark-task-chain-complete', {})
+        setTimeout(() => { globalBus.emit('node:clear-dag-chain', {}) }, 3000)
         isProcessing.value = false
-        return macroResult.lastResult
+        return finalText
       } catch (err) {
         const errMsg = String(err)
         if (errMsg.startsWith('FactGuard:')) {
@@ -3148,10 +3156,16 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         const lastUserMsg = originalInput || messages.value.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
         try {
           const macroResult = await executeMacro(manifest, { inputText: lastUserMsg }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, activeTraceId.value)
-          addSystemNotice('✅ 执行完成')
+          // 2026-10-07：宏结果必须经**统一呈现点**（presentExecutionOutput → assistant 消息 + pre-output 否决门）。
+          // 原先只写 system 通知，结果既不入会话记忆、也不受否决门约束 ⇒ 用户（与考试器）完全收不到回复
+          // （V2 50 题实测：candidates 路由 6 题中 5 题 replyExcerpt 为空、判卷记「无回复内容」）。
+          const finalText = stripHtml(beautify(macroResult.lastResult || '(执行完成)'))
+          await presentExecutionOutput(finalText, macroResult.lineage)
           globalBus.emit('debug:log-probe', { level: 'info', domain: 'tool', message: `执行完成: ${macroResult.lastResult.substring(0, 500)}`, detail: macroResult.lastResult })
+          globalBus.emit('node:mark-task-chain-complete', {})
+          setTimeout(() => { globalBus.emit('node:clear-dag-chain', {}) }, 3000)
           isProcessing.value = false
-          return macroResult.lastResult
+          return finalText
         } catch (err) {
           const errStr = String(err)
           addSystemNotice(`❌ 执行失败（${classifyError(errStr)}）`)

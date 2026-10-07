@@ -650,3 +650,59 @@ describe('P1-46/A5-9 候选选择流：数字拦截与直调执行', () => {
     expect(store.pendingPlan).toBeNull()
   })
 })
+
+/**
+ * 回归（2026-10-07，V2 50 题考试归因）：
+ *   三个「暂停点裁决后恢复执行」的函数——confirmTranslatedIntent / submitSlotFill / pickCandidate——
+ *   其 **macro/chain 分支**只写 system 通知（pickCandidate 甚至什么都不写），**未经统一呈现点
+ *   presentExecutionOutput**，故宏的执行结果既不入会话记忆、也不受 pre-output 否决门约束。
+ *   实测后果：V2 50 题中 6 题走 candidates 路由，其中 5 题 replyExcerpt 为空、判卷记「无回复内容」
+ *   （用户选完候选后看不到任何结果）。
+ *   既有测试只覆盖这三个函数的 **direct 分支**，macro 分支零覆盖——缺陷因此长期潜伏。
+ */
+describe('暂停点恢复执行必须经统一呈现点（macro 分支漏呈现回归）', () => {
+  const macroManifest = {
+    identity: { id: 'm-macro', name: '宏工具' },
+    execution: {
+      mode: 'macro',
+      dagPlan: [{ step: 1, description: 'x', tool: 'llm_generate', params: {}, expectedOutput: 'x' }]
+    }
+  } as any
+
+  let store: ReturnType<typeof useDialogStore>
+
+  beforeEach(() => {
+    vault.clearCache()
+    globalBus.clear()
+    store = createStore()
+    globalBus.registerHandler('node:get-l2-manifest', () => macroManifest)
+    vi.stubGlobal('requestAnimationFrame', (cb: (t: number) => void) => setTimeout(() => cb(0), 0) as unknown as number)
+  })
+
+  it('pickCandidate(宏模式)：执行结果必须落 assistant 消息，不能只剩 system 通知', async () => {
+    store.pendingCandidateList = [{ manifestId: 'm-macro', manifestName: '宏工具', score: 0.9 }]
+    store.awaitingCandidatePick = true
+    await store.pickCandidate(0)
+    const assistantMsgs = store.messages.filter(m => m.role === 'assistant')
+    expect(assistantMsgs.length).toBeGreaterThan(0)
+    expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
+  })
+
+  it('submitSlotFill(宏模式)：执行结果必须落 assistant 消息', async () => {
+    store.slotClarification = { manifestId: 'm-macro', manifestName: '宏工具', slots: [] }
+    store.awaitingSlotFill = true
+    await store.submitSlotFill({})
+    const assistantMsgs = store.messages.filter(m => m.role === 'assistant')
+    expect(assistantMsgs.length).toBeGreaterThan(0)
+    expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
+  })
+
+  it('confirmTranslatedIntent(宏模式)：执行结果必须落 assistant 消息', async () => {
+    store.translatedIntent = { intent: '总结', manifestId: 'm-macro', params: {}, originalInput: '原文内容' }
+    store.awaitingIntentConfirm = true
+    await store.confirmTranslatedIntent()
+    const assistantMsgs = store.messages.filter(m => m.role === 'assistant')
+    expect(assistantMsgs.length).toBeGreaterThan(0)
+    expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
+  })
+})
