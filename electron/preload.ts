@@ -88,6 +88,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 2026-10-08：按类型分拣（一个动作产出多个目录并按类型分派）——CI-06 缺口的算子
   fileSortByType: (opts: { fromDir: string; toDir?: string }) =>
     ipcRenderer.invoke('file:sortByType', opts),
+  // 2026-10-08：解压并归类（每个 zip 解成一个同名子目录）——CI-05 缺口的算子
+  fileUnzip: (opts: { fromDir: string; toDir?: string }) =>
+    ipcRenderer.invoke('file:unzip', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),

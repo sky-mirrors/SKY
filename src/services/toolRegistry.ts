@@ -19,6 +19,9 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // 它是"大范围搬动用户文件"的算子，入口只给确定性的 L0 组合计划（表 src/data/compositeCombos.json 的
   // sort-by-type），不让模型在自由回路里临时决定把整个目录重排。执行面齐全（IPC + renderer 两处 dispatch + 写门）。
   'file_sort_by_type',
+  // 2026-10-08：解压并归类（每个 zip 解成一个同名子目录）。同款取舍——刻意不注入模型工具表，
+  // 入口只给确定性 L0 组合计划（compositeCombos.json 的 archive-collect），不让模型自由决定往哪解压。
+  'file_unzip',
   'http_request',
   'llm_generate',
   'knowledge_search',
@@ -49,6 +52,7 @@ export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'file_copy',
   'file_convert',
   'file_sort_by_type',
+  'file_unzip',
   'rename_images_by_date',
   'image_process',
   'media_process'

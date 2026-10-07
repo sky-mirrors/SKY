@@ -808,6 +808,29 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         ? `已重命名/移动: ${r.from || from} → ${r.to || to}`
         : `重命名/移动失败: ${r.error || ''}`
     }
+    // 2026-10-08：解压并归类（与 file_sort_by_type 同口径：先过 O10 写门再执行，如实报告产物）
+    if (fullName === 'file_unzip') {
+      if (!(await requestWriteApproval('file_unzip', args))) {
+        return 'file_unzip: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileUnzip) throw new Error('file_unzip not available')
+      const uf = String(args.fromDir || args.dir || '')
+      const ut = String(args.toDir || '')
+      if (!uf) throw new Error('file_unzip: missing fromDir')
+      const ur = await window.electronAPI.fileUnzip({ fromDir: uf, ...(ut ? { toDir: ut } : {}) })
+      if (!ur.success) return `解压失败：${ur.error || '未知错误'}`
+      const uex = (ur as { extracted?: { archive: string; files: number }[] }).extracted || []
+      const uskip = (ur as { skipped?: string[] }).skipped || []
+      const ufail = (ur as { failed?: string[] }).failed || []
+      const uuns = (ur as { unsupported?: string[] }).unsupported || []
+      const uparts: string[] = []
+      if (uex.length) uparts.push(`已解压 ${uex.length} 个：${uex.map(e => `${e.archive}（${e.files} 个文件）`).join('、')}`)
+      if (uskip.length) uparts.push(`${uskip.length} 个跳过：${uskip.slice(0, 3).join('；')}`)
+      if (ufail.length) uparts.push(`${ufail.length} 个失败：${ufail.slice(0, 3).join('；')}`)
+      if (uuns.length) uparts.push(`${uuns.length} 个不支持（只支持 .zip）：${uuns.slice(0, 5).join('、')}`)
+      if (uex.length === 0) return `⚠️ 未解压任何压缩包（${uf} 下没有可解的 .zip${uparts.length ? '；' + uparts.join('；') : ''}）`
+      return uparts.join('；')
+    }
     // 2026-10-08：按类型分拣（与 file_move 批量形态同口径：先过 O10 写门再执行，如实报告产物）
     if (fullName === 'file_sort_by_type') {
       if (!(await requestWriteApproval('file_sort_by_type', args))) {

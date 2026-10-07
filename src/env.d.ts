@@ -69,6 +69,8 @@ interface ElectronAPI {
   /** 2026-10-08：按类型分拣（一个动作产出多个目录并按类型分派）—— 把 fromDir 顶层文件按类别搬进各自子目录；
    *  只搬文件不碰子目录；目标同名文件跳过不覆盖（可重复执行） */
   fileSortByType: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; moved?: number; folders?: { name: string; dir: string; moved: string[] }[]; files?: string[]; failed?: string[]; fromDir?: string; error?: string }>
+  /** 2026-10-08：解压并归类 —— fromDir 下的每个 .zip 解成一个同名子目录（目标已存在则跳过，不覆盖）；非 zip 进 unsupported 如实上报 */
+  fileUnzip: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; extracted?: { archive: string; dir: string; files: number }[]; skipped?: string[]; failed?: string[]; unsupported?: string[]; fromDir?: string; toDir?: string; error?: string }>
   createDirectory: (dirPath: string) => Promise<{ success: boolean; path?: string; error?: string }>
   createDocx: (opts: { filePath: string; content?: string; title?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
   docConvertToPdf: (opts: { source: string; target: string }) => Promise<{ success: boolean; path?: string; bytes?: number; title?: string; error?: string }>

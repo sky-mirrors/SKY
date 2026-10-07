@@ -9,6 +9,7 @@ import { listDirectoryWithMeta } from './fileListing'
 import { searchFiles } from './fileSearch'
 import { parseExtSpec, matchesExtSpec } from './fileMoveBatch'
 import { planSortByType } from './fileSortByType'
+import { planUnzip } from './fileUnzip'
 import { editFileOnDisk } from './fileEdit'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
@@ -403,6 +404,54 @@ export function setupIpc(_win: BrowserWindow | null) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       renameSync(srcCheck.resolved, dstCheck.resolved)
       return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  /** 递归数文件（解压产物计数用；只数文件不数目录） */
+  function countFilesDeep(dir: string): number {
+    let n = 0
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (d.isDirectory()) n += countFilesDeep(join(dir, d.name))
+      else n += 1
+    }
+    return n
+  }
+
+  // 2026-10-08 新增「解压并归类」原生工具（CI-05 缺口的算子）。语义见 electron/fileUnzip.ts：
+  // **每个 zip 解成一个同名子目录**（`<目标>\<包名>\`），不把多个包的内容摊平混合。
+  // 校验口径与 file:move 一致：压缩包 validatePath（读）、目标目录与每个子目录 validateWritePath（写）。
+  // 两条安全约束：
+  //   ① 目标子目录已存在 ⇒ **跳过并上报**（不做覆盖式解压；因此重复执行安全）；
+  //   ② 只认 .zip（extract-zip 的能力边界，它自带 zip-slip 路径穿越防护）——其它压缩包进 `unsupported`
+  //      如实上报，绝不假装解压过。解压前先建目录再解，失败逐个记录（不因一个坏包中断整批）。
+  ipcMain.handle('file:unzip', async (_event, opts: { fromDir?: string; toDir?: string }) => {
+    const srcCheck = validatePath(String(opts?.fromDir || ''))
+    if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
+    const baseCheck = opts?.toDir ? validateWritePath(String(opts.toDir)) : srcCheck
+    if (!baseCheck.safe) return { success: false, error: baseCheck.reason }
+    try {
+      if (!existsSync(srcCheck.resolved)) return { success: false, error: `源目录不存在: ${srcCheck.resolved}` }
+      const names = readdirSync(srcCheck.resolved, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name)
+      const targets = planUnzip(names, baseCheck.resolved)
+      const extracted: { archive: string; dir: string; files: number }[] = []
+      const skipped: string[] = []
+      const failed: string[] = []
+      for (const t of targets) {
+        const dirCheck = validateWritePath(t.dir)
+        if (!dirCheck.safe) { failed.push(`${t.archive}: ${dirCheck.reason}`); continue }
+        if (existsSync(dirCheck.resolved)) { skipped.push(`${t.archive}: 目标文件夹已存在，跳过`); continue }
+        try {
+          mkdirSync(dirCheck.resolved, { recursive: true })
+          await extract(join(srcCheck.resolved, t.archive), { dir: dirCheck.resolved })
+          extracted.push({ archive: t.archive, dir: dirCheck.resolved, files: countFilesDeep(dirCheck.resolved) })
+        } catch (e: unknown) {
+          failed.push(`${t.archive}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      const unsupported = names.filter(n => /\.(rar|7z|tar|gz|bz2|xz)$/i.test(n))
+      return { success: true, extracted, skipped, failed, unsupported, fromDir: srcCheck.resolved, toDir: baseCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }

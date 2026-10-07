@@ -302,6 +302,29 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_move failed')
   }
 
+  // 2026-10-08：解压并归类（对应主进程 file:unzip）——每个 zip 解成一个同名子目录（目标已存在则跳过）。
+  // 如实报告「解了哪几个、各几个文件、哪些跳过/失败/不支持」，零产出不谎报完成。
+  if (fullName === 'file_unzip') {
+    if (!window.electronAPI?.fileUnzip) throw new Error('file_unzip not available')
+    const fromDir = await resolveFilePath(String(args.fromDir || args.dir || ''))
+    if (!fromDir) throw new Error('file_unzip: missing fromDir')
+    const toDirRaw = String(args.toDir || '')
+    const toDir = toDirRaw ? await resolveFilePath(toDirRaw) : ''
+    const r = await window.electronAPI.fileUnzip({ fromDir, ...(toDir ? { toDir } : {}) })
+    if (!r.success) throw new Error(r.error || 'file_unzip failed')
+    const ex = (r as { extracted?: { archive: string; files: number }[] }).extracted || []
+    const skipped = (r as { skipped?: string[] }).skipped || []
+    const failed = (r as { failed?: string[] }).failed || []
+    const unsupported = (r as { unsupported?: string[] }).unsupported || []
+    const parts: string[] = []
+    if (ex.length) parts.push(`已解压 ${ex.length} 个压缩包到各自同名文件夹：${ex.map(e => `${e.archive}（${e.files} 个文件）`).join('、')}`)
+    if (skipped.length) parts.push(`${skipped.length} 个跳过：${skipped.slice(0, 3).join('；')}`)
+    if (failed.length) parts.push(`${failed.length} 个失败：${failed.slice(0, 3).join('；')}`)
+    if (unsupported.length) parts.push(`${unsupported.length} 个不支持（只支持 .zip）：${unsupported.slice(0, 5).join('、')}`)
+    if (ex.length === 0) return `⚠️ 未解压任何压缩包（${fromDir} 下没有可解的 .zip）${parts.length ? '；' + parts.join('；') : ''}`
+    return parts.join('；')
+  }
+
   // 2026-10-08：按类型分拣（对应主进程 file:sortByType）——把目录顶层文件按类别搬进各自子目录。
   // 与 file_move 批量形态同口径：先展开路径模板（%USERPROFILE% 等）再调用；如实报告
   // 「建了哪些目录、各搬了几个、哪些跳过/失败」，零产出不谎报完成（本仓的老毛病，见 0b9821b）。

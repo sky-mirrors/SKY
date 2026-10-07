@@ -18,7 +18,7 @@
 import { globalBus } from '@/kernel/bus'
 
 /** 受本边界约束的写类原生工具 */
-export const WRITE_TOOLS = ['file_write', 'file_move', 'file_copy', 'file_edit', 'create_docx', 'file_convert', 'rename_images_by_date', 'image_process', 'media_process', 'file_sort_by_type'] as const
+export const WRITE_TOOLS = ['file_write', 'file_move', 'file_copy', 'file_edit', 'create_docx', 'file_convert', 'rename_images_by_date', 'image_process', 'media_process', 'file_sort_by_type', 'file_unzip'] as const
 export type WriteTool = (typeof WRITE_TOOLS)[number]
 export type WriteDecision = 'deny' | 'once' | 'always'
 
@@ -35,7 +35,8 @@ export const WRITE_TOOL_LABELS: Record<string, string> = {
   file_convert: '生成 PDF 文件',
   image_process: '批量生成图片文件',
   media_process: '批量生成媒体文件',
-  file_sort_by_type: '按类型分拣文件到多个文件夹'
+  file_sort_by_type: '按类型分拣文件到多个文件夹',
+  file_unzip: '解压压缩包'
 }
 
 export function isWriteTool(name: string): boolean {

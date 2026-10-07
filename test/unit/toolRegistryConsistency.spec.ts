@@ -26,7 +26,7 @@ describe('原生工具名单一致性（防漂移）', () => {
     expect(SIDE_EFFECT_TOOLS.has('rename_images_by_date')).toBe(true)
   })
 
-  it('派生集 = 常驻工具 ∪ 9 个非常驻 dispatch 工具（成员集行为保持）', () => {
+  it('派生集 = 常驻工具 ∪ 10 个非常驻 dispatch 工具（成员集行为保持）', () => {
     for (const n of ['create_directory', 'http_request', 'llm_generate', 'knowledge_search']) {
       expect(DISPATCH_NATIVE.has(n)).toBe(true)
     }
@@ -38,7 +38,9 @@ describe('原生工具名单一致性（防漂移）', () => {
     // 2026-10-08：按类型分拣（批量产出多目录）。与 create_directory 同款取舍——**刻意不注入模型工具表**，
     // 但必须有 dispatch 分支（否则 L0 组合计划落进模型循环）。登记点见 fileSortByTypeWiring.spec.ts。
     expect(DISPATCH_NATIVE.has('file_sort_by_type')).toBe(true)
-    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 9)
+    // 2026-10-08：解压并归类（每个 zip 解成同名子目录），同款取舍。登记点见 fileUnzipWiring.spec.ts。
+    expect(DISPATCH_NATIVE.has('file_unzip')).toBe(true)
+    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 10)
   })
 
   it('file_copy / doc_extract 在常驻清单（2026-09-30 新增），file_copy 登记为副作用工具', () => {
