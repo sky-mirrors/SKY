@@ -1,6 +1,8 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+// 2026-10-07（可用性补强 Wave 2）：设计令牌（字号/文本层级的单一真源）
+import './styles/tokens.css'
 import { vault } from './vault'
 import { serializeStoreState, filterPatchForStore } from './services/storeSync'
 
