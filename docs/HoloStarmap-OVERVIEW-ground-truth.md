@@ -320,7 +320,12 @@ flowchart TD
 
 ---
 
-## 15. 本文档与旧文档的对应关系（旧文档可据此废弃）
+## 15. 本文档与旧文档的对应关系（旧文档已归档）
+
+> **2026-10-07：旧文档已全部移入 `docs/archive/`**（23 份，`git mv` 保留历史），
+> `docs/` 顶层现只剩本文档与 `docs/DomainPack-design-ground-truth.md`。
+> 下文表格中的旧文件名，**现在都在 `docs/archive/` 下**（例：`docs/archive/最新口径.md`）。
+> 归档理由与索引见 `docs/archive/README.md`；`docs/exam-reports/`（成绩单证据）与 `docs/exam-fixtures/`（脚本）**未归档**，仍在原处。
 
 | 旧文档 | 本文档对应节 |
 |---|---|

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-// 对账 §4 #7 / #8（docs/AUDIT-RECONCILIATION-2026-09.md）：
+// 对账 §4 #7 / #8（docs/archive/AUDIT-RECONCILIATION-2026-09.md）：
 //  - #7 MCP spawn 原先无条件把 command/args 追加到「用户桌面\mcp-spawn-debug.log」，
 //       args 常带 --api-key/--token 之类凭据 → 每次 spawn 都在桌面留一份明文副本
 //  - #8 shell:true 通道的元字符拦截漏了 cmd 的 %（shell-security.ts 的

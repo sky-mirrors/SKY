@@ -1,6 +1,6 @@
 import type { NamespacedBus } from '@/kernel/bus'
 
-/** 规格书 3.2：统一插件契约类型（docs/HOTPLUG-ARCHITECTURE.md 第 3 节） */
+/** 规格书 3.2：统一插件契约类型（docs/archive/HOTPLUG-ARCHITECTURE.md 第 3 节） */
 export type PluginKind =
   | 'kernel'
   | 'cluster'
