@@ -15,7 +15,7 @@
 **搭建**：
 
 ```bash
-git clone https://github.com/<username>/holostarmap.git
+git clone https://github.com/sky-mirrors/HoloStarmap.git
 cd holostarmap
 npm install
 npm run dev

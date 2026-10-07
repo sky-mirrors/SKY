@@ -4,6 +4,14 @@
   "description": "全息星图集成工具控制台 - 125节点太空拓扑交互界面",
   "main": "./out/main/index.js",
   "author": "sky-mirrors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sky-mirrors/HoloStarmap.git"
+  },
+  "homepage": "https://github.com/sky-mirrors/HoloStarmap#readme",
+  "bugs": {
+    "url": "https://github.com/sky-mirrors/HoloStarmap/issues"
+  },
   "license": "Apache-2.0",
   "scripts": {
     "dev": "electron-vite dev",

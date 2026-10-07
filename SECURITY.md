@@ -7,10 +7,10 @@ The following vulnerabilities are present in **upstream transitive dependencies*
 | Package | Severity | CVE/Issue | Source | Status |
 |---------|----------|-----------|--------|--------|
 | protobufjs ≤ 7.2.6 | Critical | RCE, prototype pollution | `@xenova/transformers` → `onnxruntime-web` | Awaits upstream update |
-| xlsx 0.18.5 | High | Prototype pollution, ReDoS | Direct dependency | SheetJS CE unmaintained; planned migration to exceljs |
+| xlsx **0.20.3** | — | Earlier advisory (CVE-2023-30533 prototype pollution / CVE-2024-22363 ReDoS) applies to **0.18.5**, not to the version actually pinned | Direct dependency — `package.json` pins `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` | **Corrected 2026-10-07**: this row previously said `0.18.5`, which does not match `package.json`. Severity and the exceljs migration plan must be re-judged against 0.20.3 before publishing. |
 | sharp | High | libvips inherited CVEs | `@xenova/transformers` → `sharp` | Awaits upstream update |
 | electron 33.4.0 | High | 32 ASAR/IPC/use-after-free CVEs | `@electron-toolkit/utils` pins 33.x | Planned upgrade to Electron 44.x |
-| extract-zip | High | Symlink path traversal | electron indirect dependency | Resolves with Electron upgrade |
+| extract-zip **^2.0.1** | High | Symlink path traversal | **Direct dependency** (`package.json` → `dependencies`) | **Corrected 2026-10-07**: this row previously described it as an *electron indirect* dependency and concluded "resolves with Electron upgrade" — that inference does **not** hold, since it is a direct dependency. Needs its own assessment/upgrade. |
 
 ## Risk Assessment
 

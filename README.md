@@ -4,7 +4,7 @@ A local-first AI tool console — route, validate, and optimize your LLM calls f
 
 Built by a solo developer who got tired of copying prompts between browser tabs.
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-1685%2F1685-brightgreen.svg)](TEST_REPORT.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-2653-blue.svg)](docs/HoloStarmap-OVERVIEW-ground-truth.md)
 
 <!-- ![HoloStarmap Screenshot](docs/screenshot.png) -->
 
@@ -37,7 +37,7 @@ No cloud backend. No API keys on someone else's server. Your keys stay on your d
 
 **FactGuard** — When LLM output contains numbers, dates, or contract IDs that contradict the source document, it auto-corrects small errors and blocks big ones.
 
-**Cost Savings** — Benchmarked at **39-49% token reduction** across different workloads, mainly from caching and smart routing.
+**Cost Savings** — Measured on this machine (2026-10): requests that hit a compiled **L2 macro** execute with **0 added LLM tokens** (the DAG runs its steps deterministically), and semantic caching / the rule router skip the LLM entirely on repeated or simple inputs. ⚠️ An earlier revision of this README claimed "**39–49% token reduction**"; that figure could **not** be reproduced in the 2026-10 review and has been removed pending a reproducible benchmark. See [ground-truth overview §5](docs/HoloStarmap-OVERVIEW-ground-truth.md) for the measured breakdown (a plain request carries ~3.5K prompt tokens, ~80% of which is the tool schema).
 
 ---
 
@@ -107,7 +107,7 @@ npx electron-builder --win portable
 | Embeddings | @xenova/transformers | Local vector search, no API needed |
 | Documents | docx, xlsx, pdf-parse, mammoth | Read/write Word, Excel, PDF |
 | Security | DOMPurify | HTML sanitization |
-| Testing | Vitest | 1685 tests, 100% pass rate |
+| Testing | Vitest | 2653 tests — see the [ground-truth overview](docs/HoloStarmap-OVERVIEW-ground-truth.md) for the exact pass/fail breakdown and known environment-specific noise |
 
 ---
 
@@ -133,8 +133,8 @@ npx electron-builder --win portable
 This project takes a **fail-closed** approach: if the security check can't give a clear "safe", the command is blocked.
 
 ### Shell Security Engine
-- **Whitelist**: 19 safe command prefixes (npm install, ls, cat, echo...)
-- **Blacklist**: 77 dangerous pattern regexes (child_process, eval, rm -rf, powershell...)
+- **Whitelist**: 12 safe command prefixes (`electron/shell-security.ts` → `SHELL_ALLOWED_COMMANDS`)
+- **Blacklist**: 82 dangerous-pattern regexes (`electron/shell-security.ts` → `NODE_E_DANGEROUS_PATTERNS`), plus 6 vetted `node -e` trust signatures
 - **Trust signatures**: 6 vetted `node -e` require patterns (docx, xlsx, pdf-parse, mammoth, archiver, marked)
 - **Write path guard**: Only Desktop/Docs directories writable
 - **Timeout tiers**: Quick 10s / Standard 60s / Heavy 120s / Hard limit 180s
@@ -155,9 +155,11 @@ This project takes a **fail-closed** approach: if the security check can't give 
 
 | Metric | Value |
 |--------|-------|
-| Test files | 87 |
-| Total cases | 1685 |
-| Pass rate | 100% |
+| Test files | 199 |
+| Total cases | 2653 |
+| Known noise | 1 case (`apiStore.timerDispose.spec.ts`) fails **only while a local Ollama is running** — environment-specific, not a regression |
+
+> ℹ️ Earlier revisions of this README said "1685 tests, 100% pass rate". That was a snapshot from 2026-09; the suite has since grown. `TEST_REPORT.md` is likewise frozen at an older revision (1129 cases) — treat numbers in this README and in the [ground-truth overview](docs/HoloStarmap-OVERVIEW-ground-truth.md) as authoritative, and re-run `npm test` before quoting any figure.
 
 See [TEST_REPORT.md](TEST_REPORT.md) for details.
 
