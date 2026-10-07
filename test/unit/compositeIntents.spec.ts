@@ -108,4 +108,20 @@ describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"'
     const steps = plan?.steps || []
     expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir)).toBe(false)
   })
+
+  it('「未解压的压缩包」是移动请求，不得被判成"解压+归类"缺口', async () => {
+    const plan = await tryL0Skill('把桌面上还没解压的压缩包都放进一个新建的文件夹里')
+    const steps = plan?.steps || []
+    expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir), '应正常批量移动 zip').toBe(true)
+  })
+
+  it('按类型分拣成多个文件夹：不得产出"单目标"半成品，也不得静默下沉（应如实说要逐类做）', async () => {
+    // 2026-10-08 补：这条请求靠 mkdir 家族（「一个文件夹」）才进得了组合规则，本身一个内容动作都不含；
+    // 若组合规则在 $missing 之前就返回 null，它会静默下沉到 L2 候选消歧（用户被迫在无关候选里选）
+    // ——正是上两轮在修的那条病理。故这里钉住「如实说明缺口」这个出口。
+    const plan = await tryL0Skill('把桌面上的文件按类型分好类，每类一个文件夹')
+    const steps = plan?.steps || []
+    expect(steps.some(s => s.tool === 'llm_generate'), '应如实说明缺口并给替代做法').toBe(true)
+    expect(steps.some(s => s.tool === 'create_directory'), '不得只建一个文件夹就交差（多目标能力缺失）').toBe(false)
+  })
 })

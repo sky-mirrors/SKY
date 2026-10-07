@@ -45,7 +45,7 @@
       "id": "archive-collect",
       "reason": "「解压 + 归类」缺少解压/归档类算子：nativeTools 的 14 个工具里没有解压、压缩、打包任何一个（依赖里有 extract-zip/archiver，但未接成工具）。",
       "alternative": "先用资源管理器解开压缩包，再让我把解出来的文件归类。",
-      "when": { "patternsAllOf": ["解压|解开|拆包|解归档|压缩一下|打个包"] }
+      "when": { "patternsAllOf": ["解压|解开|拆包|解归档|压缩一下|打个包"], "forbidPatterns": ["未解压|没解压|没有解压|不解压|无需解压"] }
     },
     {
       "id": "change-ext-collect",
