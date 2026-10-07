@@ -222,7 +222,7 @@ function onSwitchSession(sessionId: string) {
 
 .wb-nav-section { padding: 8px 6px; border-bottom: 1px solid var(--wb-nav-border); }
 .wb-nav-section-label {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: var(--wb-nav-text-dim);
   padding: 2px 6px 6px;
   display: flex;
@@ -309,7 +309,7 @@ function onSwitchSession(sessionId: string) {
 .wb-nav-icon { flex-shrink: 0; font-size: 13px; }
 .wb-nav-item-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wb-nav-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 8px;
@@ -326,7 +326,7 @@ function onSwitchSession(sessionId: string) {
   padding: 6px 10px;
   border-top: 1px solid var(--wb-nav-border);
 }
-.wb-nav-footer-text { font-size: 10px; color: var(--wb-nav-text-dim); }
+.wb-nav-footer-text { font-size: var(--font-sm); color: var(--wb-nav-text-dim); }
 
 :root[data-theme='light'] .wb-nav {
   --wb-nav-bg: rgba(240, 243, 250, 0.95);

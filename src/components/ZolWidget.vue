@@ -123,7 +123,7 @@ function onReset() {
 </script>
 
 <style scoped>
-.zol-widget { position: relative; font-size: 10px; cursor: pointer; }
+.zol-widget { position: relative; font-size: var(--font-sm); cursor: pointer; }
 .zol-hud { display: flex; align-items: center; gap: 4px; padding: 2px 6px; background: rgba(10,15,30,0.7); border-radius: 3px; border: 1px solid rgba(100,180,255,0.15); }
 .zol-label { color: #6a8caa; font-weight: 600; }
 .zol-rate { font-weight: 700; min-width: 28px; text-align: right; }
@@ -142,8 +142,8 @@ function onReset() {
 .zl-rate { font-weight: 600; }
 .zol-offset-row { display: flex; gap: 4px; padding: 1px 0; }
 .zo-domain { color: #8ab4ff; min-width: 36px; }
-.zo-values { color: #a0c0e8; font-family: monospace; font-size: 9px; }
+.zo-values { color: #a0c0e8; font-family: monospace; font-size: var(--font-xs); }
 .zol-actions { text-align: right; }
-.zol-btn { padding: 2px 6px; background: rgba(255,100,100,0.15); border: 1px solid rgba(255,100,100,0.3); border-radius: 2px; color: #ff8888; font-size: 9px; cursor: pointer; }
+.zol-btn { padding: 2px 6px; background: rgba(255,100,100,0.15); border: 1px solid rgba(255,100,100,0.3); border-radius: 2px; color: #ff8888; font-size: var(--font-xs); cursor: pointer; }
 .zol-btn:hover { background: rgba(255,100,100,0.25); }
 </style>

@@ -109,7 +109,7 @@ function onConfidenceChange(e: Event) {
 }
 .list-count {
   padding: 4px 10px;
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #8888bb;
   border-bottom: 1px solid #2a2a5e;
   flex-shrink: 0;
@@ -147,7 +147,7 @@ function onConfidenceChange(e: Event) {
   color: #8888bb;
 }
 .domain-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
@@ -169,7 +169,7 @@ function onConfidenceChange(e: Event) {
   border: 1px solid rgba(0, 204, 128, 0.25);
 }
 .rule-item-category {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #8888bb;
   margin-bottom: 2px;
 }
@@ -185,7 +185,7 @@ function onConfidenceChange(e: Event) {
   gap: 6px;
 }
 .confidence-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;

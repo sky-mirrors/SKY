@@ -72,7 +72,7 @@ const dagDoneCount = computed(() => {
   padding: 0 12px;
   background: var(--sb-bg);
   border-top: 1px solid var(--sb-border);
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: var(--sb-text);
   user-select: none;
 }
@@ -91,7 +91,7 @@ const dagDoneCount = computed(() => {
   background: rgba(224, 106, 106, 0.12);
   border: 1px solid rgba(224, 106, 106, 0.3);
   color: #e06a6a;
-  font-size: 10px;
+  font-size: var(--font-sm);
   border-radius: 4px;
   padding: 0 6px;
   cursor: pointer;

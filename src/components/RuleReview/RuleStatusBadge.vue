@@ -24,7 +24,7 @@ const label = computed(() => labelMap[props.status] ?? props.status)
 <style scoped>
 .status-badge {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--font-sm);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 3px;

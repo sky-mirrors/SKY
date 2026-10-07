@@ -398,7 +398,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.15);
   border-radius: 3px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -437,7 +437,7 @@ defineExpose({ open, close, visible })
   font-weight: 500;
 }
 .prov-status {
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 1px 6px;
   border-radius: 8px;
 }
@@ -456,7 +456,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.1);
   border-radius: 3px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
 }
 .prov-del {
@@ -465,7 +465,7 @@ defineExpose({ open, close, visible })
 }
 .prov-url {
   color: #556;
-  font-size: 10px;
+  font-size: var(--font-sm);
   margin-bottom: 6px;
   word-break: break-all;
 }
@@ -511,7 +511,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.1);
   border-radius: 3px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
 }
 .status {

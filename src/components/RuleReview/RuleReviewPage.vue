@@ -114,7 +114,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 2px 8px;
   background: rgba(26, 26, 62, 0.6);
   border: 1px solid #2a2a5e;

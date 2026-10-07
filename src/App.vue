@@ -769,7 +769,7 @@ html, body, #app {
   border-radius: 7px;
   background: #ff4444;
   color: #fff;
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   display: flex;
   align-items: center;

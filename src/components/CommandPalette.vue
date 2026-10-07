@@ -223,7 +223,7 @@ defineExpose({ open, close, visible })
 }
 
 .cmd-scope-tag {
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 2px 8px;
   border-radius: 8px;
   background: rgba(100, 180, 255, 0.15);
@@ -288,7 +288,7 @@ defineExpose({ open, close, visible })
 }
 
 .cmd-item-category {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: rgba(130, 170, 220, 0.4);
   padding: 2px 6px;
   border-radius: 4px;

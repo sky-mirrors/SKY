@@ -120,7 +120,7 @@ defineExpose({ open, close, visible })
 }
 
 .nc-badge {
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 1px 6px;
   border-radius: 8px;
   background: rgba(255, 80, 80, 0.7);
@@ -262,7 +262,7 @@ defineExpose({ open, close, visible })
 }
 
 .nc-item-time {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: rgba(130, 170, 220, 0.35);
   flex-shrink: 0;
 }

@@ -171,7 +171,7 @@ function runAllTests() {
   border: 1px solid rgba(0, 204, 128, 0.25);
 }
 .result-severity {
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 1px 6px;
   border-radius: 3px;
   text-transform: uppercase;
@@ -194,7 +194,7 @@ function runAllTests() {
   margin-bottom: 4px;
 }
 .result-reliability {
-  font-size: 10px;
+  font-size: var(--font-sm);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -263,7 +263,7 @@ function runAllTests() {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 3px 6px;
   border-radius: 3px;
 }
@@ -285,7 +285,7 @@ function runAllTests() {
 }
 .batch-expected,
 .batch-actual {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #8888bb;
 }
 </style>

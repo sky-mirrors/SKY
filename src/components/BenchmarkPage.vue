@@ -282,7 +282,7 @@ function onClose(): void { window.electronAPI?.benchmarkWindowClose() }
 }
 .titlebar-icon { font-size: 13px; }
 .titlebar-text { font-size: 13px; font-weight: 700; color: #66bbff; letter-spacing: 1px; }
-.titlebar-model { font-size: 10px; color: #555; flex: 1; text-align: center; }
+.titlebar-model { font-size: var(--font-sm); color: #555; flex: 1; text-align: center; }
 .titlebar-actions { display: flex; gap: 2px; -webkit-app-region: no-drag; }
 .tb-btn {
   width: 24px; height: 24px; border: none; border-radius: 3px;
@@ -342,14 +342,14 @@ function onClose(): void { window.electronAPI?.benchmarkWindowClose() }
   height: 100%; background: linear-gradient(90deg, #4488ff, #88ccff); border-radius: 3px;
   transition: width 0.3s;
 }
-.progress-detail { font-size: 10px; color: #888; }
+.progress-detail { font-size: var(--font-sm); color: #888; }
 .error-msg { font-size: 11px; color: #ff6666; background: rgba(255,0,0,0.08); padding: 6px; border-radius: 3px; margin-top: 6px; }
 
 .bm-results { margin-bottom: 12px; }
 .results-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .results-table th {
   text-align: left; padding: 6px 8px; border-bottom: 1px solid rgba(100,200,255,0.2);
-  color: #66bbff; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #66bbff; font-size: var(--font-sm); text-transform: uppercase; letter-spacing: 0.5px;
 }
 .results-table td {
   padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -362,11 +362,11 @@ function onClose(): void { window.electronAPI?.benchmarkWindowClose() }
 .bm-log { margin-top: 8px; }
 .bm-methodology { margin-top: 8px; }
 .methodology-list { margin: 4px 0 0; padding-left: 16px; list-style: disc; }
-.methodology-list li { font-size: 10px; color: rgba(180, 200, 220, 0.75); line-height: 1.7; }
-.panel-title { font-size: 10px; color: #66bbff; font-weight: bold; padding: 5px 0; border-bottom: 1px solid rgba(100,200,255,0.1); text-transform: uppercase; letter-spacing: 1px; }
+.methodology-list li { font-size: var(--font-sm); color: rgba(180, 200, 220, 0.75); line-height: 1.7; }
+.panel-title { font-size: var(--font-sm); color: #66bbff; font-weight: bold; padding: 5px 0; border-bottom: 1px solid rgba(100,200,255,0.1); text-transform: uppercase; letter-spacing: 1px; }
 .log-list {
   max-height: 200px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 10px; padding: 4px 0;
+  font-size: var(--font-sm); padding: 4px 0;
 }
 .log-line { padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.02); line-height: 1.4; }
 .log-info { color: #88ccff; }
@@ -376,7 +376,7 @@ function onClose(): void { window.electronAPI?.benchmarkWindowClose() }
 .bm-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 12px; border-top: 1px solid rgba(100,200,255,0.15);
-  background: rgba(0,0,0,0.3); font-size: 9px; color: #555;
+  background: rgba(0,0,0,0.3); font-size: var(--font-xs); color: #555;
 }
 .footer-export { color: #88ff88; }
 </style>

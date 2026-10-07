@@ -574,8 +574,8 @@ defineExpose({ open, close, visible })
 .skill-info { flex: 1; }
 .skill-info h4 { color: #e0eaff; font-size: 13px; margin: 0 0 4px; }
 .skill-info p { color: #7a9cc6; font-size: 11px; margin: 0 0 4px; }
-.skill-version { font-size: 9px; color: #4a6a8a; margin-right: 8px; }
-.skill-deps { font-size: 9px; color: #ffaa44; }
+.skill-version { font-size: var(--font-xs); color: #4a6a8a; margin-right: 8px; }
+.skill-deps { font-size: var(--font-xs); color: #ffaa44; }
 
 .skill-actions { display: flex; flex-direction: column; gap: 4px; }
 
@@ -585,7 +585,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.2);
   border-radius: 3px;
   color: #8ab4ff;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
 }
 .btn-sm:hover { background: rgba(50, 120, 200, 0.3); }
@@ -631,7 +631,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.1);
   border-radius: 10px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -664,18 +664,18 @@ defineExpose({ open, close, visible })
   font-weight: 500;
 }
 .catalog-cat {
-  font-size: 9px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   background: rgba(100, 180, 255, 0.1);
   border-radius: 8px;
   color: #6a8aaa;
 }
 .catalog-version {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #4a6a8a;
 }
 .catalog-source {
-  font-size: 9px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   border-radius: 8px;
 }
@@ -696,7 +696,7 @@ defineExpose({ open, close, visible })
 
 .catalog-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .tag {
-  font-size: 9px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   background: rgba(160, 100, 220, 0.1);
   border-radius: 8px;
@@ -709,11 +709,11 @@ defineExpose({ open, close, visible })
   gap: 8px;
 }
 .catalog-author {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #5a7a9a;
 }
 .catalog-command {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #4a6a8a;
   font-family: 'Consolas', monospace;
   flex: 1;
@@ -723,7 +723,7 @@ defineExpose({ open, close, visible })
 }
 
 .installed-badge {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #44ff88;
   padding: 2px 8px;
   background: rgba(68, 255, 136, 0.08);
@@ -739,9 +739,9 @@ defineExpose({ open, close, visible })
   gap: 6px;
   flex-wrap: wrap;
 }
-.env-label { font-size: 9px; color: #5a7a9a; }
+.env-label { font-size: var(--font-xs); color: #5a7a9a; }
 .env-key {
-  font-size: 9px;
+  font-size: var(--font-xs);
   padding: 1px 6px;
   background: rgba(255, 170, 68, 0.08);
   border-radius: 3px;
@@ -787,7 +787,7 @@ defineExpose({ open, close, visible })
   margin-bottom: 8px;
 }
 .mcp-name { color: #e0eaff; font-size: 13px; font-weight: 500; }
-.mcp-status { font-size: 10px; margin-left: auto; }
+.mcp-status { font-size: var(--font-sm); margin-left: auto; }
 .mcp-status.connected { color: #44ff88; }
 .mcp-status.disconnected { color: #5a7a9a; }
 
@@ -798,19 +798,19 @@ defineExpose({ open, close, visible })
   border-radius: 4px;
 }
 .catalog-cmd {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #6a8aaa;
   font-family: 'Consolas', monospace;
   display: block;
 }
 .env-display { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .env-set {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #4a6a8a;
   font-family: 'Consolas', monospace;
 }
 .mcp-url-display {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #4a6a8a;
   font-family: 'Consolas', monospace;
   margin-bottom: 6px;
@@ -823,7 +823,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(255, 80, 80, 0.15);
   border-radius: 4px;
   color: #ff8888;
-  font-size: 10px;
+  font-size: var(--font-sm);
   word-break: break-all;
 }
 
@@ -841,7 +841,7 @@ defineExpose({ open, close, visible })
   font-family: 'Consolas', monospace;
   min-width: 100px;
 }
-.mcp-tool-row .tool-desc { font-size: 10px; color: #5a7a9a; flex: 1; }
+.mcp-tool-row .tool-desc { font-size: var(--font-sm); color: #5a7a9a; flex: 1; }
 .mcp-whitelist {
   margin-top: 8px;
   padding-top: 8px;
@@ -852,7 +852,7 @@ defineExpose({ open, close, visible })
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #7a9cc6;
   cursor: pointer;
 }
@@ -863,7 +863,7 @@ defineExpose({ open, close, visible })
   color: #88aacc;
   border: 1px solid rgba(100, 180, 255, 0.2);
   border-radius: 3px;
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 1px 4px;
   cursor: pointer;
 }
@@ -880,7 +880,7 @@ defineExpose({ open, close, visible })
   border-top: 1px solid rgba(100, 180, 255, 0.04);
   font-size: 11px;
 }
-.log-time { color: #4a6a8a; margin-right: 8px; font-size: 10px; }
+.log-time { color: #4a6a8a; margin-right: 8px; font-size: var(--font-sm); }
 .log-tool { color: #b088e0; margin-right: 8px; }
 .log-status.ok { color: #44ff88; }
 .log-status.fail { color: #ff4444; }
@@ -888,7 +888,7 @@ defineExpose({ open, close, visible })
   background: rgba(10, 15, 30, 0.8);
   padding: 6px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #5a7a9a;
   margin: 4px 0;
   overflow-x: auto;
@@ -914,7 +914,7 @@ defineExpose({ open, close, visible })
   gap: 8px;
   padding: 4px 0;
   border-top: 1px solid rgba(100, 180, 255, 0.04);
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 .audit-time { color: #4a6a8a; }
 .audit-action { color: #8ab4ff; }
@@ -930,7 +930,7 @@ defineExpose({ open, close, visible })
 }
 
 .spinning-badge {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #8ab4ff;
   padding: 2px 8px;
   background: rgba(100, 180, 255, 0.08);
@@ -1002,7 +1002,7 @@ defineExpose({ open, close, visible })
   border: 1px solid rgba(100, 180, 255, 0.15);
   border-radius: 3px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1024,7 +1024,7 @@ defineExpose({ open, close, visible })
 .btn-confirm-env:hover { background: rgba(68, 255, 136, 0.2); }
 
 .mcp-badge {
-  font-size: 8px;
+  font-size: var(--font-xs);
   padding: 1px 5px;
   background: rgba(100, 180, 255, 0.2);
   border: 1px solid rgba(100, 180, 255, 0.3);
@@ -1041,12 +1041,12 @@ defineExpose({ open, close, visible })
   border-radius: 4px;
 }
 .mcp-server-label {
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #5a7a9a;
   margin-right: 4px;
 }
 .mcp-server-name {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #6a8aaa;
   font-family: 'Consolas', monospace;
 }
@@ -1057,7 +1057,7 @@ defineExpose({ open, close, visible })
   margin-top: 4px;
 }
 .mcp-tool-tag {
-  font-size: 8px;
+  font-size: var(--font-xs);
   padding: 1px 5px;
   background: rgba(160, 100, 220, 0.08);
   border-radius: 3px;

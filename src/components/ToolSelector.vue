@@ -116,7 +116,7 @@ onUnmounted(() => { document.removeEventListener('click', onDocumentClick) })
   border: 1px solid rgba(80, 120, 180, 0.15);
   border-radius: 3px;
   color: #6a8aaa;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -157,7 +157,7 @@ onUnmounted(() => { document.removeEventListener('click', onDocumentClick) })
 }
 
 .tool-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
   padding: 1px 4px;
   border-radius: 2px;

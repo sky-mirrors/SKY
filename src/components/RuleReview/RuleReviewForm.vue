@@ -82,7 +82,7 @@ function onSubmit() {
 }
 .form-label {
   display: block;
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #8888bb;
   margin-bottom: 3px;
 }

@@ -204,7 +204,7 @@ function formatDate(timestamp: number): string {
   color: #ffaa00;
 }
 .domain-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
@@ -226,7 +226,7 @@ function formatDate(timestamp: number): string {
   border: 1px solid rgba(0, 204, 128, 0.25);
 }
 .severity-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
@@ -245,7 +245,7 @@ function formatDate(timestamp: number): string {
   color: #ff4444;
 }
 .confidence-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
@@ -264,7 +264,7 @@ function formatDate(timestamp: number): string {
   color: #ff4444;
 }
 .automation-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 1px 6px;
   border-radius: 3px;
@@ -312,7 +312,7 @@ function formatDate(timestamp: number): string {
 }
 .tc-num {
   color: #8888bb;
-  font-size: 10px;
+  font-size: var(--font-sm);
   font-weight: 600;
 }
 .tc-desc {
@@ -322,13 +322,13 @@ function formatDate(timestamp: number): string {
   color: #b0b0dd;
   margin-bottom: 2px;
   font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 .tc-label {
   color: #8888bb;
 }
 .tc-expected {
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 .tc-trigger {
   color: #ff4444;

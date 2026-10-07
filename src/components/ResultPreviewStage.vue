@@ -281,7 +281,7 @@ rebuildBlocks()
   margin-bottom: 8px;
 }
 .block-type {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #68a;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -367,7 +367,7 @@ rebuildBlocks()
   position: absolute;
   top: 6px;
   right: 8px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   color: #fc8;
   background: rgba(200, 140, 40, 0.15);
   padding: 1px 6px;

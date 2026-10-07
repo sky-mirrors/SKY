@@ -445,7 +445,7 @@ onUnmounted(() => {
 }
 
 .run-status {
-  font-size: 10px;
+  font-size: var(--font-sm);
   color: #8cffb0;
   background: rgba(60, 160, 100, 0.12);
   border: 1px solid rgba(80, 200, 140, 0.25);
@@ -516,7 +516,7 @@ onUnmounted(() => {
 .prop-row label {
   color: #5a7a9a;
   min-width: 50px;
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 .prop-input {
   flex: 1;
@@ -539,7 +539,7 @@ onUnmounted(() => {
   border: 1px solid rgba(220, 60, 60, 0.3);
   border-radius: 3px;
   color: #ff8888;
-  font-size: 10px;
+  font-size: var(--font-sm);
   cursor: pointer;
 }
 .remove-node-btn:hover {
@@ -574,7 +574,7 @@ onUnmounted(() => {
 .form-row label {
   display: block;
   color: #5a7a9a;
-  font-size: 10px;
+  font-size: var(--font-sm);
   margin-bottom: 3px;
 }
 .form-row input,

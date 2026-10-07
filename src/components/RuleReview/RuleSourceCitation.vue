@@ -60,7 +60,7 @@ const isVerified = computed(() => !!props.source.verifiedBy && !!props.source.ve
   margin-bottom: 8px;
 }
 .source-type-badge {
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 600;
   padding: 2px 6px;
   border-radius: 3px;
@@ -121,7 +121,7 @@ const isVerified = computed(() => !!props.source.verifiedBy && !!props.source.ve
   margin-right: 4px;
 }
 .pending-icon {
-  font-size: 10px;
+  font-size: var(--font-sm);
 }
 .original-text-section {
   margin-top: 8px;
@@ -129,7 +129,7 @@ const isVerified = computed(() => !!props.source.verifiedBy && !!props.source.ve
   padding-top: 8px;
 }
 .toggle-text-btn {
-  font-size: 10px;
+  font-size: var(--font-sm);
   padding: 2px 8px;
   background: rgba(0, 204, 255, 0.08);
   border: 1px solid rgba(0, 204, 255, 0.2);
