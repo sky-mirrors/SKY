@@ -434,6 +434,11 @@ onMounted(async () => {
     const { initSmartRouter } = await import('@/services/smartRouter')
     initSmartRouter()
   } catch { /* non-critical */ }
+  try {
+    // 2026-10-07：ZOL 持久化补齐——与 initSmartRouter 同因（learner 状态原来从不加载）
+    const { initStrategySelector } = await import('@/services/strategySelector')
+    initStrategySelector()
+  } catch { /* non-critical */ }
   debugStore.updateEnvironment({
     model: apiStore.config.activeModel || '',
     provider: apiStore.config.activeProviderId || '',

@@ -81,6 +81,12 @@ const disambigLearner = new ZeroTokenLearner<DisambigThresholds>({
   storageKey: 'holo-zol-disambig',
 })
 
+/** 2026-10-07：与 smartRouter 同因——补加载两个 learner 的持久化状态。
+ *  ZeroTokenLearner.initFromVault() 此前全库无人调用（死代码），构造期 vault.readCache 冷 ⇒ 每次启动都从零开始。 */
+export async function initStrategySelector(): Promise<void> {
+  await Promise.all([rewriteLearner.initFromVault(), disambigLearner.initFromVault()])
+}
+
 // ── Domain Bias Offsets ─────────────────────────────────────────
 
 const DOMAIN_REWRITE_OFFSETS: Record<string, Partial<DomainRewriteOffsets>> = {

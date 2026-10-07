@@ -398,9 +398,15 @@ export async function initSmartRouter(): Promise<void> {
       }
     } catch { /* ignore */ }
   }
+  // 2026-10-07 修复：补加载 learner 自身的持久化状态。
+  // 此前只加载了 routingHistory，而 ZeroTokenLearner.initFromVault() 全库无人调用（死代码）；
+  // 构造期的 vault.readCache 在模块初始化时是冷的 ⇒ 每次启动 outcomes/thresholds 都从零开始。
+  // 后果：outcomes 永远到不了 adjustWindow(20)，阈值恒为默认 —— 自适应「省 token」从不发生
+  //（实测：thresholds 与默认逐字一致，而 routingHistory 已有 103 条、overkill 43.7%）。
+  await routingLearner.initFromVault()
   const t = routingLearner.getThresholds()
   const zolState = routingLearner.getState()
-  debugLog(`[smartRouter] initialized, history=${routingHistory.length} entries, ZOL thresholds il=${t.inputLength_simple.toFixed(0)}, successRate=${(zolState.recentSuccessRate * 100).toFixed(0)}%`)
+  debugLog(`[smartRouter] initialized, history=${routingHistory.length} entries, ZOL thresholds il=${t.inputLength_simple.toFixed(0)}, overkill=${(zolState.overkillRate * 100).toFixed(0)}%, successRate=${(zolState.recentSuccessRate * 100).toFixed(0)}%`)
 }
 
 export { textHash, DEFAULT_THRESHOLDS, ADJUST_WINDOW }
