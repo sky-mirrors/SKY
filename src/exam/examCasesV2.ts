@@ -430,6 +430,9 @@ export const V2_MULTITURN_CASES: ExamCaseV2[] = [
       { kind: 'notContains', needles: ['发布会通知如下', '产品发布会'] }
     ],
     judgeHint: '第二轮用户明确纠正。应答**内部培训通知**，不得继续输出发布会内容、也不得辩解"你之前说的是发布会"。',
+    // 2026-10-07：修正/改口类——首轮产出即"产品发布会通知"，合并串必然命中 notContains，
+    // 断言结构性不可满足。只看最后一轮才是这道题真正的验收对象。
+    evalScope: 'last',
     expectedLayer: 'L0'
   }
 ]
@@ -665,6 +668,9 @@ export const V2_EXTRA_CASES: ExamCaseV2[] = [
       { kind: 'notContains', needles: ['下午三点'] }
     ],
     judgeHint: '第二轮给出了修正（时间改为上午十点 + 补充地点）。新版本必须体现修正；**保留旧时间"下午三点"即失败**。',
+    // 2026-10-07：同 T02——首轮 prompt 就是"下午三点开会"，产出必含"下午三点"，
+    // 合并串下 notContains 结构性不可满足。只看最后一轮才是真正的验收对象。
+    evalScope: 'last',
     expectedLayer: 'L0'
   },
   {

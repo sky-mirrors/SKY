@@ -324,9 +324,15 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
     }
 
     // fire-and-forget 发送（sendMessage 各分支恒 return ''，完成靠状态轮询判定）
+    // 2026-10-07：逐轮记录该轮新增的 assistant 文本——`evalScope:'last'` 的题只看最后一轮
+    // （修正/改口类），避免第一轮的旧内容污染针对最终稿的负向断言。
+    let lastTurnReply = ''
     for (let ti = 0; ti < turns.length; ti++) {
+      const turnBaseline = deps.getState().messages.length
       void deps.sendMessage(turns[ti], false, { taskType: 'exam' }).catch(() => {})
       await waitTurn()
+      const turnAssistant = deps.getState().messages.slice(turnBaseline).filter(m => m.role === 'assistant')
+      if (turnAssistant.length > 0) lastTurnReply = turnAssistant[turnAssistant.length - 1].content
       if (cancelled) break
     }
 
@@ -369,20 +375,25 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
 
     if (status !== 'done') return q
 
+    // 2026-10-07：验收口径——`evalScope:'last'` 的题只看最后一轮回复（修正/改口类：第一轮的
+    // 旧内容必然留在合并串里，会把针对最终稿的 notContains 误判成失败）；其余（含全部 V1 题）
+    // 作用于全轮合并串，与既有行为逐字一致。
+    const evalReply = c.evalScope === 'last' ? lastTurnReply : reply
+
     // 硬断言
-    const hard = await runHardAssertions(c, reply)
+    const hard = await runHardAssertions(c, evalReply)
     q.hardAssertPassed = hard.passed
     q.hardAssertNote = hard.note
 
     // 模型判卷
-    if (!reply) {
+    if (!evalReply) {
       q.judgeVerdict = 'not-deliverable'
       q.judgeNote = '无回复内容'
     } else {
       const judgePrompt = EXAM_JUDGE_PROMPT_V1
         .replace('{JUDGE_HINT}', c.judgeHint)
         .replace('{QUESTION}', c.prompt)
-        .replace('{REPLY}', reply)
+        .replace('{REPLY}', evalReply)
       try {
         const judgeReply = await deps.judge(judgePrompt)
         const parsed = parseJudgeReply(judgeReply)

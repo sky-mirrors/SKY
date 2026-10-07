@@ -324,3 +324,88 @@ describe('dirPattern · mode（every 缺省 / some 显式）', () => {
     expect(seen).toEqual(['some', undefined])
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 多轮题验收口径 · evalScope（2026-10-07）
+//
+// 背景：V2 题库的「修正 / 改口类」多轮题（T02 写发布会通知→改成内部培训；T04 下午三点→
+// 改成上午十点）带着负向断言（notContains 旧内容）。而 runner 把多轮回复 join 成一个串判卷
+// —— 首轮产出**就是**要被改掉的那版内容，旧串必然留在合并文本里 ⇒ 断言结构性不可满足。
+// 实测 2026-10-07 基线：这两题的硬断言与判卷都被首轮内容误伤，与"第二轮是否改口"无关。
+//
+// 修法：`evalScope:'last'` 让这类题的验收只看最后一轮；缺省 'all' 保持既有行为
+// （承接类题 T01/T03 需要"任一轮都不得声称没有上下文"）。
+//
+// 取证路径：下面第二个用例**刻意断言缺省口径下必红**——它是证伪回路的另一半：
+// 若把 evalScope 逻辑回滚，第一个用例立刻变红（hardAssertPassed 从 true 变 false）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('多轮题验收口径 evalScope（修正/改口类不再被首轮旧内容误伤）', () => {
+  /** 两轮各产出不同回复的 deps：模拟"首轮给出旧版、次轮改口"的真实形态 */
+  function makeMultiTurnDeps(turnReplies: string[]): ExamRunnerDeps {
+    const state = {
+      isProcessing: false,
+      paused: false,
+      traceId: 'trace-mt',
+      messages: [] as { role: string; content: string; timestamp: number }[]
+    }
+    let turn = 0
+    return {
+      sendMessage: async () => {
+        state.isProcessing = true
+        const idx = turn++
+        setTimeout(() => {
+          state.isProcessing = false
+          const r = turnReplies[Math.min(idx, turnReplies.length - 1)]
+          if (r !== undefined) state.messages.push({ role: 'assistant', content: r, timestamp: Date.now() })
+        }, 30)
+        return ''
+      },
+      getState: () => ({ isProcessing: state.isProcessing, paused: state.paused, traceId: state.traceId, messages: [...state.messages] }),
+      judge: async () => '{"deliverable": true}',
+      fileExists: async () => true,
+      dirMatches: async () => true
+    }
+  }
+
+  const TURN_REPLIES = [
+    '会议通知：兹定于下午三点召开，请准时参加。',
+    '会议通知：兹定于上午十点召开，地点 3 楼会议室。'
+  ]
+
+  const correctedCase = makeCase({
+    id: 'MT-LAST',
+    category: 'multiturn',
+    title: '修正类多轮',
+    prompt: '帮我写一份会议通知，下午三点开会',
+    followUps: ['时间错了，是上午十点，重写'],
+    assertions: [{ kind: 'notContains', needles: ['下午三点'] }],
+    judgeHint: '看最终稿',
+    evalScope: 'last'
+  })
+
+  it("evalScope:'last' → 只看最后一轮：首轮旧内容不再污染负向断言（硬断言通过）", async () => {
+    const runner = createExamRunner(makeMultiTurnDeps(TURN_REPLIES))
+    const report = await runner.run({ ...fastTiming, timeoutMsPerQuestion: 5000, cases: [correctedCase] })
+    expect(report!.questions[0].hardAssertPassed).toBe(true)
+    expect(report!.questions[0].hardAssertNote).toBe('')
+  })
+
+  it("缺省 'all' → 合并口径：同一组回复下负向断言必被首轮内容命中（证伪回路：回滚修复即此形态）", async () => {
+    const runner = createExamRunner(makeMultiTurnDeps(TURN_REPLIES))
+    const report = await runner.run({
+      ...fastTiming, timeoutMsPerQuestion: 5000,
+      cases: [{ ...correctedCase, evalScope: undefined }]
+    })
+    expect(report!.questions[0].hardAssertPassed).toBe(false)
+    expect(report!.questions[0].hardAssertNote).toContain('下午三点')
+  })
+
+  it('单轮题不受影响：evalScope 缺省时行为与既有逐字节一致', async () => {
+    const deps = makeFakeDeps({ reply: '1+1 等于 2。' })
+    const runner = createExamRunner(deps)
+    const report = await runner.run({ ...fastTiming, timeoutMsPerQuestion: 5000, cases: [makeCase()] })
+    expect(report!.questions[0].hardAssertPassed).toBe(true)
+    expect(report!.summary.deliverableRate).toBe(1)
+  })
+})
