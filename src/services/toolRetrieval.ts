@@ -657,6 +657,10 @@ export async function universalMatch(
   toolIndex: ToolIndex[],
   filterOptions?: { visibleL2Ids?: string[]; selectedRole?: string }
 ): Promise<UniversalMatchResult | null> {
+  // 2026-10-07：检索查询只取「指令段」——剥掉追加/附着的材料（如会话文件清单），
+  // 使向量路径与关键词路径（scoreItemKeywords 内已归一）同口径，并让否定词判定与
+  // 路由缓存键也只基于用户原话（V2-T02/V2-R15 同类污染的收口）。
+  userInput = extractInstructionSegment(userInput)
   if (toolIndex.length === 0) return null
 
   const idxHash = computeIndexHash(toolIndex)
@@ -984,6 +988,8 @@ export function getTop3CandidatesUniversal(
   userInput: string,
   toolIndex: ToolIndex[]
 ): { item: MatchableItem; score: number; method: string }[] {
+  // 2026-10-07：同 universalMatch——判定只看指令段（装饰串里的「不要反问目录」会误触发否定词）
+  userInput = extractInstructionSegment(userInput)
   const isNegated = hasNegation(userInput)
   const items = toolIndex.map(t =>
     t.l2ManifestId ? manifestToItem(resolveL2Manifest(t)) : toolIndexToItem(t)

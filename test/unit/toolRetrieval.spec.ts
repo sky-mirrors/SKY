@@ -355,6 +355,20 @@ describe('universalMatch', () => {
     }
   }
 
+  // 2026-10-07（V2-T02/R15 同类污染的收口）：检索查询只应基于用户原话——
+  // 追加的会话文件清单（含 .md 文件名）此前会原样喂进 genVec 的向量路径（关键词路径已归一）。
+  it('检索查询剥掉追加的会话文件清单（不得把清单喂给向量路径）', async () => {
+    const embedder = await import('@/services/embedder')
+    const gv = vi.mocked(embedder.generateVector)
+    const MARK = '\n\n【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】\n'
+    const decorated = '帮我写一份周报' + MARK + '- 2026.9.24最新快照.md（12 块）\n- AUDIT-REPORT-2026-09.md（8 块）'
+    const index = [makeToolIndex('周报生成', '生成周报总结，写周报', true, 'weekly-report', 0.20)]
+    gv.mockClear()
+    await universalMatch(decorated, index)
+    const fed = gv.mock.calls.map(c => String(c[0]))
+    expect(fed.some(a => a.includes('本会话可用的知识库文件'))).toBe(false)
+  })
+
   it('空索引返回null', async () => {
     const result = await universalMatch('测试', [])
     expect(result).toBeNull()
