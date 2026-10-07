@@ -32,14 +32,15 @@
  * 想调风格只改下面这组变量即可，不必动组件。
  */
 :root[data-theme="kawaii"] {
-  --k-bg: #1b1430;
-  --k-panel: rgba(58, 40, 92, 0.95);
-  --k-text: #efe4ff;
-  --k-dim: #c3aee8;
-  --k-line: rgba(255, 158, 199, 0.28);
-  --k-pink: #ff9ec7;
-  --k-lav: #b8a9ff;
-  --k-mint: #7ee8d0;
+  --k-bg: #2a1b33;
+  --k-panel: rgba(74, 48, 102, 0.96);
+  --k-text: #fff0f8;
+  --k-dim: #e0bcd8;
+  --k-line: rgba(255, 179, 217, 0.34);
+  --k-pink: #ffb3d9;
+  --k-rose: #ff77aa;
+  --k-lav: #d8b4ff;
+  --k-mint: #a8f0e0;
   --k-font: 'M PLUS Rounded 1c', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
 }
 
@@ -58,7 +59,8 @@
   color: var(--k-text) !important;
   border-color: var(--k-line) !important;
   border-radius: 18px !important;
-  box-shadow: 0 0 32px rgba(255, 158, 199, 0.12) !important;
+  /* 注意：此处**不**写 box-shadow —— 否则 !important 会压住下面 kawaii-glow 动画的 box-shadow，
+     呼吸光晕只剩"在跑但看不见"。box-shadow 交给文末的少女感块（不带 !important）驱动。 */
 }
 :root[data-theme="kawaii"] .dialog-panel * {
   border-color: var(--k-line);
@@ -118,4 +120,49 @@
 :root[data-theme="kawaii"] button:hover,
 :root[data-theme="kawaii"] .mode-btn:hover {
   transform: translateY(-1px) scale(1.03);
+}
+
+/* ===== 少女感增强（2026-10-07 第二版）=====
+ * 在上一版 kawaii 之上加深"少女"气质：更甜的粉玫瑰紫、气泡不对称圆角、粉色内发光、字距放松、选中态。
+ * 纯追加（靠 CSS 后写规则覆盖同特异性声明），**只影响 data-theme="kawaii"**；删掉本块即回到上一版。
+ * 注意：下面 .dialog-panel 的 box-shadow **故意不加 !important** —— 否则会压住 kawaii-glow 动画
+ * （CSS 中 !important 声明优先于 animation），柔光呼吸就不动了。
+ */
+:root[data-theme="kawaii"] .dialog-panel {
+  background: linear-gradient(160deg, rgba(84, 54, 112, 0.96) 0%, rgba(64, 40, 84, 0.97) 100%) !important;
+  border: 1px solid var(--k-line) !important;
+  border-radius: 22px !important;
+  letter-spacing: 0.2px;
+}
+:root[data-theme="kawaii"] .dialog-panel * {
+  letter-spacing: 0.2px;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-user .msg-content {
+  background: linear-gradient(135deg, rgba(255, 119, 170, 0.30), rgba(216, 180, 255, 0.24)) !important;
+  border: 1px solid rgba(255, 179, 217, 0.34) !important;
+  border-radius: 20px 20px 6px 20px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-assistant .msg-content {
+  background: linear-gradient(135deg, rgba(216, 180, 255, 0.16), rgba(120, 90, 160, 0.30)) !important;
+  border: 1px solid rgba(216, 180, 255, 0.26) !important;
+  border-radius: 20px 20px 20px 6px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .chat-input textarea {
+  border-radius: 20px !important;
+}
+:root[data-theme="kawaii"] .titlebar {
+  background: linear-gradient(90deg, rgba(74, 48, 102, 0.96), rgba(99, 62, 122, 0.96)) !important;
+}
+:root[data-theme="kawaii"] ::selection {
+  background: rgba(255, 179, 217, 0.4);
+  color: #fff;
+}
+/* 极缓的粉色柔光呼吸：6s 一次，幅度很小（不想动效就删这一段两条） */
+@keyframes kawaii-glow {
+  0%, 100% { box-shadow: 0 0 40px rgba(255, 119, 170, 0.16), inset 0 0 60px rgba(255, 179, 217, 0.05); }
+  50%      { box-shadow: 0 0 56px rgba(255, 119, 170, 0.26), inset 0 0 80px rgba(255, 179, 217, 0.09); }
+}
+:root[data-theme="kawaii"] .dialog-panel {
+  box-shadow: 0 0 44px rgba(255, 119, 170, 0.18), inset 0 0 70px rgba(255, 179, 217, 0.06);
+  animation: kawaii-glow 6s ease-in-out infinite;
 }
