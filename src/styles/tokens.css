@@ -49,7 +49,7 @@
   --font-lg: 18px;
 
   /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/gothic.svg');
+  --t-bg-img: url('../assets/bg/bg-gothic.jpg');
   --t-veil: rgba(38, 26, 46, 0.68);
 }
 
@@ -78,7 +78,7 @@
   --font-lg: 17px;
 
   /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/loli.svg');
+  --t-bg-img: url('../assets/bg/bg-loli.jpg');
   --t-veil: rgba(255, 250, 253, 0.66);
 
 }
@@ -108,7 +108,7 @@
   --font-lg: 17px;
 
   /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/vitality.svg');
+  --t-bg-img: url('../assets/bg/bg-vitality.jpg');
   --t-veil: rgba(248, 254, 250, 0.66);
 
 }
