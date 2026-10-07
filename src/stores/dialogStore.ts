@@ -1197,10 +1197,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   /** 旧各层确认摘要文案复刻（matchMethod/gate/置信度等 FunnelOutcome 不携带的字段已简化，偏差记录于 R14） */
   function funnelPlanSummary(source: string, plan: TaskPlan, macroManifestId: string | null): string {
     const stepsText = plan.steps.map(s => `${s.step}. ${s.description} → ${s.tool}`).join('\n')
-    if (source === 'L0') return `📋 **L0 Skill直通 (简单任务)**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
-    if (source === 'L0.5') return `📋 **L0.5快速匹配 (单步manifest)**\n意图：${plan.intent}\nManifest：${macroManifestId ?? ''}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
-    if (source === 'L1') return `📋 **L1管道直通 (单节点)**\n意图：${plan.intent}\n节点：${plan.needs[0] ?? ''}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
-    if (source === 'L4') return `📋 **探索模式 (L1临时编排)**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    // 2026-10-07（用户裁定「要投入」）：确认条标题去掉内部黑话，改人话（内部层级仍记于日志/调试面板）
+    if (source === 'L0') return `📋 **执行计划（简单任务）**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L0.5') return `📋 **匹配到现成方案**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L1') return `📋 **直接调用能力**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
+    if (source === 'L4') return `📋 **执行计划（临时编排）**\n意图：${plan.intent}\n\n**执行计划：**\n${stepsText}\n\n确认执行？`
     const depsText = plan.steps.map(s => {
       const deps = s.depends_on.length > 0 ? `（依赖步骤${s.depends_on.join(',')}）` : ''
       return `${s.step}. ${s.description} → ${s.tool} ${deps}`
@@ -1379,24 +1380,27 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
     }
 
+    // 2026-10-07（用户裁定「要投入」）：面向用户的文案去掉内部黑话——
+    // 原「L0 Skill直通 / RaaP未命中 / 进入探索模式 / 原生工具」对用户不可读（实测体验评审第 2 条）。
+    // 内部标识（L0/L0.5/L1/L2/L4）仍保留在日志与调试面板，界面不再展示。
     if (source === 'L0') {
-      addSystemNotice(`⚡ L0 Skill直通：${plan.intent}（${plan.needs.join('/')}域，${plan.steps.length}步L1执行）`)
+      addSystemNotice(`✅ 已识别为简单任务：${plan.intent}`)
       // 2026-10-01：无 shell 的 L0 直通计划自动执行（对齐 L0.5/L4 口径），此通知让该行为可观测
-      if (autoExecutable) addSystemNotice('⚡ L0 直通自动执行（无shell操作）')
+      if (autoExecutable) addSystemNotice('▶ 正在自动执行（不涉及系统命令）')
     } else if (source === 'L0.5') {
       const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
       const m = allL2.find(x => x.identity.id === macroManifestId)
-      addSystemNotice(`⚡ L0.5快速匹配：${m?.identity.name ?? plan.intent}（置信≥80%）`)
-      if (autoExecutable) addSystemNotice('⚡ L0.5高置信自动执行（无shell操作）')
+      addSystemNotice(`✅ 已匹配到现成方案：${m?.identity.name ?? plan.intent}`)
+      if (autoExecutable) addSystemNotice('▶ 正在自动执行（不涉及系统命令）')
     } else if (source === 'L1') {
-      addSystemNotice(`🔧 L1管道直通：${plan.needs[0] ?? ''}（置信≥60%）`)
+      addSystemNotice(`🔧 已直接调用能力：${plan.needs[0] ?? ''}`)
     } else if (source === 'L4') {
-      addSystemNotice(`🤔 RaaP未命中，进入探索模式：${plan.intent}`)
-      if (autoExecutable) addSystemNotice('⚡ L0 Skill自动执行（无shell操作）')
+      addSystemNotice(`🤔 没有现成方案，改为分步处理：${plan.intent}`)
+      if (autoExecutable) addSystemNotice('▶ 正在自动执行（不涉及系统命令）')
     } else if (macroManifestId) {
       const allL2 = globalBus.request('node:get-all-l2-manifests', {}) as L2ToolManifest[]
       const m = allL2.find(x => x.identity.id === macroManifestId)
-      addSystemNotice(`🟢 RaaP匹配：${m?.identity.name ?? plan.intent}（${source === 'L3' ? 'LLM仲裁' : '检索'}）`)
+      addSystemNotice(`✅ 已匹配到方案：${m?.identity.name ?? plan.intent}`)
     }
 
     // L2/L3 → 与旧路径一致：计划自检 + 思维链（L0/L0.5/L1/L4 早退不加）
@@ -1653,7 +1657,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         const domains = classifyDomain(content)
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
-        addSystemNotice(`⚡ L0 Skill直通：${l0Plan.intent}（${domains.join('/')}域，${l0Plan.steps.length}步L1执行）`)
+        addSystemNotice(`✅ 已识别为简单任务：${l0Plan.intent}`)
 
         globalBus.emit('debug:log-probe', { level: 'info', domain: 'schedule', message: `[Router] L0命中 → ${l0Plan.intent} | ${domains.join('/')}域 | ${l0Plan.steps.length}步` })
 
@@ -1670,7 +1674,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         pendingMacroManifestId.value = null
         acquirePausePoint('confirmation')
         isProcessing.value = false
-        const planSummary = `📋 **L0 Skill直通 (简单任务)**\n意图：${plan.intent}\n\n**执行计划：**\n${plan.steps.map(s => `${s.step}. ${s.description} → ${s.tool}`).join('\n')}\n\n确认执行？`
+        const planSummary = `📋 **执行计划（简单任务）**\n意图：${plan.intent}\n\n**执行计划：**\n${plan.steps.map(s => `${s.step}. ${s.description} → ${s.tool}`).join('\n')}\n\n确认执行？`
         addSystemNotice(planSummary)
         return ''
       }

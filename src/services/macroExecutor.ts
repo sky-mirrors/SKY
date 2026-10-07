@@ -1329,9 +1329,13 @@ export function resolveMacroLastResult(tail: string, sideEffectCount: number, fa
   if (sideEffectCount > 0) return '执行完成'
   if (failedSteps.length > 0) {
     const list = [...failedSteps].sort((a, b) => a - b).join('、')
-    return `⚠️ 本次执行未完成：步骤 ${list} 失败，未产出任何内容。请检查输入（如缺少必要的源文件/路径）后重试。`
+    // 2026-10-07（用户裁定「要投入」）：失败文案必须给出**下一步能做什么**——
+    // 原句只说"请检查输入"，用户实测的反馈是「我根本不知道缺什么、给到哪」。
+    return `⚠️ 本次执行未完成：步骤 ${list} 失败，未产出任何内容。\n` +
+      `最常见的原因是缺少该步骤需要的输入（例如源文件或文件夹的完整路径）。\n` +
+      `请补充后重试；不确定缺什么的话，把相关文件拖进来，或直接告诉我它的完整路径即可。`
   }
-  return '⚠️ 本次执行未产出任何内容（末步输出为空），请检查输入后重试。'
+  return '⚠️ 本次执行未产出任何内容（末步输出为空）。请确认输入是否完整，或换一种说法再试一次。'
 }
 
 export interface MacroRunResult {

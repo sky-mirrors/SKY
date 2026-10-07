@@ -267,7 +267,7 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(routeMock).toHaveBeenCalledTimes(1)
     expect(vi.mocked(tryL0Skill)).not.toHaveBeenCalled()
     expect(store.awaitingConfirmation).toBe(true)
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill直通：默认主路径任务')
+    expect(noticeTexts(store)).toContain('✅ 已识别为简单任务：默认主路径任务')
   })
 
   it('plan(L0, 非自动) → 确认暂停点 + L0 文案；旧层服务未被调用', async () => {
@@ -289,8 +289,8 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     expect(store.awaitingConfirmation).toBe(true)
     expect(store.pendingPlan?.intent).toBe('funnel任务')
     expect(store.isProcessing).toBe(false)
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill直通：funnel任务')
-    expect(noticeTexts(store)).toContain('📋 **L0 Skill直通 (简单任务)**')
+    expect(noticeTexts(store)).toContain('✅ 已识别为简单任务：funnel任务')
+    expect(noticeTexts(store)).toContain('📋 **执行计划（简单任务）**')
     // R16：funnel:routed 观测事件
     expect(routed).toHaveLength(1)
     expect(routed[0]).toMatchObject({ handled: true, kind: 'plan', source: 'L0', intent: 'funnel任务', autoExecutable: false })
@@ -305,8 +305,8 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
 
     await store.sendMessage('探索一下量子计算')
 
-    expect(noticeTexts(store)).toContain('🤔 RaaP未命中，进入探索模式：探索量子计算')
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill自动执行（无shell操作）')
+    expect(noticeTexts(store)).toContain('🤔 没有现成方案，改为分步处理：探索量子计算')
+    expect(noticeTexts(store)).toContain('▶ 正在自动执行（不涉及系统命令）')
     expect(store.awaitingConfirmation).toBe(false)
     expect(store.isProcessing).toBe(false)
     expect(store.messages.some(m => m.role === 'assistant' && m.content.length > 0)).toBe(true)
@@ -618,7 +618,7 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
 
     expect(routeMock).toHaveBeenCalledTimes(1)
     expect(store.awaitingConfirmation).toBe(true)
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill直通：回退任务')
+    expect(noticeTexts(store)).toContain('✅ 已识别为简单任务：回退任务')
   })
 
   it('route 抛异常 → 适配层兜底回退旧路径', async () => {
@@ -635,7 +635,7 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     await store.sendMessage('测试异常回退')
 
     expect(store.awaitingConfirmation).toBe(true)
-    expect(noticeTexts(store)).toContain('⚡ L0 Skill直通：异常回退任务')
+    expect(noticeTexts(store)).toContain('✅ 已识别为简单任务：异常回退任务')
     // R16：异常也发观测事件（handled=false, kind=exception）
     expect(routed).toHaveLength(1)
     expect(routed[0]).toMatchObject({ handled: false, kind: 'exception' })

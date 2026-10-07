@@ -30,6 +30,15 @@
              · 💾 导出 → 从 ⋯ 菜单里提出来，独立成按钮放在指令下
              · ZOL → 移到本行**最右** -->
         <button class="qa-btn primary" title="导出对话" @click="exportFullDialog()">💾</button>
+        <!-- 2026-10-07（用户裁定「要投入」）：系统/内部状态消息**默认隐藏**。
+             实测对话区 73%（1694/2322 条）是这类机器话（★已加载27个L2宏模板 / ⚡L0 Skill… / 🤔RaaP未命中…），
+             把用户真正的对话淹没。开关常显并带隐藏条数，需要排查时一键展开。 -->
+        <button
+          class="qa-btn"
+          :class="{ active: showSystemNotices }"
+          :title="showSystemNotices ? '隐藏系统消息' : `显示系统消息（已隐藏 ${hiddenNoticeCount} 条）`"
+          @click="showSystemNotices = !showSystemNotices"
+        >⚙️<span v-if="!showSystemNotices && hiddenNoticeCount > 0" class="qa-badge">{{ hiddenNoticeCount }}</span></button>
         <span class="qa-spacer"></span>
         <ZolWidget />
       </div>
@@ -42,7 +51,7 @@
 
       <div class="messages" ref="messagesRef">
         <div
-          v-for="msg in dialogStore.messages"
+          v-for="msg in visibleMessages"
           :key="msg.id"
           class="message"
           :class="[`msg-${msg.role}`, `msg-type-${msg.type}`]"
@@ -623,6 +632,17 @@ const newPrefVal = ref('')
 
 const activeFileName = ref<string | null>(null)
 const fileBoostWeight = ref(0)
+
+/**
+ * 2026-10-07（用户裁定「要投入」）：对话区默认**只显示用户与助手的对话**。
+ * 实测 `dialog.messages` 共 2322 条，其中 system/system_notice 占 1694 条（73%）——
+ * 用户要看的回答被埋在里面。系统消息仍在 store 里（不影响上下文/记忆/审计），只是默认不渲染。
+ */
+const showSystemNotices = ref(false)
+const hiddenNoticeCount = computed(() => dialogStore.messages.filter(m => m.role === 'system').length)
+const visibleMessages = computed(() =>
+  showSystemNotices.value ? dialogStore.messages : dialogStore.messages.filter(m => m.role !== 'system')
+)
 
 const cacheStats = ref({ size: 0, hits: 0, misses: 0 })
 const checkpointList = ref<Array<{ id: string; manifestId: string; completedResults: Record<number, string>; failedSteps: number[]; skipSteps: number[]; totalSteps: number; updatedAt: number }>>([])
@@ -1757,6 +1777,9 @@ async function loadCheckpoints() {
   transition: all 0.2s;
 }
 .qa-btn:hover { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 16%, transparent); }
+.qa-btn.active { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 22%, transparent); border-color: var(--t-accent, #8ab4ff); }
+/* 系统消息隐藏条数角标（2026-10-07）；不设 font-size，避免低于全项目 11px 字号下限 */
+.qa-badge { margin-left: 1px; opacity: 0.7; }
 .qa-more { position: relative; }
 .qa-more-dropdown {
   position: absolute;
