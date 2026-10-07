@@ -1313,6 +1313,27 @@ function buildStepLineage(step: L2DagStep, execResult: { fromRule?: boolean; rul
   return { step: step.step, source: 'tool_call', tool: step.tool }
 }
 
+/**
+ * 收口文案判定（2026-10-07 假成功修复）。
+ *
+ * 病理（实测）：`l2-weekly-report-draft-v1` 的 S1 `list_directory` 参数 `path` 为空 →
+ * `resource_missing` 失败 → **全流程零产出** → 收口回落成「执行完成」；且因用户未点名产物文件，
+ * `deliverableCheck` 的 `applyDeliverableGate` 在 `stepFailed.size > 0` 时**根本没被调用**
+ * ⇒ 用户看到"成功"，而桌面既无正文也无产物文件。
+ *
+ * 不变式：**末步产出为空时不得宣称完成**。有产物副作用（写文件类宏的正常形态）仍记完成。
+ */
+export function resolveMacroLastResult(tail: string, sideEffectCount: number, failedSteps: number[]): string {
+  const t = (tail || '').trim()
+  if (t) return tail
+  if (sideEffectCount > 0) return '执行完成'
+  if (failedSteps.length > 0) {
+    const list = [...failedSteps].sort((a, b) => a - b).join('、')
+    return `⚠️ 本次执行未完成：步骤 ${list} 失败，未产出任何内容。请检查输入（如缺少必要的源文件/路径）后重试。`
+  }
+  return '⚠️ 本次执行未产出任何内容（末步输出为空），请检查输入后重试。'
+}
+
 export interface MacroRunResult {
   results: Record<number, string>
   lastResult: string
@@ -1798,7 +1819,10 @@ async function runMacroBody(
 
   const lastStep = steps.filter(s => !skipSteps.has(s.step))
   const finalStep = lastStep[lastStep.length - 1]
-  const lastResult = finalStep ? (results[finalStep.step] || '执行完成') : '执行完成'
+  // 无步骤（或全被跳过）时保持原「执行完成」——退化情形无产出可言；有步骤跑的路径走诚实判定
+  const lastResult = finalStep
+    ? resolveMacroLastResult(String(results[finalStep.step] || ''), sideEffects.length, [...stepFailed.keys()])
+    : '执行完成'
   // P1-D3：产物核验闸门——主路径收口时核对"用户要求的命名产物"是否真实产生
   // （存在性/非空），失败即前置核验事实到结果 + 清指纹防假成功重放；fail-open
   let gatedResult = lastResult

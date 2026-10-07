@@ -249,3 +249,31 @@ describe('executeMacro', () => {
     expect(result.results[1]).toContain('知识1')
   })
 })
+
+// 2026-10-07 假成功修复的守卫：末步产出为空时不得回落成「执行完成」。
+// RED 证据（改前）：实测 l2-weekly-report-draft-v1 的 S1 list_directory 参数 path 为空 →
+// resource_missing 失败 → 全流程零产出 → 收口返回「执行完成」，用户看到"成功"却无正文无产物。
+describe('resolveMacroLastResult：空产出不得宣称完成', () => {
+  it('有产出 → 原样返回', async () => {
+    const { resolveMacroLastResult } = await import('@/services/macroExecutor')
+    expect(resolveMacroLastResult('本周周报正文…', 0, [])).toBe('本周周报正文…')
+  })
+
+  it('空产出 + 有产物副作用（写文件类宏的正常形态）→ 记完成', async () => {
+    const { resolveMacroLastResult } = await import('@/services/macroExecutor')
+    expect(resolveMacroLastResult('', 1, [])).toBe('执行完成')
+  })
+
+  it('空产出 + 有失败步骤 → 诚实说明失败步骤，不得是「执行完成」', async () => {
+    const { resolveMacroLastResult } = await import('@/services/macroExecutor')
+    const r = resolveMacroLastResult('', 0, [1])
+    expect(r).not.toBe('执行完成')
+    expect(r).toContain('未完成')
+    expect(r).toContain('步骤 1')
+  })
+
+  it('空产出 + 无失败步骤也无副作用 → 不得是「执行完成」', async () => {
+    const { resolveMacroLastResult } = await import('@/services/macroExecutor')
+    expect(resolveMacroLastResult('   ', 0, [])).not.toBe('执行完成')
+  })
+})
