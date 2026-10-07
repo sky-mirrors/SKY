@@ -377,6 +377,36 @@ function validateShellPathArgs(command: string, cwd?: string): { allowed: boolea
   return { allowed: true }
 }
 
+// ===== 2026-10-07（Wave 2）：git 只读子命令白名单 =====
+// 原先 SHELL_ALLOWED_COMMANDS 不含 git，一切 git 命令落兜底拒绝——这是"比一般 agent 弱"
+// 最直接的缺口。此处只开放**查询类**子命令；写类子命令不在表内即拒。
+/** 只读子命令（查询语义，不改变仓库状态） */
+const GIT_READONLY_SUBCOMMANDS = [
+  'status', 'log', 'diff', 'show', 'branch', 'remote', 'tag',
+  'rev-parse', 'ls-files', 'blame', 'shortlog', 'describe', 'reflog'
+] as const
+/** 这几个子命令本身只读，但带上写 flag 就变写操作（branch -D / tag -d / remote add…） */
+const GIT_SUBCOMMANDS_WITH_WRITE_FLAGS = ['branch', 'tag', 'remote']
+/** 写 / 输出类 flag 名（只比 name，不含 = 后的值） */
+const GIT_WRITE_FLAG = /^-{1,2}(d|D|m|M|f|u|delete|move|force|output|set-upstream|add|remove|edit|amend|create-reflog|no-verify)$/
+
+/** git **只读**命令判定：git <只读子命令> [flags...]，且不含全局前置参数与写/输出类 flag */
+function isGitReadonlyCommand(tokens: string[]): boolean {
+  const sub = tokens[1]
+  // 拒全局前置参数：git -C / --git-dir / --work-tree / -c / --exec-path …
+  if (!sub || sub.startsWith('-')) return false
+  if (!(GIT_READONLY_SUBCOMMANDS as readonly string[]).includes(sub)) return false
+  const withWriteFlags = GIT_SUBCOMMANDS_WITH_WRITE_FLAGS.includes(sub)
+  for (const t of tokens.slice(2)) {
+    if (!t.startsWith('-')) continue
+    const name = t.split('=')[0]
+    // 任何子命令都不许把输出写进文件
+    if (name === '--output') return false
+    if (withWriteFlags && GIT_WRITE_FLAG.test(name)) return false
+  }
+  return true
+}
+
 export function isShellCommandAllowed(command: string, cwd?: string): { allowed: boolean; reason?: string } {
   const raw = typeof command === 'string' ? command : ''
   const metachar = findShellMetacharacter(raw)
@@ -433,6 +463,15 @@ export function isShellCommandAllowed(command: string, cwd?: string): { allowed:
     // P1-7 修复：npm run 读取 cwd 下的 package.json scripts，
     // 渲染层可用 file:write 伪造 package.json 实现任意执行，移出白名单
     return { allowed: false, reason: 'npm run 已移出白名单（package.json scripts 可被伪造实现任意执行），被安全策略拒绝' }
+  }
+
+  // 2026-10-07（Wave 2）：git 只读子命令放行（写类 / 全局前置参数 / 写 flag 一律拒，见 isGitReadonlyCommand）
+  if (trimmed === 'git' || trimmed.startsWith('git ')) {
+    if (isGitReadonlyCommand(trimmed.split(/\s+/))) return { allowed: true }
+    return {
+      allowed: false,
+      reason: `git 仅允许只读子命令（${GIT_READONLY_SUBCOMMANDS.join('/')}），写类子命令、全局前置参数与写/输出类 flag 被安全策略拒绝: ${trimmed.substring(0, 50)}`
+    }
   }
 
   // A-16：白名单前缀必须词边界匹配——'ls' 不能放行 'lsfoo'，

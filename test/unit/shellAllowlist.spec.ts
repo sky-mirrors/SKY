@@ -12,7 +12,7 @@ import { isShellCommandAllowed } from '@electron/shell-security'
  *
  * 结论（2026-09-30 实测，见下方断言）：
  * - 放行：`npm install` / `pip install` / `dir` / `ls` / `cat` / `echo` / `type` / `mkdir` / `copy` / `cp` / `cd` / `pwd`
- * - 拒绝：`git` / `python` / `node`（非 `node -e`）/ `npx` / `npm run` / `mv` / `move` / `del` / `rm`
+ * - 拒绝：`git` 写类子命令（push/commit/reset/clean…）与带写 flag 的只读子命令（`branch -D` 等）/ `python` / `node`（非 `node -e`）/ `npx` / `npm run` / `mv` / `move` / `del` / `rm` / `docker`
  */
 describe('shell 白名单：实际放行面（安全边界）', () => {
   it('白名单内命令放行', () => {
@@ -22,9 +22,17 @@ describe('shell 白名单：实际放行面（安全边界）', () => {
   })
 
   it('白名单外命令拒绝（含 L0 规则 2 触发词里那几个）', () => {
-    for (const c of ['git status', 'python train.py', 'node script.js', 'mv a.txt b.txt', 'del a.txt', 'npx foo']) {
+    for (const c of ['python train.py', 'node script.js', 'mv a.txt b.txt', 'del a.txt', 'npx foo']) {
       expect(isShellCommandAllowed(c).allowed, c).toBe(false)
     }
+  })
+
+  // 2026-10-07（Wave 2）：git 的**只读**子命令已放行（原先整类拒绝）；写类仍拒。
+  it('git 只读子命令放行 / 写类拒绝（Wave 2 边界变更）', () => {
+    expect(isShellCommandAllowed('git status').allowed).toBe(true)
+    expect(isShellCommandAllowed('git log --oneline').allowed).toBe(true)
+    expect(isShellCommandAllowed('git push').allowed).toBe(false)
+    expect(isShellCommandAllowed('git branch -D x').allowed).toBe(false)
   })
 
   it('`node -e` 受限模式放行，但裸 `node` 脚本被拒', () => {

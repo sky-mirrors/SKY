@@ -585,3 +585,50 @@ describe('IPC安全 - V2 考试回归：白名单命令尾随换行 + 路径 .. 
     expect(validateWritePath(`${home}\\Desktop\\HoloExam\\out\\ok.md`).safe).toBe(true)
   })
 })
+
+
+// ===== 2026-10-07 Wave 2：shell 白名单扩 git 只读子命令 =====
+// 背景：SHELL_ALLOWED_COMMANDS 原 12 条不含 git ⇒ 一切 git 命令落到兜底拒绝；
+// 「比一般 agent 弱」最直接的缺口。本组用例把「只读放行 / 写类拒绝」的边界钉住。
+describe('IPC安全 - git 只读子命令（2026-10-07 Wave 2）', () => {
+  it('只读 git 子命令放行', () => {
+    for (const c of [
+      'git status',
+      'git status --porcelain',
+      'git log --oneline -5',
+      'git diff',
+      'git show HEAD',
+      'git branch',
+      'git rev-parse HEAD'
+    ]) {
+      expect(isShellCommandAllowed(c).allowed, c).toBe(true)
+    }
+  })
+
+  it('写类 / 危险 git 一律拒绝', () => {
+    for (const c of [
+      'git push',
+      'git commit -m x',
+      'git reset --hard',
+      'git clean -fd',
+      'git branch -D feature',
+      'git tag -d v1',
+      'git config user.name x',
+      'git -C C:\\x status',
+      'git --git-dir=C:\\x status',
+      'git diff --output=out.txt'
+    ]) {
+      expect(isShellCommandAllowed(c).allowed, c).toBe(false)
+    }
+  })
+
+  it('shell 元字符仍优先拦截（即使在 git 只读命令里）', () => {
+    expect(isShellCommandAllowed('git status && whoami').allowed).toBe(false)
+    expect(isShellCommandAllowed('git log | more').allowed).toBe(false)
+  })
+
+  it('原有白名单行为不变（回归护栏）', () => {
+    expect(isShellCommandAllowed('ls -la').allowed).toBe(true)
+    expect(isShellCommandAllowed('whoami').allowed).toBe(false)
+  })
+})
