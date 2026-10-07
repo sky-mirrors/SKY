@@ -124,7 +124,7 @@ function onReset() {
 
 <style scoped>
 .zol-widget { position: relative; font-size: var(--font-sm); cursor: pointer; }
-.zol-hud { display: flex; align-items: center; gap: 4px; padding: 2px 6px; background: rgba(10,15,30,0.7); border-radius: 3px; border: 1px solid rgba(100,180,255,0.15); }
+.zol-hud { display: flex; align-items: center; gap: 4px; padding: 2px 6px; background: var(--t-panel-2, rgba(10,15,30,0.7)); border-radius: 3px; border: 1px solid var(--t-line, rgba(100,180,255,0.15)); }
 .zol-label { color: #6a8caa; font-weight: 600; }
 .zol-rate { font-weight: 700; min-width: 28px; text-align: right; }
 .rate-good { color: #4caf50; }

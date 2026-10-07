@@ -168,31 +168,34 @@
   border-color: var(--t-line);
   font-family: var(--t-font);
 }
-:root[data-theme="dark"] .dialog-panel .msg-content,
-:root[data-theme="light"] .dialog-panel .msg-content,
-:root[data-theme="green"] .dialog-panel .msg-content {
+/* 消息气泡：真实类名是 .text-msg（见 DialogPanel.vue），此前这里写的是 .msg-content ——
+ * 该类在 DOM 中不存在，三条规则一直是死规则、气泡从未被主题化。2026-10-07 修正选择器。 */
+:root[data-theme="dark"] .dialog-panel .text-msg,
+:root[data-theme="light"] .dialog-panel .text-msg,
+:root[data-theme="green"] .dialog-panel .text-msg {
   color: var(--t-text) !important;
   padding: 12px 16px !important;
   line-height: var(--t-lh) !important;
   margin-bottom: 12px !important;
 }
-:root[data-theme="dark"] .dialog-panel .msg-user .msg-content,
-:root[data-theme="light"] .dialog-panel .msg-user .msg-content,
-:root[data-theme="green"] .dialog-panel .msg-user .msg-content {
+:root[data-theme="dark"] .dialog-panel .msg-user .text-msg,
+:root[data-theme="light"] .dialog-panel .msg-user .text-msg,
+:root[data-theme="green"] .dialog-panel .msg-user .text-msg {
   background: var(--t-panel-2) !important;
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-md) var(--t-radius-md) 6px var(--t-radius-md) !important;
 }
-:root[data-theme="dark"] .dialog-panel .msg-assistant .msg-content,
-:root[data-theme="light"] .dialog-panel .msg-assistant .msg-content,
-:root[data-theme="green"] .dialog-panel .msg-assistant .msg-content {
+:root[data-theme="dark"] .dialog-panel .msg-assistant .text-msg,
+:root[data-theme="light"] .dialog-panel .msg-assistant .text-msg,
+:root[data-theme="green"] .dialog-panel .msg-assistant .text-msg {
   background: var(--t-panel) !important;
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-md) var(--t-radius-md) var(--t-radius-md) 6px !important;
 }
-:root[data-theme="dark"] .dialog-panel .chat-input textarea,
-:root[data-theme="light"] .dialog-panel .chat-input textarea,
-:root[data-theme="green"] .dialog-panel .chat-input textarea {
+/* 输入框：模板里没有 .chat-input 容器（该类不存在），原选择器一直未命中 —— 2026-10-07 改指 .dialog-panel textarea。 */
+:root[data-theme="dark"] .dialog-panel textarea,
+:root[data-theme="light"] .dialog-panel textarea,
+:root[data-theme="green"] .dialog-panel textarea {
   background: var(--t-bg) !important;
   color: var(--t-text) !important;
   border: 1px solid var(--t-line) !important;

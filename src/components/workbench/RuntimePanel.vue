@@ -432,8 +432,8 @@ function formatExamDuration(ms: number): string {
 .wb-rt-packlist { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .wb-rt-packrow { display: flex; align-items: center; gap: 4px; font-size: var(--font-sm); }
 .wb-rt-packname { flex: 1; color: var(--rt-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wb-rt-op { font-size: var(--font-xs); padding: 1px 6px; background: rgba(100, 180, 255, 0.1); border: 1px solid rgba(100, 180, 255, 0.18); border-radius: 3px; color: #8ab4d8; cursor: pointer; }
-.wb-rt-op:hover:not(:disabled) { background: rgba(100, 180, 255, 0.22); }
+.wb-rt-op { font-size: var(--font-xs); padding: 1px 6px; background: color-mix(in srgb, var(--t-accent, #8ab4ff) 10%, transparent); border: 1px solid var(--t-line, rgba(100, 180, 255, 0.18)); border-radius: 3px; color: var(--t-accent, #8ab4d8); cursor: pointer; }
+.wb-rt-op:hover:not(:disabled) { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 22%, transparent); }
 .wb-rt-op:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .wb-rt-kv { display: flex; align-items: baseline; gap: 8px; font-size: 11px; margin-bottom: 5px; }

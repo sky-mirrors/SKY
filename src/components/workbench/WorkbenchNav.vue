@@ -201,8 +201,8 @@ function onSwitchSession(sessionId: string) {
 .wb-nav-logo {
   font-size: 12px;
   font-weight: 700;
-  color: #6db3ff;
-  background: rgba(80, 160, 255, 0.12);
+  color: var(--t-accent, #6db3ff);
+  background: color-mix(in srgb, var(--t-accent, #80a0ff) 14%, transparent);
   border-radius: 6px;
   padding: 2px 6px;
   flex-shrink: 0;

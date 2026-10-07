@@ -1701,10 +1701,10 @@ async function loadCheckpoints() {
 }
 .mode-btn {
   padding: 4px 10px;
-  background: rgba(100, 180, 255, 0.06);
-  border: 1px solid rgba(100, 180, 255, 0.1);
+  background: color-mix(in srgb, var(--t-accent, #8ab4ff) 6%, transparent);
+  border: 1px solid var(--t-line, rgba(100, 180, 255, 0.1));
   border-radius: 3px;
-  color: #5a7a9a;
+  color: var(--t-dim, #5a7a9a);
   font-size: var(--font-sm);
   cursor: pointer;
   transition: all 0.2s;
@@ -1746,8 +1746,8 @@ async function loadCheckpoints() {
 .qa-btn {
   width: 28px;
   height: 28px;
-  background: rgba(100, 180, 255, 0.06);
-  border: 1px solid rgba(100, 180, 255, 0.08);
+  background: color-mix(in srgb, var(--t-accent, #8ab4ff) 6%, transparent);
+  border: 1px solid var(--t-line, rgba(100, 180, 255, 0.08));
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -1756,7 +1756,7 @@ async function loadCheckpoints() {
   font-size: 12px;
   transition: all 0.2s;
 }
-.qa-btn:hover { background: rgba(100, 180, 255, 0.15); }
+.qa-btn:hover { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 16%, transparent); }
 .qa-more { position: relative; }
 .qa-more-dropdown {
   position: absolute;
@@ -1966,12 +1966,12 @@ async function loadCheckpoints() {
 }
 .tp-intent {
   font-size: var(--font-sm);
-  color: #a0c0e8;
+  color: var(--t-text, #a0c0e8);
   margin-bottom: 2px;
 }
 .tp-needs {
   font-size: var(--font-sm);
-  color: #7a9cc6;
+  color: var(--t-dim, #7a9cc6);
   margin-bottom: 6px;
 }
 .tp-steps {
@@ -2209,24 +2209,24 @@ textarea::-webkit-scrollbar-track {
   background: transparent;
 }
 textarea::-webkit-scrollbar-thumb {
-  background: rgba(80, 160, 255, 0.2);
+  background: var(--t-line, rgba(80, 160, 255, 0.2));
   border-radius: 3px;
 }
-textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
+textarea:focus { border-color: var(--t-accent, rgba(100, 180, 255, 0.35)); }
 
 .send-btn {
   margin-top: 6px;
   width: 100%;
   padding: 6px 0;
-  background: rgba(50, 120, 200, 0.2);
-  border: 1px solid rgba(100, 180, 255, 0.2);
+  background: color-mix(in srgb, var(--t-accent, #3278c8) 20%, transparent);
+  border: 1px solid var(--t-line, rgba(100, 180, 255, 0.2));
   border-radius: 4px;
-  color: #8ab4ff;
+  color: var(--t-accent, #8ab4ff);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
-.send-btn:hover:not(:disabled) { background: rgba(50, 120, 200, 0.35); }
+.send-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--t-accent, #3278c8) 35%, transparent); }
 .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .attach-preview {
@@ -2267,21 +2267,21 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
   gap: 6px;
   padding: 6px 12px;
   margin-top: 6px;
-  background: rgba(100, 180, 255, 0.08);
-  border: 1px solid rgba(100, 180, 255, 0.2);
+  background: color-mix(in srgb, var(--t-accent, #8ab4ff) 8%, transparent);
+  border: 1px solid var(--t-line, rgba(100, 180, 255, 0.2));
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
   font-size: 11px;
 }
 .file-attachment-card:hover {
-  background: rgba(100, 180, 255, 0.18);
-  border-color: rgba(100, 180, 255, 0.5);
+  background: color-mix(in srgb, var(--t-accent, #8ab4ff) 18%, transparent);
+  border-color: var(--t-accent, #8ab4ff);
 }
 .fa-icon { font-size: 14px; }
-.fa-name { color: #a0c0e8; }
-.fa-type { font-size: var(--font-xs); color: #5a7a9a; }
-.fa-label { color: #8ab4ff; text-decoration: underline; cursor: pointer; }
+.fa-name { color: var(--t-text, #a0c0e8); }
+.fa-type { font-size: var(--font-xs); color: var(--t-dim, #5a7a9a); }
+.fa-label { color: var(--t-accent, #8ab4ff); text-decoration: underline; cursor: pointer; }
 .lineage-header {
   color: rgba(100, 200, 255, 0.7);
   margin-bottom: 3px;
@@ -2315,8 +2315,8 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
 .ra-btn {
   width: 24px;
   height: 20px;
-  background: rgba(100, 180, 255, 0.06);
-  border: 1px solid rgba(100, 180, 255, 0.1);
+  background: color-mix(in srgb, var(--t-accent, #8ab4ff) 8%, transparent);
+  border: 1px solid var(--t-line, rgba(100, 180, 255, 0.1));
   border-radius: 3px;
   cursor: pointer;
   font-size: var(--font-sm);
@@ -2326,8 +2326,8 @@ textarea:focus { border-color: rgba(100, 180, 255, 0.35); }
   transition: all 0.2s;
   padding: 0;
 }
-.ra-btn:hover { background: rgba(100, 180, 255, 0.2); border-color: rgba(100, 180, 255, 0.3); }
-.ra-divider { color: rgba(100, 180, 255, 0.15); font-size: var(--font-sm); line-height: 20px; }
+.ra-btn:hover { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 22%, transparent); border-color: var(--t-accent, #8ab4ff); }
+.ra-divider { color: var(--t-line, rgba(100, 180, 255, 0.15)); font-size: var(--font-sm); line-height: 20px; }
 .fb-btn.fb-active.fb-up { background: rgba(80, 220, 100, 0.25); border-color: rgba(80, 220, 100, 0.5); }
 .fb-btn.fb-active.fb-down { background: rgba(255, 100, 100, 0.25); border-color: rgba(255, 100, 100, 0.5); }
 .fb-shake { animation: fb-shake 0.5s ease-in-out; }
