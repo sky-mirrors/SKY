@@ -22,3 +22,100 @@
   --text-strong: #e0e0ff; /* 强调文本 */
   --accent: #8ab4ff;      /* 强调色 */
 }
+
+/* ===== 可爱 / 二次元主题（2026-10-07）=====
+ * 用法：点标题栏的主题按钮循环切换 dark → light → green → 🌸 kawaii。
+ * 设计：**只新增、不改动既有声明** —— 默认三个主题的观感零变化（本块只在 data-theme="kawaii" 下生效）。
+ * 覆盖面照抄项目既有主题（App.vue 与 DialogPanel.vue 的 :root[data-theme="green"] 块）的选择器清单，
+ * 保证"主题应该覆盖哪些元素"与既有主题一致，不另立标准。
+ * 调色：暗紫底 + 樱粉(--k-pink)/薰衣草(--k-lav)/薄荷(--k-mint) 三色；圆润字体栈 + 大圆角 + 柔和粉晕。
+ * 想调风格只改下面这组变量即可，不必动组件。
+ */
+:root[data-theme="kawaii"] {
+  --k-bg: #1b1430;
+  --k-panel: rgba(58, 40, 92, 0.95);
+  --k-text: #efe4ff;
+  --k-dim: #c3aee8;
+  --k-line: rgba(255, 158, 199, 0.28);
+  --k-pink: #ff9ec7;
+  --k-lav: #b8a9ff;
+  --k-mint: #7ee8d0;
+  --k-font: 'M PLUS Rounded 1c', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+:root[data-theme="kawaii"] #app {
+  background: linear-gradient(160deg, #1b1430 0%, #2a1d47 60%, #33244f 100%);
+}
+:root[data-theme="kawaii"] .titlebar {
+  background: rgba(58, 40, 92, 0.95) !important;
+  border-bottom-color: var(--k-line) !important;
+}
+:root[data-theme="kawaii"] .titlebar-text {
+  color: var(--k-pink) !important;
+}
+:root[data-theme="kawaii"] .dialog-panel {
+  background: var(--k-panel) !important;
+  color: var(--k-text) !important;
+  border-color: var(--k-line) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 0 32px rgba(255, 158, 199, 0.12) !important;
+}
+:root[data-theme="kawaii"] .dialog-panel * {
+  border-color: var(--k-line);
+  font-family: var(--k-font);
+}
+:root[data-theme="kawaii"] .dialog-panel .mode-btn {
+  color: var(--k-dim) !important;
+  border-radius: 999px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .mode-btn.active {
+  background: rgba(255, 158, 199, 0.22) !important;
+  color: var(--k-pink) !important;
+  border-color: rgba(255, 158, 199, 0.5) !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .chat-input textarea {
+  background: rgba(30, 22, 52, 0.9) !important;
+  color: var(--k-text) !important;
+  border-color: var(--k-line) !important;
+  border-radius: 16px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-content {
+  color: var(--k-text) !important;
+  border-radius: 16px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-user .msg-content {
+  background: linear-gradient(135deg, rgba(255, 158, 199, 0.22), rgba(184, 169, 255, 0.18)) !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-assistant .msg-content {
+  background: rgba(88, 62, 132, 0.4) !important;
+}
+:root[data-theme="kawaii"] .dialog-panel select,
+:root[data-theme="kawaii"] select {
+  background: #241a3d !important;
+  color: var(--k-text) !important;
+  border-color: var(--k-line) !important;
+  border-radius: 10px !important;
+}
+:root[data-theme="kawaii"] select option {
+  background: #241a3d !important;
+  color: var(--k-text) !important;
+}
+:root[data-theme="kawaii"] ::-webkit-scrollbar-track {
+  background: rgba(27, 20, 48, 0.6) !important;
+}
+:root[data-theme="kawaii"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 158, 199, 0.3) !important;
+  border-radius: 999px !important;
+}
+:root[data-theme="kawaii"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 158, 199, 0.5) !important;
+}
+/* 可爱的小动作：按钮悬停微弹（只在 kawaii 下启用） */
+:root[data-theme="kawaii"] button,
+:root[data-theme="kawaii"] .mode-btn {
+  transition: transform 0.14s ease;
+}
+:root[data-theme="kawaii"] button:hover,
+:root[data-theme="kawaii"] .mode-btn:hover {
+  transform: translateY(-1px) scale(1.03);
+}

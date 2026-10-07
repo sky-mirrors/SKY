@@ -83,7 +83,7 @@ describe('SettingsPage integration', () => {
     expect(notificationStore.settings.popupDuration).toBe(4000)
   })
 
-  it('theme toggle cycles dark -> light -> green -> dark', () => {
+  it('theme toggle cycles dark -> light -> green -> kawaii -> dark', () => {
     vi.stubGlobal('document', { documentElement: { setAttribute: vi.fn() } })
     const configStore = useConfigStore()
     expect(configStore.theme).toBe('dark')
@@ -91,6 +91,9 @@ describe('SettingsPage integration', () => {
     expect(configStore.theme).toBe('light')
     configStore.toggleTheme()
     expect(configStore.theme).toBe('green')
+    // 2026-10-07：循环末尾追加 kawaii（可爱/二次元主题）
+    configStore.toggleTheme()
+    expect(configStore.theme).toBe('kawaii')
     configStore.toggleTheme()
     expect(configStore.theme).toBe('dark')
     vi.unstubAllGlobals()

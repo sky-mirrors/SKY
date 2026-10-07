@@ -28,7 +28,7 @@ export const useConfigStore = defineStore('config', () => {
     llmTimeoutScale: 1,
     restoreSessionMemoryOnStartup: false
   })
-  const theme = ref<'dark' | 'light' | 'green'>('dark')
+  const theme = ref<'dark' | 'light' | 'green' | 'kawaii'>('dark')
 
   const isFirstLaunch = computed(() => !config.value.firstLaunchDone)
   const currentJobRole = computed(() => config.value.jobRole)
@@ -60,7 +60,7 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
-  function setTheme(next: 'light' | 'green' | 'dark') {
+  function setTheme(next: 'light' | 'green' | 'dark' | 'kawaii') {
     // D-12：主题下拉框需要按选定值直达——toggleTheme 是循环切换，
     // dark 状态下选 green 实际会得到 light
     theme.value = next
@@ -69,7 +69,8 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   function toggleTheme() {
-    const cycle: Record<string, 'light' | 'green' | 'dark'> = { dark: 'light', light: 'green', green: 'dark' }
+    // 2026-10-07：主题循环末尾追加 kawaii（可爱/二次元），样式见 src/styles/tokens.css
+    const cycle: Record<string, 'light' | 'green' | 'dark' | 'kawaii'> = { dark: 'light', light: 'green', green: 'kawaii', kawaii: 'dark' }
     setTheme(cycle[theme.value] ?? 'dark')
   }
 
@@ -181,7 +182,7 @@ export const useConfigStore = defineStore('config', () => {
         }
         if (parsed.restoreSessionMemoryOnStartup !== undefined) config.value.restoreSessionMemoryOnStartup = parsed.restoreSessionMemoryOnStartup
         if (parsed.theme) {
-          theme.value = parsed.theme as 'dark' | 'light' | 'green'
+          theme.value = parsed.theme as 'dark' | 'light' | 'green' | 'kawaii'
           document.documentElement.setAttribute('data-theme', theme.value)
         }
       } catch { /* ignore */ }
