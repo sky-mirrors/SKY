@@ -338,10 +338,117 @@ flowchart TD
 
 ### 本文档自身的完成度声明（必须在对外引用前看）
 
-**本文档尚未完成"全量合并"。** 旧文档合计 **765 034 字节（23 份）**，本文档当前约 15 KB —— 已吸收的是
-**骨架 + 本会话实测 + 抽查复核过的条目**；下列内容**只在索引里点了名、没有吸收正文**：
-`ARCHITECTURE.md`(87 KB) / `ARCHITECTURE-SUMMARY.md`(80 KB) / `AUDIT-REPORT`(55 KB) / `AUDIT-RECONCILIATION`(43 KB) /
-`MODEL-CAPABILITY-LEDGER-DESIGN.md`(41 KB) / `LIFECYCLE-GAPS.md`(28 KB，仅状态表) / `MECHANISM-BOUNDARIES.md`(22 KB，仅判定分布) /
-`HOTPLUG-ARCHITECTURE.md`(92 KB，仅结论与偏离清单) / `REQUEST-LIFECYCLE.md`(19 KB，仅环节表) / `EXAM-RUNBOOK.md`(16 KB) / `SOAK-RUNBOOK.md`(6 KB)。
+**第二波吸收后**（2026-10-07）：旧文档合计 **765 034 字节（23 份）**，本文档现约 **30 KB**。
 
-**因此：以本文档替代全部旧文档，目前还不成立。**
+**已吸收（有对应章节）**：`README.md`→§0/§1；`最新口径.md`+`MECHANISM-BOUNDARIES.md`+`MECHANISM-DORMANCY*`+`MECHANISM-ROT-AUDIT*`→§4/§20；
+`LIFECYCLE-GAPS.md`→§6/§20.3；`REQUEST-LIFECYCLE.md`→§3；`CORE-ANALYSIS.md`→§4；
+`HOTPLUG-ARCHITECTURE.md`+`领域包-现状评审与待填清单.md`→§9 + `DomainPack-design-ground-truth.md`；
+`ARCHITECTURE.md`+`ARCHITECTURE-SUMMARY.md`→**§16（已判定其星图章节作废）**；
+`AUDIT-REPORT`+`AUDIT-RECONCILIATION`→**§17（已列其自相矛盾处）**；
+`MODEL-CAPABILITY-LEDGER-DESIGN.md`→**§18（已判定未实施）**；`EXAM-RUNBOOK`+`SOAK-RUNBOOK`→**§19**。
+
+**仍未吸收正文**：`2026.9.24最新快照.md`、`2026.9.26最新快照.md`、`2026.9.27.1-30快照.md`（三份"快照"类，体量大且内容很可能已被后续文档取代）、
+`知识沉淀-匹配度与RaaP.md`、`漏斗前四层盘点与L1补齐.md`、`HOTPLUG-ARCHITECTURE.md` 的 M1–M20 逐条正文、`TEST_REPORT.md` / `SECURITY.md` / `CONTRIBUTING.md`。
+
+**逐条核实率**：文中标 `[已复核]`/`[实测]` 的条目已回代码；标 `[转述·未复核]` 的（尤其 §17 审计、§19 手册、§20 的 O/G 条目）**尚未逐条回代码**。
+
+**因此：现在可以删旧文档了吗？—— 建议先别删。** 理由：本文档对 §17/§19/§20 的内容仍属"转述级"，
+而旧文档本身含有大量**代码里读不出来的**上下文（当时的取舍理由、失败案例、排查记录）。稳妥做法：
+**先用本文档做对外说明，旧文档转入 `docs/archive/` 保留**；等 §17/§19/§20 也逐条复核过，再删。
+
+## 16. 架构详解与历史文档的处置（吸收 `ARCHITECTURE.md` 87 KB / `ARCHITECTURE-SUMMARY.md` 80 KB）
+
+### 16.1 两份架构文档的时效性 [已复核]
+
+- `ARCHITECTURE.md` 自述**星图时代**（2026-09-11）；`ARCHITECTURE-SUMMARY.md` 头部**宣判前者 UI/依赖部分系统性过期**，并载 3D 星图已于 2026-09-26 删除。
+- **本会话独立复核**：`src/composables/useThreeScene.ts` **不存在**；`package.json` **无 `three` 依赖**。⇒ **星图相关章节确已作废**，可整段废弃。
+- ⚠️ 但**与「删星图」无关的部分不能跟着删**（项目约定：只限 UI 层，涉及功能/性能的一律不删）。
+
+### 16.2 两份文档的规模数字已过期 [已复核]
+
+`ARCHITECTURE-SUMMARY.md:69` 记 services 68 / components 28 / electron 25。实测：`src/services/*.ts` **71**、`src/components/**/*.vue` **30**、`electron/*.ts` **27**、`src/stores/*.ts` **18**、`src/data/*.ts` **4**。（仅目录计数，不代表行数。）
+
+另：`ARCHITECTURE.md:95` 称「没有独立 typecheck script」，而 `package.json:15` **有** `typecheck`。
+
+### 16.3 两份文档内部自相矛盾（引用前必须定值）[转述·未复核]
+
+- `ARCHITECTURE.md`：Shell 白名单 **12 / 13 / 19** 三值并存（`:606` vs `:891`）；L2 清单 **20 / 24**、macro **13 / 17** 并存；`node:*` emit **47** 与 45+2+3=**50** 不一致。
+- `ARCHITECTURE-SUMMARY.md`：L0 规则数 **10 / 11** 并存（`:685` vs `:698`）；漏斗命名 **「五级」与「六层」混用**（`:473` vs `:3.2/§16`）。
+- ⚠️ 其中 **L3 装饰占位判为「待清 P2」** 的条目**与项目约定冲突**——L3 占位是作者预留位，**不要按文档去清理**。
+
+### 16.4 处置建议
+
+`ARCHITECTURE.md` 与 `ARCHITECTURE-SUMMARY.md`：**星图/UI 依赖章节整段废弃**；进程模型、模块分层、构建打包等章节**可作为素材，但数字必须重取**（本文档不搬运其数字）。
+
+---
+
+## 17. 审计与对账（吸收 `AUDIT-REPORT-2026-09.md` 55 KB / `AUDIT-RECONCILIATION-2026-09.md` 43 KB）
+
+[转述·未复核：以下均为文档所述，**未逐条回代码**；引用前必须复核]
+
+- `AUDIT-REPORT-2026-09.md`：552 行，审计对象 HEAD `ec6a11f`（2026-09-14）。统计为 9 簇合计 213 项，去重后 **P0 = 10 / P1 ≈ 48 / P2 ≈ 75 / P3 ≈ 60**。
+- `AUDIT-RECONCILIATION-2026-09.md`：449 行，对账 213 项中的 **201 项**，结论 **FIXED 83（41%）/ PARTIAL 33（16%）/ OPEN 85（42%）**；P0 为 **9 已修 + 1 部分修**。
+- 文档称 `npm test` 基线 **1526/1526**（本节时间点），并指 `TEST_REPORT.md` 的 1129 为过时数字。
+
+### 17.1 该文档自身的可信度问题（重要）
+
+1. **同一文件内自相矛盾**：P0-2 在 §1.1 判「任意写盘链可达」，§7.1 改判「已修」（`:35` vs `:391`）；A2-10 在 §7.1 标"已接线"，§7.4 又列入"状态未知"（`:136` vs `:441`）。
+2. **自承未复核**：§7.4 明说 A1/A2/A3/A4 群本轮复核**未完成**，属"未获取"而非"无发现"。
+3. **口径漂移**：`preload` 暴露键数在三处出现 **83 / 82 / 81** 三个值。
+4. **路径错误**：文档引用的 `WorkbenchNav.vue` / `mockElectronAPI.ts` 路径不存在，真实路径在 `src/components/workbench/` 与 `test/utils/` 下。
+
+**结论**：这两份审计文档**不能当作当前状态的依据**；P0/P1 逐条若要对外声称"已修"，必须回代码复核（本会话已复核的少数几条均显示比文档更新）。
+
+---
+
+## 18. 模型能力账本与切换成本（设计文档，**未实施**）
+
+[已复核]
+
+- 文档：`docs/MODEL-CAPABILITY-LEDGER-DESIGN.md`，**612 行**，头部标 **状态：待审阅**，阶段 Phase A+B。
+- **未实施**（本会话磁盘复核）：设计要新建的 `src/services/modelCapabilityLedger.ts` 与 `src/services/switchCostModel.ts` **均不存在**。
+- 该文档引用的行号也已漂移：`presentExecutionOutput` 文档称 `dialogStore.ts:787`，**实测 `:1191`**；`MODEL_TIER_CONFIG` 称 `scheduleOptimizer.ts:309-317`，实测 `:391`；`buildProviderChain` 称 `providerChain.ts:66`，实测 `:82`；`pickOllamaModel` 称 `:153`，实测 `:190`。
+- 其测试基线记 **1699** 用例（另有文档记 1899 / 1864），**均与当前 2653 不符**。
+
+**对外口径**：这是一个**设计提案**，不是已交付能力。若对外介绍，必须标注"设计阶段、未实现"。
+
+---
+
+## 19. 运维手册（考试 / 浸泡）
+
+[转述·未复核：命令与前置条件未在本环境逐条执行]
+
+- `docs/EXAM-RUNBOOK.md`：考试执行手册（章节一至八）。V2 素材重建脚本 `docs/exam-fixtures/make-fixtures.cjs` **存在于磁盘** ✓。源码符号 `dirMatches` / `inferFailureStage` 在 `examRunner.ts` 中存在（`:87/:193`、`:290`）✓。
+- `docs/SOAK-RUNBOOK.md`：浸泡验证手册（章节一至四 + 附录）。
+- **留档实况** [已复核]：`docs/exam-reports/` 下实际 **7 个文件**（6 份 JSON 成绩单 + 1 份失败归因 md），而 `EXAM-RUNBOOK.md:180` 只列了 2 份 ⇒ **该手册的成绩单清单已过期**。
+- ⚠️ **两文档冲突**：`SOAK-RUNBOOK.md:51` 要求 `vaultWrite` 后**重载**生效；`HOTPLUG-ARCHITECTURE.md:37`（R16）称写入后**即时生效、无需重载**并明确修正了前者。**以 R16 为准，但引用前请复核代码。** [转述·未复核]
+- ⚠️ 成绩口径跨文档不一致：`EXAM-RUNBOOK.md:76` 记 44.4%（8/18），`docs/最新口径.md` 记 55.6%（10/18）——**属不同轮次**，引用必须带轮次与日期。 [转述·未复核]
+
+---
+
+## 20. 机制边界与重叠仲裁（吸收 `MECHANISM-BOUNDARIES.md` 22 KB / `LIFECYCLE-GAPS.md` 28 KB）
+
+### 20.1 机制边界总册的 20 个小节 [转述·未复核]
+
+`MECHANISM-BOUNDARIES.md` §一 逐机制四栏（能解决 / 不能解决 / 边界界定 / 边界衔接），小节行号：
+`L16` L0 规则路由 · `L23` L0.5 关键词快配 · `L30` L1 单节点直调 · `L37` L2 RaaP 匹配 · `L44` L3 LLM 仲裁 ·
+`L51` L4 探索模式 · `L58` 消费者上下文 · `L65` FactGuard · `L72` 双引擎审计 · `L79` 熔断器·重试 ·
+`L86` 执行指纹缓存 · `L93` 语义缓存 · `L100` 偏好注入 · `L107` 竞争 EMA(M16) · `L114` M20 降级链 ·
+`L121` 超时阶梯 · `L128` 模型网关 tier 体系 · `L135` 隔离架构 · `L141` deliverableCheck · `L148` ZOL 零 token 学习
+
+### 20.2 重叠区仲裁（O 系列）[转述·未复核]
+
+- **实际只有 O1–O10，没有 O11**（任务前提与文档不符）；清单表在 `§三` `:185-193`，裁决记录在 `§四` `:197-213`。
+- 裁决结论（2026-09-22，用户裁定）：O1 时序切分 / O2 分层 / O3 intent 翻译先行且权威 / O4 维持独立互不覆盖 / O5 按方向切分 / O7 **L0 权限更高** / O8 **熔断先声明边界** / O6 顺延代码批 / **O10 写类走风险确认条、读保持恒可用**。
+- ⚠️ 文档 §一 正文**残留大量 `O? ⏳` 历史标记**，与 §三/§四「已全部裁定」冲突；文档自己 `:8` 承认"2026-09-25 的复核被这些残留标记误导"。**以 §四 裁决记录为准。**
+
+### 20.3 缺口清单 G-1 ~ G-17 [转述·未复核]
+
+条目与行号：`L14` G-1 · `L19` G-2 · `L24` G-3 · `L30` G-4 · `L35` G-5 · `L40` G-6 · `L46` G-7 · `L61` G-8 · `L66` G-9 · `L73` G-10 · `L77` G-11 · `L81` G-12 · `L85` G-13 · `L89` G-14 · `L93` G-15 · `L99` G-16 · `L120` G-17。
+
+**该文档自身有三处"条目头 vs 归档表"打架**（归档表未随 2026-09-27 复核回填）：
+G-3 条目头"✅ 已修" vs 归档表"❌ P1"（**经我复核，G-3 确已修**，见 §0 第 6 条）；G-6 同型（条目头"部分修" vs 表"❌"）；G-1 同型。
+
+**跨文档矛盾**：`MECHANISM-BOUNDARIES.md`（09-22 快照）用现在时把 G-1/G-3/G-6/G-9 描述为**仍存在**，而 `LIFECYCLE-GAPS.md`（09-27 复核后）已标已修/部分修。**以晚者为准，但仍要回代码。**
+
+---
