@@ -282,6 +282,16 @@ const skillRules: L0SkillRule[] = [
       /(审查|合规|条款|风险|法律|合同)/
     ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
+      // 2026-10-08：**「批量 + 归类」不是本规则的菜**——本规则是**单文件**转换器（file_convert 的
+      // source/target 都必填，见 nativeTools.ts 与 macroExecutor 的 file_convert 分支）。用户说
+      // 「把桌面上**所有的** md 都转成 pdf，然后**都放进**一个新建的文件夹里」时，本规则抽不到真实路径，
+      // 只会回一句「请提供完整路径」——用户的批次语义整个没被处理，等于用一句不对症的澄清吃掉请求。
+      // 这类请求下沉给**组合规则**（『建文件夹并归类文件』），由表里的 $missing.convert-collect 如实说明
+      // 「批量转格式没有算子」+ 给替代做法。有明确单文件路径时仍由本规则照常处理（单文件转换是真能力）。
+      const wantsBatch = /(所有|全部|各个|每个|批量|整个)/.test(input) || /都\s*(转|改|换|放|归|收|移)/.test(input)
+      const hasCollectTarget = /(文件夹|目录|folder)/i.test(input)
+      if (wantsBatch && hasCollectTarget && !extractFilePath(input)) return null
+
       const filePath = extractFilePath(input)
       const targetFormat = extractTargetFormat(input)
       const sourceExt = extractSourceExt(input)

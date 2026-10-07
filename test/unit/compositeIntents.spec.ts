@@ -124,4 +124,16 @@ describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"'
     expect(steps.some(s => s.tool === 'llm_generate'), '应如实说明缺口并给替代做法').toBe(true)
     expect(steps.some(s => s.tool === 'create_directory'), '不得只建一个文件夹就交差（多目标能力缺失）').toBe(false)
   })
+
+  it('批量转格式 + 归类：必须走缺口如实说明，不得被单文件转换规则抢去"要完整路径"', async () => {
+    // 2026-10-08：这条请求先命中『文件格式转换』（在组合规则之前）。该规则是**单文件**转换器
+    // （source/target 必填），抽不到路径时只能回一句「请提供完整路径」——用户的批次语义
+    // （「所有的 md」）根本没被处理，等于用一句错误的澄清吃掉了整个请求。
+    // 期望：下沉给组合规则，按 $missing 的 convert-collect 如实说明「批量转格式没有算子」+ 替代做法。
+    const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
+    const steps = plan?.steps || []
+    const prompt = steps.map(s => String((s.params as Record<string, string>)?.prompt || '')).join('\n')
+    expect(prompt, `实得步骤：${JSON.stringify(steps.map(s => s.tool))}`).toContain('没有组合算子')
+    expect(steps.some(s => s.tool === 'file_convert'), '不得假装能批量转换').toBe(false)
+  })
 })
