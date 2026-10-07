@@ -98,14 +98,15 @@ const dagDoneCount = computed(() => {
 }
 .wb-sb-circuit:hover { background: rgba(224, 106, 106, 0.2); }
 
+/* 2026-10-07：对齐三档新配色（原值为"浅灰蓝 / 深绿底"，与新的浅色萝莉/浅绿生机冲突） */
 :root[data-theme='light'] .wb-statusbar {
-  --sb-bg: rgba(238, 241, 248, 0.95);
-  --sb-border: rgba(0, 0, 0, 0.08);
-  --sb-text: #5a6375;
+  --sb-bg: rgba(255, 246, 250, 0.97);
+  --sb-border: rgba(255, 119, 170, 0.3);
+  --sb-text: #5c3a4c;
 }
 :root[data-theme='green'] .wb-statusbar {
-  --sb-bg: rgba(18, 30, 18, 0.95);
-  --sb-border: rgba(80, 160, 80, 0.15);
-  --sb-text: #7a9a7a;
+  --sb-bg: rgba(241, 251, 243, 0.97);
+  --sb-border: rgba(38, 178, 104, 0.28);
+  --sb-text: #2c4634;
 }
 </style>

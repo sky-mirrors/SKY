@@ -328,20 +328,21 @@ function onSwitchSession(sessionId: string) {
 }
 .wb-nav-footer-text { font-size: var(--font-sm); color: var(--wb-nav-text-dim); }
 
+/* 2026-10-07：对齐三档新配色（原值为"浅灰蓝 / 深绿底"，与新的浅色萝莉/浅绿生机冲突） */
 :root[data-theme='light'] .wb-nav {
-  --wb-nav-bg: rgba(240, 243, 250, 0.95);
-  --wb-nav-border: rgba(0, 0, 0, 0.08);
-  --wb-nav-text: #3a4254;
-  --wb-nav-text-dim: #8a93a6;
-  --wb-nav-active-bg: rgba(60, 110, 220, 0.1);
-  --wb-nav-hover-bg: rgba(60, 110, 220, 0.06);
+  --wb-nav-bg: rgba(255, 246, 250, 0.97);
+  --wb-nav-border: rgba(255, 119, 170, 0.3);
+  --wb-nav-text: #5c3a4c;
+  --wb-nav-text-dim: #856572;
+  --wb-nav-active-bg: rgba(255, 119, 170, 0.14);
+  --wb-nav-hover-bg: rgba(255, 119, 170, 0.07);
 }
 :root[data-theme='green'] .wb-nav {
-  --wb-nav-bg: rgba(20, 32, 20, 0.92);
-  --wb-nav-border: rgba(80, 160, 80, 0.15);
-  --wb-nav-text: #a8c8a8;
-  --wb-nav-text-dim: #6a8a6a;
-  --wb-nav-active-bg: rgba(80, 160, 80, 0.15);
-  --wb-nav-hover-bg: rgba(80, 160, 80, 0.08);
+  --wb-nav-bg: rgba(241, 251, 243, 0.97);
+  --wb-nav-border: rgba(38, 178, 104, 0.28);
+  --wb-nav-text: #2c4634;
+  --wb-nav-text-dim: #5a7a64;
+  --wb-nav-active-bg: rgba(38, 178, 104, 0.14);
+  --wb-nav-hover-bg: rgba(38, 178, 104, 0.07);
 }
 </style>

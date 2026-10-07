@@ -486,18 +486,21 @@ function formatExamDuration(ms: number): string {
 
 .wb-rt-time { font-size: var(--font-xs); color: var(--rt-text-dim); opacity: 0.7; flex-shrink: 0; }
 
+/* 2026-10-07（三档主题对齐）：这里的浅/绿两档取值原按"浅灰蓝 / 深绿底"设计，
+ * 与新的三档（浅色萝莉 / 浅绿生机）冲突——实测绿档下该面板是深绿底(rgb(20,32,20))、
+ * 而 tokens.css 已把文字改成深绿(#2c4634) ⇒ 对比度 1.63:1。此处对齐到新配色。 */
 :root[data-theme='light'] .wb-runtime {
-  --rt-bg: rgba(240, 243, 250, 0.95);
-  --rt-border: rgba(0, 0, 0, 0.08);
-  --rt-text: #3a4254;
-  --rt-text-dim: #8a93a6;
-  --rt-card-bg: rgba(0, 0, 0, 0.02);
+  --rt-bg: rgba(255, 246, 250, 0.97);
+  --rt-border: rgba(255, 119, 170, 0.3);
+  --rt-text: #5c3a4c;
+  --rt-text-dim: #856572;
+  --rt-card-bg: rgba(255, 119, 170, 0.06);
 }
 :root[data-theme='green'] .wb-runtime {
-  --rt-bg: rgba(20, 32, 20, 0.92);
-  --rt-border: rgba(80, 160, 80, 0.15);
-  --rt-text: #a8c8a8;
-  --rt-text-dim: #6a8a6a;
-  --rt-card-bg: rgba(255, 255, 255, 0.03);
+  --rt-bg: rgba(241, 251, 243, 0.97);
+  --rt-border: rgba(38, 178, 104, 0.28);
+  --rt-text: #2c4634;
+  --rt-text-dim: #5a7a64;
+  --rt-card-bg: rgba(38, 178, 104, 0.06);
 }
 </style>
