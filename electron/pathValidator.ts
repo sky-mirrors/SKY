@@ -153,9 +153,20 @@ export function hasSuspiciousBasename(filePath: string): boolean {
   return /[. ]$/.test(base) || base.includes(':')
 }
 
+// V2-S04 修复：输入路径中任何 '..' 段一律拒绝。仅校验 resolve() 归一化后的落点会
+// 漏判 `out\..\..\Windows\evil.md` 这类「归一化后仍在允许目录内」的穿越（resolve 把
+// .. 折叠掉，落点看似合法）。内部构造的已归一化路径（如 join(p,'..') 的结果）不含
+// '..' 段，不受影响。口径与 sanitizeKey 的 '..' 拒绝一致。
+function hasTraversalSegment(input: string): boolean {
+  return input.split(/[\\/]+/).some(seg => seg === '..')
+}
+
 export function validatePath(inputPath: string): { safe: boolean; resolved: string; reason?: string } {
   if (typeof inputPath !== 'string' || inputPath.length === 0) {
     return { safe: false, resolved: '', reason: '路径为空' }
+  }
+  if (hasTraversalSegment(inputPath)) {
+    return { safe: false, resolved: '', reason: `路径包含 '..' 穿越段，被安全策略拒绝: ${inputPath}` }
   }
   const resolved = resolve(inputPath)
   const realResolved = realpathDeepest(resolved)

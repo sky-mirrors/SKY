@@ -16,11 +16,15 @@ const SHELL_ALLOWED_COMMANDS = [
   'pip install'
 ]
 
-// P0-1 修复：cmd.exe 元字符黑名单。% 与换行任意位置拒绝（%VAR% 展开后
-// 的 & 仍是命令分隔符）；& | < > ^ 仅在双引号外拒绝（引号内为字面量）
+// P0-1 修复：cmd.exe 元字符黑名单。% 与**内嵌**换行拒绝（%VAR% 展开后的 &
+// 仍是命令分隔符；`ls\nrm` 会被拆成两条命令）；& | < > ^ 仅在双引号外拒绝
+// （引号内为字面量）。V2-R15：首尾空白（含换行）不算元字符。
 export function findShellMetacharacter(command: string): string | null {
+  // V2-R15 修复：先剥掉首尾空白再扫描——只有**内嵌**换行才构成命令注入面；
+  // 首尾换行（模型输出常带尾随 \n）不改变执行语义，此前在 trim 之前扫描
+  // 原始串，把兜尾的 `ls\n` 误判为元字符而整体拒绝（V2-R15 回归）。
   let inQuote = false
-  for (const ch of command) {
+  for (const ch of command.trim()) {
     if (ch === '"') { inQuote = !inQuote; continue }
     if (ch === '%') return '%'
     if (ch === '\n') return '\\n'

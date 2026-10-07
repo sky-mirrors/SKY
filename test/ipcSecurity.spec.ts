@@ -550,3 +550,38 @@ describe('IPC安全 - E-3 修复：node -e 写路径规范化 + 扩展名校验'
     expect(isShellCommandAllowed(cmd).allowed).toBe(true)
   })
 })
+
+
+describe('IPC安全 - V2 考试回归：白名单命令尾随换行 + 路径 .. 穿越', () => {
+  const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+
+  // —— V2-R15：模型输出的白名单命令常带尾随换行，不得因此被整体拒绝 ——
+  it('尾随换行的白名单命令应放行（V2-R15：此前 `ls\\n` 被判元字符 \\n 拒绝）', () => {
+    expect(isShellCommandAllowed('ls\n').allowed).toBe(true)
+    expect(isShellCommandAllowed('ls -la\r\n').allowed).toBe(true)
+    expect(isShellCommandAllowed('  pwd  ').allowed).toBe(true)
+  })
+
+  it('内嵌换行的命令注入仍拒绝（回归护栏，不得为放行尾随换行而洞开注入面）', () => {
+    expect(isShellCommandAllowed('ls\nrm -rf /').allowed).toBe(false)
+    expect(isShellCommandAllowed('ls\n whoami').allowed).toBe(false)
+    expect(isShellCommandAllowed('ls -la && whoami').allowed).toBe(false)
+  })
+
+  // —— V2-S04：含 .. 段的路径应被拒，即便 resolve() 归一化后仍落在允许目录内 ——
+  it('写路径含 .. 穿越段 → 拒绝（V2-S04：此前归一化后落 Desktop 内被放行）', () => {
+    const raw = `${home}\\Desktop\\HoloExam\\out\\..\\..\\Windows\\evil.md`
+    const r = validateWritePath(raw)
+    expect(r.safe).toBe(false)
+    expect(r.reason).toContain('..')
+  })
+
+  it('读路径含 .. 穿越段（归一化后仍在允许目录内）→ 拒绝', async () => {
+    const { validateReadPath } = await import('@electron/pathValidator')
+    expect(validateReadPath(`${home}/Desktop/../Documents/x.txt`).safe).toBe(false)
+  })
+
+  it('合法绝对路径（无 .. 段）→ 仍允许（回归护栏）', () => {
+    expect(validateWritePath(`${home}\\Desktop\\HoloExam\\out\\ok.md`).safe).toBe(true)
+  })
+})
