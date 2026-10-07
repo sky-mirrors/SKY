@@ -27,6 +27,8 @@ interface ElectronAPI {
   vectorDeleteBin: (key: string) => Promise<boolean>
   fileRead: (filePath: string, maxBytes?: number) => Promise<{ success: boolean; content?: string; error?: string; size?: number; isBinary?: boolean; encoding?: string }>
   fileList: (dirPath: string) => Promise<{ success: boolean; entries?: string[]; entriesWithMeta?: Array<{ name: string; isDir: boolean; mtimeMs: number; mtimeIso: string | null; shootDateIso?: string | null; shootDateTag?: string | null }>; error?: string }>
+  /** 2026-10-07（Wave 2）：递归文件检索（按名 / 按内容），只读 */
+  fileSearch: (opts: { root: string; query: string; mode?: 'name' | 'content'; maxResults?: number }) => Promise<{ success: boolean; hits?: Array<{ path: string; name: string; line?: number; excerpt?: string }>; scanned?: number; truncated?: boolean; error?: string }>
   httpFetch: (opts: { url: string; method?: string; headers?: Record<string, string>; body?: string; timeout?: number }) => Promise<{ success: boolean; status: number; headers?: Record<string, string>; body?: string; error?: string }>
   backupCreate: () => Promise<{ success: boolean; path?: string; error?: string }>
   backupRestore: () => Promise<{ success: boolean; message?: string; error?: string }>

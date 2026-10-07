@@ -6,6 +6,7 @@ import { Readable } from 'stream'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync, copyFileSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
+import { searchFiles } from './fileSearch'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
 import { renderHtmlToPdf } from './pdfRenderer'
@@ -447,6 +448,24 @@ export function setupIpc(_win: BrowserWindow | null) {
       // 数据路径在 ./fileListing（纯读盘 + 解析，可单测），此处只做路径校验与错误包装。
       const { entries, entriesWithMeta } = listDirectoryWithMeta(validatedPath)
       return { success: true, entries, entriesWithMeta }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  // 2026-10-07（Wave 2）：文件检索（按名 / 按内容）——**只读**。
+  // 路径先过 validateReadPath；递归深度、单文件大小与结果条数的上限在 ./fileSearch 内（防拖住主进程）。
+  ipcMain.handle('file:search', (_event, opts: { root: string; query: string; mode?: 'name' | 'content'; maxResults?: number }) => {
+    try {
+      const pathCheck = validateReadPath(String(opts?.root || ''))
+      if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+      const root = pathCheck.resolved
+      if (!root || !existsSync(root)) return { success: false, error: '目录不存在' }
+      if (!statSync(root).isDirectory()) return { success: false, error: '不是目录' }
+      const mode: 'name' | 'content' = opts?.mode === 'content' ? 'content' : 'name'
+      const maxResults = Number(opts?.maxResults) > 0 ? Number(opts.maxResults) : undefined
+      const r = searchFiles(root, String(opts?.query || ''), mode, maxResults)
+      return { success: true, ...r }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }

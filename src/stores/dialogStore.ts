@@ -660,6 +660,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
 
     // N1：原生文件工具分发——不依赖 MCP 连接
+    // 2026-10-07（Wave 2）：search_files —— 与 macroExecutor 的分发器保持同集（parity 测试守住）。
+    // 读类工具，不经 O10 写门。
+    if (fullName === 'search_files') {
+      const root = String(args.root || args.dir || args.path || '')
+      if (!root) return 'search_files: 缺少 root 参数（检索根目录绝对路径）'
+      const query = String(args.query || args.pattern || args.keyword || '')
+      if (!query) return 'search_files: 缺少 query 参数'
+      const mode = String(args.mode || 'name') === 'content' ? 'content' : 'name'
+      if (!window.electronAPI?.fileSearch) throw new Error('search_files not available')
+      const r = await window.electronAPI.fileSearch({ root, query, mode, maxResults: Number(args.maxResults) || undefined })
+      if (!r.success) return `检索失败: ${r.error || ''}`
+      const hits = r.hits ?? []
+      if (hits.length === 0) return `未找到匹配「${query}」的文件（已检视 ${r.scanned ?? 0} 个文件）`
+      const lines = hits.map(h => (mode === 'content' ? `${h.path}:${h.line}  ${h.excerpt ?? ''}` : h.path))
+      return `找到 ${hits.length} 条${r.truncated ? '（已达上限，可能还有更多）' : ''}：\n${lines.join('\n')}`
+    }
+
     if (fullName === 'read_file') {
       const path = String(args.path || args.file_path || '')
       if (!path) return 'read_file: 缺少 path 参数'

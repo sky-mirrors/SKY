@@ -70,6 +70,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileList: (dirPath: string) =>
     ipcRenderer.invoke('file:list', dirPath),
 
+  // 2026-10-07（Wave 2）：递归文件检索（按名 / 按内容），只读
+  fileSearch: (opts: { root: string; query: string; mode?: 'name' | 'content'; maxResults?: number }) =>
+    ipcRenderer.invoke('file:search', opts),
+
   fileWrite: (opts: { filePath: string; content: string; encoding?: string }) =>
     ipcRenderer.invoke('file:write', opts),
   fileMove: (opts: { from: string; to: string }) =>

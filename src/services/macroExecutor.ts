@@ -461,6 +461,22 @@ export async function callToolDirectWithTier(
     return `命令执行失败(exit code ${result.code}): ${result.stderr || result.stdout || '未知错误'}`
   }
 
+  // 2026-10-07（Wave 2）：递归文件检索（按名 / 按内容）——读类，不经写门。
+  if (fullName === 'search_files') {
+    if (!window.electronAPI?.fileSearch) throw new Error('search_files not available')
+    const root = await resolveFilePath(String(args.root || args.dir || args.path || ''))
+    if (!root) throw new Error('search_files: missing root')
+    const query = String(args.query || args.pattern || args.keyword || '')
+    if (!query) throw new Error('search_files: missing query')
+    const mode = String(args.mode || 'name') === 'content' ? 'content' : 'name'
+    const r = await window.electronAPI.fileSearch({ root, query, mode, maxResults: Number(args.maxResults) || undefined })
+    if (!r.success) throw new Error(r.error || 'search_files failed')
+    const hits = r.hits ?? []
+    if (hits.length === 0) return `未找到匹配「${query}」的文件（已检视 ${r.scanned ?? 0} 个文件）`
+    const lines = hits.map(h => (mode === 'content' ? `${h.path}:${h.line}  ${h.excerpt ?? ''}` : h.path))
+    return `找到 ${hits.length} 条${r.truncated ? '（已达上限，可能还有更多）' : ''}：\n${lines.join('\n')}`
+  }
+
   if (fullName === 'read_file') {
     if (!window.electronAPI?.fileRead) throw new Error('read_file not available')
     // B1-fix：路径须展开 %USERPROFILE%/%HOME%（与 list_directory 同口径）——

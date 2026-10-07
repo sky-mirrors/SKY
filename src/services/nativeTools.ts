@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract', 'search_files'] as const
 
 /**
  * 关于 `create_directory`（2026-10-07 落定：**刻意不注入模型工具表**）
@@ -336,6 +336,22 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         path: { type: 'string', description: '源文档绝对路径（.pdf/.docx/.xlsx/.xls）' }
       },
       required: ['path']
+    }
+  },
+  {
+    // 2026-10-07（Wave 2）：只读检索。此前常驻工具集里**没有任何检索类能力**（无 grep/glob），
+    // 「找一下哪里用到 X」只能靠模型自己逐层 list_directory。
+    name: 'search_files',
+    description: '在指定目录下递归检索文件：按文件名或按文件内容（子串匹配）。只读，不改动任何文件。',
+    parameters: {
+      type: 'object',
+      properties: {
+        root: { type: 'string', description: '检索根目录的绝对路径' },
+        query: { type: 'string', description: '要查找的字符串（文件名片段或内容片段）' },
+        mode: { type: 'string', description: 'name=按文件名（缺省）/ content=按文件内容' },
+        maxResults: { type: 'number', description: '最多返回多少条（缺省 50，上限 200）' }
+      },
+      required: ['root', 'query']
     }
   }
 ]
