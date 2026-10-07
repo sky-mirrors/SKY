@@ -791,17 +791,18 @@ describe('dialogStore.getRecentAssistantOutput（宏承接上下文数据源）'
     expect(s.getRecentAssistantOutput()).toContain('会议通知')
   })
 
-  it('无 assistant 文本产出时返回空串', () => {
+  it('无 assistant 产出时仍返回用户轮次——历史不再为空（2026-10-07 修复「刚说过就忘」）', () => {
     const s = createStore()
     s.addUserMessage('你好')
-    expect(s.getRecentAssistantOutput()).toBe('')
+    // 旧语义返回空串 ⇒ 宏路径一条用户历史都拿不到；现返回用户轮次
+    expect(s.getRecentAssistantOutput()).toBe('用户：你好')
   })
 
-  it('多条产出时取最近一条', () => {
+  it('多条产出时返回最近若干轮（user+assistant 两端）', () => {
     const s = createStore()
     s.addAssistantMessage('第一条产出内容')
     s.addAssistantMessage('第二条产出内容')
-    expect(s.getRecentAssistantOutput()).toBe('第二条产出内容')
+    expect(s.getRecentAssistantOutput()).toBe('助手：第一条产出内容\n助手：第二条产出内容')
   })
 })
 

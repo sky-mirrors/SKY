@@ -117,13 +117,15 @@ describe('宏提示词并入用户原始请求', () => {
 
 
 describe('宏路径承接上下文（V2-T02/T04 第二轮根因：宏看不到会话历史）', () => {
-  it('提供最近上下文时，作为 assistant 轮次插入到纪律与用户内容之间', () => {
-    const msgs = buildMacroLlmMessages('把那份改成下午三点', '会议通知\n各位同事：…')
+  it('提供最近上下文时，作为 [近期对话] system 块插入到纪律与用户内容之间', () => {
+    const msgs = buildMacroLlmMessages('把那份改成下午三点', '用户：写个通知\n助手：会议通知\n各位同事：…')
     expect(msgs).toHaveLength(3)
     expect(msgs[0].role).toBe('system')
     expect(msgs[0].content).toBe(MACRO_OUTPUT_DISCIPLINE)
-    expect(msgs[1].role).toBe('assistant')
-    expect(msgs[1].content).toBe('会议通知\n各位同事：…')
+    // 2026-10-07：数据源由「最近一条 assistant 产出」扩为「最近若干轮 user+assistant」——
+    // 角色随之改为 system（多轮转写不是单条 assistant 产出，用 assistant 角色会污染轮次语义）
+    expect(msgs[1].role).toBe('system')
+    expect(msgs[1].content).toBe('[近期对话]\n用户：写个通知\n助手：会议通知\n各位同事：…')
     expect(msgs[2].role).toBe('user')
     expect(msgs[2].content).toBe('把那份改成下午三点')
   })
@@ -139,16 +141,16 @@ describe('宏路径承接上下文（V2-T02/T04 第二轮根因：宏看不到�
     }
   })
 
-  it('上下文超长时截断到 2000 字', () => {
+  it('上下文超长时截断到 2000 字（前缀不计入截断）', () => {
     const long = 'A'.repeat(5000)
     const msgs = buildMacroLlmMessages('x', long)
-    expect(msgs[1].content.length).toBe(2000)
+    expect(msgs[1].content.length).toBe('[近期对话]\n'.length + 2000)
   })
 
   it('上下文原样透传，且不改写用户内容（作业指令仍逐字保留）', () => {
     const raw = '你是会议纪要专家。\n\n会议记录：{{step_1_result}}'
     const msgs = buildMacroLlmMessages(raw, '上一轮产出')
-    expect(msgs[1].content).toBe('上一轮产出')
+    expect(msgs[1].content).toBe('[近期对话]\n上一轮产出')
     expect(msgs[2].content).toBe(raw)
   })
 })

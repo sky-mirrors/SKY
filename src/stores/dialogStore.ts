@@ -580,7 +580,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   function buildChatHistory(currentContent: string): ChatMessage[] {
     const recentMsgs = messages.value.filter(m => m.role === 'user' || (m.role === 'assistant' && m.type === 'text'))
 
-    const recentCount = 3
+    // 2026-10-07 修复「刚说过的事下一轮就查不到」：原固定 `recentCount = 3` ⇒ 覆盖不到两轮，
+    // 窗口外的内容除非存在压缩摘要否则**直接丢弃**（实测：dialog 有 2050 条消息，进入模型的历史只有个位数；
+    // 用户「先记住 X，隔几轮再问」被答成"记录里没有该信息"）。
+    // 改为**按字符预算取最近若干条**：下限 3 条（保持原语义）、上限 12 条；短消息能覆盖更多轮，
+    // 长消息仍在预算内收敛，token 上界可控。
+    const RECENT_CHAR_BUDGET = 6000
+    const MIN_RECENT = 3
+    const MAX_RECENT = 20
+    let budget = RECENT_CHAR_BUDGET
+    let take = 0
+    for (let i = recentMsgs.length - 1; i >= 0; i--) {
+      const len = String(recentMsgs[i].content || '').length
+      if (take >= MIN_RECENT && (take >= MAX_RECENT || budget - len < 0)) break
+      budget -= len
+      take++
+    }
+    const recentCount = Math.max(MIN_RECENT, take)
     const recent = recentMsgs.slice(-recentCount)
     const olderMsgs = recentMsgs.slice(0, -recentCount)
 
@@ -616,8 +632,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
    * 经 bus 通道 `dialog:get-recent-context` 供 macroExecutor 注入宏的每步 LLM 调用。
    */
   function getRecentAssistantOutput(maxLen = 2000): string {
-    const last = [...messages.value].reverse().find(m => m.role === 'assistant' && m.type === 'text' && !!m.content.trim())
-    return last ? last.content.slice(0, maxLen) : ''
+    // 2026-10-07 修复「刚说过的事下一轮就查不到」：
+    // 原实现只返回**最近一条 assistant 文本产出** ⇒ 宏路径（buildMacroLlmMessages）拿到的历史只有那一条，
+    // **用户先前说过的话完全不在** —— 实测「先让它记住 X，隔几轮再问」被答成"记录里没有该信息"，
+    // 因为那条 user 消息从未进入任何一次 LLM 请求。
+    // 现改为返回**最近若干轮对话（user+assistant 两端）**，按 maxLen 字符预算从最近往前取、最多 8 轮。
+    const turns = messages.value.filter(m =>
+      (m.role === 'user' || (m.role === 'assistant' && m.type === 'text')) && !!String(m.content || '').trim()
+    )
+    const picked: string[] = []
+    let budget = maxLen
+    for (let i = turns.length - 1; i >= 0 && picked.length < 8; i--) {
+      const body = String(turns[i].content || '')
+      if (picked.length > 0 && budget - body.length < 0) break
+      budget -= body.length
+      picked.unshift(`${turns[i].role === 'user' ? '用户' : '助手'}：${body}`)
+    }
+    return picked.join('\n')
   }
 
   let summaryGenPromise: Promise<void> | null = null
@@ -2544,18 +2575,29 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       }
 
       const lastAssistant = messages.value.filter(m => m.role === 'assistant' && m.type === 'text').slice(-1)[0]
-      if (lastAssistant && detectChallenge(content, lastAssistant.content || '')) {
+      // 2026-10-07 修复「刚说过的事下一轮就查不到」：
+      // 上下文覆盖只有「最近 3 条（buildChatHistory）+ 会话记忆 8 条」，更早的内容此前**只在用户质疑时**
+      // 才经 searchConversationContext 捞回（detectChallenge 分支）。实测：本机 dialog 有 2050 条消息，
+      // 而实际进入模型的历史只有个位数 ⇒ 窗口外一律不可见。改为**每轮都检索**历史原文并按需注入。
+      const challenged = !!(lastAssistant && detectChallenge(content, lastAssistant.content || ''))
+      if (challenged) {
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: 'working' })
-          globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: '检测到质疑，正在检索原始对话记录...' })
+        globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: '检测到质疑，正在检索原始对话记录...' })
+      }
+      {
         const ragResults = await searchConversationContext(content, 3)
         if (ragResults.length > 0) {
           chatHistory.push({
             role: 'system',
-            content: `【系统自动注入 - 原始对话记录】用户质疑了你之前的回答，以下是最相关的历史对话原文，请据此纠正：\n${ragResults.join('\n---\n')}`
+            content: challenged
+              ? `【系统自动注入 - 原始对话记录】用户质疑了你之前的回答，以下是最相关的历史对话原文，请据此纠正：\n${ragResults.join('\n---\n')}`
+              : `【系统自动注入 - 相关历史对话】以下是你与用户此前对话中最相关的原文（可能不在当前上下文窗口内）。若与本次提问相关请据此作答，无关则忽略：\n${ragResults.join('\n---\n')}`
           })
           globalBus.emit('debug:log-probe', { level: 'info', domain: 'dialog', message: '已检索到相关历史记录并注入上下文' })
         }
-        globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: ragResults.length > 0 ? 'success' : 'idle' })
+        if (challenged) {
+          globalBus.emit('node:set-l1-status', { nodeId: 'l1-knowledge-feeder', status: ragResults.length > 0 ? 'success' : 'idle' })
+        }
       }
 
       globalBus.emit('node:set-l1-status', { nodeId: 'l1-workspace-memory', status: 'success' })

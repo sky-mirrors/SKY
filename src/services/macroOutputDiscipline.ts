@@ -41,10 +41,12 @@ export function buildMacroLlmMessages(
     { role: 'system', content: MACRO_OUTPUT_DISCIPLINE }
   ]
   // V2-T02/T04：宏每一步 LLM 调用原先都看不到会话历史，承接类请求（「把那份改成…」）
-  // 里的「那份」无从指代。把最近一轮 assistant 产出作为 assistant 轮次前置；
-  // 无上下文（未提供/空串/纯空白）时不插入，消息与旧行为逐字一致（零回归）。
+  // 里的「那份」无从指代。此处把近期对话前置。
+  // 2026-10-07：数据源由「最近一条 assistant 产出」扩为「最近若干轮 user+assistant」——
+  // 原实现下**用户先前说过的话一条都进不来**（实测「先记住 X，隔几轮再问」答不出）。
+  // 角色用 system（多轮转写不是单条 assistant 产出，用 assistant 角色会污染轮次语义）。
   if (ctx) {
-    messages.push({ role: 'assistant', content: ctx.slice(0, MACRO_RECENT_CONTEXT_LIMIT) })
+    messages.push({ role: 'system', content: `[近期对话]\n${ctx.slice(0, MACRO_RECENT_CONTEXT_LIMIT)}` })
   }
   messages.push({ role: 'user', content: userContent, timestamp: Date.now() })
   return messages
