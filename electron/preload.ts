@@ -91,6 +91,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 2026-10-08：解压并归类（每个 zip 解成一个同名子目录）——CI-05 缺口的算子
   fileUnzip: (opts: { fromDir: string; toDir?: string }) =>
     ipcRenderer.invoke('file:unzip', opts),
+  // 2026-10-08：批量改扩展名（就地）——CI-07 缺口的算子
+  fileRenameExt: (opts: { fromDir: string; fromExt: string; toExt: string }) =>
+    ipcRenderer.invoke('file:renameExt', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),

@@ -302,6 +302,25 @@ export async function callToolDirectWithTier(
     throw new Error(result.error || 'file_move failed')
   }
 
+  // 2026-10-08：批量改扩展名（对应主进程 file:renameExt）——**就地**换后缀，再交给后续步骤归类。
+  // 如实报告「改了哪几个、哪些跳过/失败」，零产出不谎报完成（本仓老毛病，见 0b9821b）。
+  if (fullName === 'file_rename_ext') {
+    if (!window.electronAPI?.fileRenameExt) throw new Error('file_rename_ext not available')
+    const fromDir = await resolveFilePath(String(args.fromDir || args.dir || ''))
+    if (!fromDir) throw new Error('file_rename_ext: missing fromDir')
+    const fromExt = String(args.fromExt || '')
+    const toExt = String(args.toExt || '')
+    if (!fromExt || !toExt) throw new Error('file_rename_ext: missing fromExt/toExt')
+    const r = await window.electronAPI.fileRenameExt({ fromDir, fromExt, toExt })
+    if (!r.success) throw new Error(r.error || 'file_rename_ext failed')
+    const renamed = (r as { renamed?: { from: string; to: string }[] }).renamed || []
+    const skipped = (r as { skipped?: string[] }).skipped || []
+    const failed = (r as { failed?: string[] }).failed || []
+    const tail = [skipped.length ? `${skipped.length} 个跳过：${skipped.slice(0, 3).join('；')}` : '', failed.length ? `${failed.length} 个失败：${failed.slice(0, 3).join('；')}` : ''].filter(Boolean).join('；')
+    if (renamed.length === 0) return `⚠️ 未改名任何文件（${fromDir} 下没有 .${fromExt} 文件${tail ? '；' + tail : ''}）`
+    return `已把 ${renamed.length} 个 .${fromExt} 改成 .${toExt}：${renamed.slice(0, 10).map(x => x.to).join('、')}${tail ? `；${tail}` : ''}`
+  }
+
   // 2026-10-08：解压并归类（对应主进程 file:unzip）——每个 zip 解成一个同名子目录（目标已存在则跳过）。
   // 如实报告「解了哪几个、各几个文件、哪些跳过/失败/不支持」，零产出不谎报完成。
   if (fullName === 'file_unzip') {

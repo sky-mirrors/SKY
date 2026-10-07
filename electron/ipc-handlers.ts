@@ -10,6 +10,7 @@ import { searchFiles } from './fileSearch'
 import { parseExtSpec, matchesExtSpec } from './fileMoveBatch'
 import { planSortByType } from './fileSortByType'
 import { planUnzip } from './fileUnzip'
+import { planRenameExt, renameTargetPath } from './fileRenameExt'
 import { editFileOnDisk } from './fileEdit'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
@@ -404,6 +405,37 @@ export function setupIpc(_win: BrowserWindow | null) {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
       renameSync(srcCheck.resolved, dstCheck.resolved)
       return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 2026-10-08 新增「批量改扩展名」原生工具（CI-07 缺口的算子）。语义见 electron/fileRenameExt.ts：
+  // **就地改名**（同目录只换后缀，不挪窝）；目标已存在同名文件 ⇒ 跳过并上报（绝不覆盖 ⇒ 可重复执行）。
+  // 校验口径与 file:move 一致：源目录 validatePath（读）、每个目标路径 validateWritePath（写）。
+  // 计划层已 fail-closed：toExt 为空、或源/目标扩展名相同 ⇒ 空计划（不产出破坏性改名、也不做"改了个寂寞"）。
+  ipcMain.handle('file:renameExt', (_event, opts: { fromDir?: string; fromExt?: string; toExt?: string }) => {
+    const srcCheck = validatePath(String(opts?.fromDir || ''))
+    if (!srcCheck.safe) return { success: false, error: srcCheck.reason }
+    try {
+      if (!existsSync(srcCheck.resolved)) return { success: false, error: `源目录不存在: ${srcCheck.resolved}` }
+      const names = readdirSync(srcCheck.resolved, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name)
+      const plans = planRenameExt(names, String(opts?.fromExt || ''), String(opts?.toExt || ''))
+      const renamed: { from: string; to: string }[] = []
+      const skipped: string[] = []
+      const failed: string[] = []
+      for (const p of plans) {
+        const toCheck = validateWritePath(renameTargetPath(srcCheck.resolved, p))
+        if (!toCheck.safe) { failed.push(`${p.from}: ${toCheck.reason}`); continue }
+        if (existsSync(toCheck.resolved)) { skipped.push(`${p.from}: 目标已存在（${p.to}），跳过`); continue }
+        try {
+          renameSync(join(srcCheck.resolved, p.from), toCheck.resolved)
+          renamed.push({ from: p.from, to: p.to })
+        } catch (e: unknown) {
+          failed.push(`${p.from}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      return { success: true, renamed, skipped, failed, fromDir: srcCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }

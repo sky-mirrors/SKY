@@ -26,7 +26,7 @@ describe('原生工具名单一致性（防漂移）', () => {
     expect(SIDE_EFFECT_TOOLS.has('rename_images_by_date')).toBe(true)
   })
 
-  it('派生集 = 常驻工具 ∪ 10 个非常驻 dispatch 工具（成员集行为保持）', () => {
+  it('派生集 = 常驻工具 ∪ 11 个非常驻 dispatch 工具（成员集行为保持）', () => {
     for (const n of ['create_directory', 'http_request', 'llm_generate', 'knowledge_search']) {
       expect(DISPATCH_NATIVE.has(n)).toBe(true)
     }
@@ -40,7 +40,9 @@ describe('原生工具名单一致性（防漂移）', () => {
     expect(DISPATCH_NATIVE.has('file_sort_by_type')).toBe(true)
     // 2026-10-08：解压并归类（每个 zip 解成同名子目录），同款取舍。登记点见 fileUnzipWiring.spec.ts。
     expect(DISPATCH_NATIVE.has('file_unzip')).toBe(true)
-    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 10)
+    // 2026-10-08：批量改扩展名（就地），同款取舍。登记点见 fileRenameExtWiring.spec.ts。
+    expect(DISPATCH_NATIVE.has('file_rename_ext')).toBe(true)
+    expect(DISPATCH_NATIVE.size).toBe(ALWAYS_AVAILABLE.length + 11)
   })
 
   it('file_copy / doc_extract 在常驻清单（2026-09-30 新增），file_copy 登记为副作用工具', () => {

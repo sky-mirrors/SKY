@@ -22,6 +22,8 @@ export const NATIVE_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
   // 2026-10-08：解压并归类（每个 zip 解成一个同名子目录）。同款取舍——刻意不注入模型工具表，
   // 入口只给确定性 L0 组合计划（compositeCombos.json 的 archive-collect），不让模型自由决定往哪解压。
   'file_unzip',
+  // 2026-10-08：批量改扩展名（就地）。同款取舍——刻意不注入模型工具表，入口只给确定性 L0 组合计划。
+  'file_rename_ext',
   'http_request',
   'llm_generate',
   'knowledge_search',
@@ -53,6 +55,7 @@ export const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   'file_convert',
   'file_sort_by_type',
   'file_unzip',
+  'file_rename_ext',
   'rename_images_by_date',
   'image_process',
   'media_process'

@@ -51,6 +51,17 @@
       "plan": [
         { "tool": "file_unzip", "description": "把 {dir} 下的每个压缩包解压成 {target} 里的同名子文件夹（目标已存在则跳过；只支持 .zip，其它格式如实上报不支持）", "params": { "fromDir": "{dir}", "toDir": "{target}" } }
       ]
+    },
+    {
+      "id": "change-ext-collect",
+      "name": "批量改扩展名后归类",
+      "enabled": true,
+      "intent": "把 {dir} 下的 {extLabel}改成 .{toExt} 后收进新文件夹：{folderName}",
+      "when": { "familiesAllOf": ["rename", "move"], "patternsAllOf": ["改后缀|改扩展名|改成\\s*\\.?[A-Za-z0-9]{1,5}\\s*(?:后缀|扩展名)"] },
+      "plan": [
+        { "tool": "file_rename_ext", "description": "把 {dir} 下的 {extLabel}**就地**改成 .{toExt}（目标已存在则跳过，不覆盖）", "params": { "fromDir": "{dir}", "fromExt": "{ext}", "toExt": "{toExt}" } },
+        { "tool": "file_move", "description": "把改好后缀的 .{toExt} 文件收进 {target}", "params": { "fromDir": "{dir}", "ext": "{toExt}", "toDir": "{target}" } }
+      ]
     }
   ],
 
@@ -60,12 +71,6 @@
       "reason": "「转格式 + 归类」没有组合算子：file_convert 是**单文件**算子（source + target 两个必填参数，只出 PDF，见 src/services/nativeTools.ts 与 macroExecutor 的 file_convert 分支），而静态计划无法表达「对目录下每个文件都转一次」；单文件情形同样没有「转完自动归类」的组合形态（占位符里没有具体源文件名）。",
       "alternative": "先对单个文件说「把 X 转成 pdf」，或先用外部工具批量转完，再让我把产物归类。",
       "when": { "familiesAllOf": ["convert", "move"] }
-    },
-    {
-      "id": "change-ext-collect",
-      "reason": "「批量改扩展名」缺少算子：file_move 只能把文件搬到指定目标路径（可顺带改名），没有「只改扩展名、留在原位」的批量形态。",
-      "alternative": "告诉我具体要改哪些文件（完整路径），我可以逐个改名。",
-      "when": { "patternsAllOf": ["改后缀|改扩展名|改成\\s*\\.?[A-Za-z0-9]{1,5}\\s*(?:后缀|扩展名)"] }
     }
   ]
 }

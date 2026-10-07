@@ -71,6 +71,8 @@ interface ElectronAPI {
   fileSortByType: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; moved?: number; folders?: { name: string; dir: string; moved: string[] }[]; files?: string[]; failed?: string[]; fromDir?: string; error?: string }>
   /** 2026-10-08：解压并归类 —— fromDir 下的每个 .zip 解成一个同名子目录（目标已存在则跳过，不覆盖）；非 zip 进 unsupported 如实上报 */
   fileUnzip: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; extracted?: { archive: string; dir: string; files: number }[]; skipped?: string[]; failed?: string[]; unsupported?: string[]; fromDir?: string; toDir?: string; error?: string }>
+  /** 2026-10-08：批量改扩展名（**就地**，不挪窝）—— 目标已存在同名文件则跳过（不覆盖，可重复执行） */
+  fileRenameExt: (opts: { fromDir: string; fromExt: string; toExt: string }) => Promise<{ success: boolean; renamed?: { from: string; to: string }[]; skipped?: string[]; failed?: string[]; fromDir?: string; error?: string }>
   createDirectory: (dirPath: string) => Promise<{ success: boolean; path?: string; error?: string }>
   createDocx: (opts: { filePath: string; content?: string; title?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
   docConvertToPdf: (opts: { source: string; target: string }) => Promise<{ success: boolean; path?: string; bytes?: number; title?: string; error?: string }>

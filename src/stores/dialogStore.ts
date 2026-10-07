@@ -808,6 +808,25 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         ? `已重命名/移动: ${r.from || from} → ${r.to || to}`
         : `重命名/移动失败: ${r.error || ''}`
     }
+    // 2026-10-08：批量改扩展名（与 file_unzip 同口径：先过 O10 写门再执行，如实报告产物）
+    if (fullName === 'file_rename_ext') {
+      if (!(await requestWriteApproval('file_rename_ext', args))) {
+        return 'file_rename_ext: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileRenameExt) throw new Error('file_rename_ext not available')
+      const rf = String(args.fromDir || args.dir || '')
+      const rfrom = String(args.fromExt || '')
+      const rto = String(args.toExt || '')
+      if (!rf || !rfrom || !rto) throw new Error('file_rename_ext: missing fromDir/fromExt/toExt')
+      const rr = await window.electronAPI.fileRenameExt({ fromDir: rf, fromExt: rfrom, toExt: rto })
+      if (!rr.success) return `批量改扩展名失败：${rr.error || '未知错误'}`
+      const rdone = (rr as { renamed?: { from: string; to: string }[] }).renamed || []
+      const rskip = (rr as { skipped?: string[] }).skipped || []
+      const rfail = (rr as { failed?: string[] }).failed || []
+      const rtail = [rskip.length ? `${rskip.length} 个跳过：${rskip.slice(0, 3).join('；')}` : '', rfail.length ? `${rfail.length} 个失败：${rfail.slice(0, 3).join('；')}` : ''].filter(Boolean).join('；')
+      if (rdone.length === 0) return `⚠️ 未改名任何文件（${rf} 下没有 .${rfrom} 文件${rtail ? '；' + rtail : ''}）`
+      return `已把 ${rdone.length} 个 .${rfrom} 改成 .${rto}${rtail ? `（${rtail}）` : ''}`
+    }
     // 2026-10-08：解压并归类（与 file_sort_by_type 同口径：先过 O10 写门再执行，如实报告产物）
     if (fullName === 'file_unzip') {
       if (!(await requestWriteApproval('file_unzip', args))) {

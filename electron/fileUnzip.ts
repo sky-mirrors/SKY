@@ -14,21 +14,14 @@
  */
 
 import { join } from 'path'
+import { extOf } from './fileSortByType'
 
 /** 支持解压的扩展名（刻意只 zip） */
 export const SUPPORTED_ARCHIVE_EXTS = ['zip']
 
-/** 取文件名扩展名（小写、不含点）；无扩展名或仅以点开头 ⇒ ''（与 fileSortByType.extOf 同一口径） */
-export function extOfArchive(fileName: string): string {
-  const name = String(fileName || '')
-  const dot = name.lastIndexOf('.')
-  if (dot <= 0) return ''
-  return name.slice(dot + 1).toLowerCase()
-}
-
-/** 是否是可解压的压缩包名 */
+/** 是否是可解压的压缩包名（扩展名口径复用 fileSortByType.extOf：点在开头不算扩展名） */
 export function isArchiveName(fileName: string): boolean {
-  return SUPPORTED_ARCHIVE_EXTS.includes(extOfArchive(fileName))
+  return SUPPORTED_ARCHIVE_EXTS.includes(extOf(fileName))
 }
 
 /** 压缩包名 → 子目录名（去掉最后一个扩展名） */

@@ -141,6 +141,20 @@ export interface CollectFilter {
   unmapped: boolean
 }
 
+/**
+ * 「改成 X 后缀/扩展名」的目标扩展名（语言原语，与 ACTION_FAMILIES / SEQUENCE_MARKERS 同层：
+ * 句式判断留在代码里；**哪条组合怎么做**才是数据）。
+ * 2026-10-08 补：原 rename 家族只认「改后缀」紧邻，用户常写「改成 md 后缀」——那时既进不了 rename 家族、
+ * 也没有算子可做，请求最终静默退化成"只搬不改"（CI-07 登记的失败形态）。
+ */
+const RENAME_TARGET_PATTERN = /(?:改成|改为|换成|换为|更名成|重命名成)\s*\.?([A-Za-z0-9]{1,5})\s*(?:后缀|扩展名|格式)/i
+
+/** 解析「改成 X 后缀」里的目标扩展名（小写、不含点）；解析不出 ⇒ ''（调用方须 fail-closed，不得产出空扩展名计划） */
+export function resolveRenameTargetExt(input: string): string {
+  const m = String(input || '').match(RENAME_TARGET_PATTERN)
+  return m ? m[1].toLowerCase() : ''
+}
+
 function categoryOfExt(ext: string): string | null {
   for (const [cat, def] of Object.entries(TABLE.typeWords || {})) {
     if (def.exts.includes(ext)) return cat
@@ -184,6 +198,8 @@ export interface CompositeContext {
   /** 目标目录名（用于 intent 文案）*/
   folderName: string
   filter: CollectFilter
+  /** 「改成 X 后缀」解析出的目标扩展名（无则空串）；`{toExt}` 占位符用的就是它 */
+  toExt?: string
 }
 
 /** 通用动作家族：它们是"组合"的粘合词而非内容动作，故不参与特异性打分 */
@@ -229,6 +245,7 @@ function render(template: string, ctx: CompositeContext): string {
     .replace(/\{folderName\}/g, ctx.folderName)
     .replace(/\{extLabel\}/g, extLabel)
     .replace(/\{ext\}/g, ctx.filter.exts.join(','))
+    .replace(/\{toExt\}/g, String(ctx.toExt || ''))
 }
 
 /** 如实说明缺哪一步能力 + 给替代做法（不假装完成、不编造产物）*/
@@ -280,11 +297,15 @@ export function matchCompositePlan(
   }
 
   // ③ 组合取最优
+  const toExt = resolveRenameTargetExt(s)
+  const rctx: CompositeContext = { ...ctx, toExt }
   let best: ComboEntry | null = null
   let bestScore = -1
   for (const combo of table.combos || []) {
     if (combo.enabled === false) continue
     if (!whenMatches(combo.when, s, families, ctx.filter)) continue
+    // 计划里用到 {toExt} 却解析不出目标扩展名 ⇒ 跳过该组合（否则会渲染出空扩展名的计划 = 必失败）
+    if (!toExt && JSON.stringify(combo.plan).includes('{toExt}')) continue
     const score = comboScore(combo)
     if (score > bestScore) {
       best = combo
@@ -295,13 +316,13 @@ export function matchCompositePlan(
 
   const fallbackIntent = `组合意图：${best.name}（${ctx.folderName}）`
   return {
-    intent: render(best.intent || fallbackIntent, ctx),
+    intent: render(best.intent || fallbackIntent, rctx),
     steps: best.plan.map((step, i) => ({
       step: i + 1,
-      description: render(step.description || `${best!.name} 第 ${i + 1} 步`, ctx),
+      description: render(step.description || `${best!.name} 第 ${i + 1} 步`, rctx),
       tool: step.tool,
       params: Object.fromEntries(
-        Object.entries(step.params || {}).map(([k, v]) => [k, render(String(v), ctx)])
+        Object.entries(step.params || {}).map(([k, v]) => [k, render(String(v), rctx)])
       ),
       expectedOutput: `${best!.name} 第 ${i + 1} 步结果`
     })),

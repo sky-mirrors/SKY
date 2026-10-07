@@ -65,24 +65,27 @@ describe('组合意图 · 已覆盖（契约生效，必须通过）', () => {
     expect(String(plan!.steps[0].params.fromDir)).toContain('Desktop')
     expect(String(plan!.steps[0].params.toDir)).toContain('新建文件夹')
   })
+
+  it('CI-07 改扩展名 + 归类：把桌面的 txt 都改成 md 收进新文件夹（2026-10-08 由缺口翻牌：新增算子 file_rename_ext）', async () => {
+    // 缺口原由：file_move 只能搬到指定目标路径（可顺带改名），没有「只改扩展名、留在原位」的批量形态。
+    // 本用例特意钉住两处容易写错的地方：源/目标扩展名分别取对，且**归类按改后的后缀**（按 txt 收等于没改）。
+    const plan = await tryL0Skill('把桌面上所有 txt 文件改成 md 后缀，然后放进一个新建的文件夹')
+    expect(planTools(plan)).toEqual(['file_rename_ext', 'file_move'])
+    expect(plan!.steps[0].params).toMatchObject({ fromExt: 'txt', toExt: 'md' })
+    expect(String(plan!.steps[1].params.ext)).toBe('md')
+  })
 })
 
 describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外通过"，届时移入已覆盖组）', () => {
   // 2026-10-08：登记册从「感觉缺东西」升级为「可机读缺口」——同一份缺口现在有两面：
   //   · 数据面：src/data/compositeCombos.json 的 $missing（引擎据此**如实拒绝**，绝不"少做一半"）；
   //   · 契约面：本组的 it.fails（实现后翻牌，防止缺口被遗忘）。
-  // 两面的 id 一一对应：CI-03↔convert-collect、CI-07↔change-ext-collect。
-  // （CI-04↔rename-collect、CI-06↔split-by-type、CI-05↔archive-collect 已分别于 2026-10-08 实现并翻牌，见上一组。）
+  // 两面的 id 一一对应：只剩 CI-03↔convert-collect。
+  // （CI-04↔rename-collect、CI-06↔split-by-type、CI-05↔archive-collect、CI-07↔change-ext-collect
+  //   均已实现并翻牌，见上一组。CI-03 缺的是**批量转换**算子：file_convert 是单文件、且只出 PDF。）
   it.fails('CI-03 转换 + 归档：把桌面的 md 都转成 pdf 并收进新建文件夹', async () => {
     const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
     expect(planTools(plan)).toEqual(['file_convert', 'file_move'])
-  })
-
-  it.fails('CI-07 改扩展名 + 归类：把桌面的 txt 都改成 md 并收进新建文件夹', async () => {
-    const plan = await tryL0Skill('把桌面上所有 txt 文件改成 md 后缀，然后放进一个新建的文件夹')
-    // 关键：不能只是 [create_directory, file_move]——那会把 txt 原样搬走，后缀没改
-    expect(planTools(plan)).not.toEqual(['create_directory', 'file_move'])
-    expect(planTools(plan)).toContain('file_move')
   })
 })
 
@@ -93,13 +96,6 @@ describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外
 // 这一组随缺口实现而更新（与上一组 it.fails 同进同退）。
 // ─────────────────────────────────────────────────────────────────────────────
 describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"', () => {
-  it('改扩展名 + 归类：不得仅产出「建目录 + 批量移动」（那只是把 txt 搬家）', async () => {
-    const plan = await tryL0Skill('把桌面上所有 txt 文件改成 md 后缀，然后放进一个新建的文件夹')
-    const steps = plan?.steps || []
-    expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir)).toBe(false)
-    expect(steps.some(s => s.tool === 'llm_generate')).toBe(true)
-  })
-
   it('域词（写周报 + 放进文件夹）不得被当成"归类桌面已有文件"', async () => {
     const plan = await tryL0Skill('帮我写一份周报，存成 docx，然后放进一个新建的文件夹里')
     const steps = plan?.steps || []
