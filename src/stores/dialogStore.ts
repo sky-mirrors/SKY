@@ -660,6 +660,23 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     }
 
     // N1：原生文件工具分发——不依赖 MCP 连接
+    // 2026-10-07（可用性补强 W1）：file_edit —— 与 macroExecutor 的分发器保持同集（parity 测试守住）。
+    // 写类：先过 O10 写门。
+    if (fullName === 'file_edit') {
+      const filePath = String(args.filePath || args.path || args.file_path || '')
+      if (!filePath) return 'file_edit: 缺少 filePath 参数（目标文件绝对路径）'
+      const oldString = String(args.oldString ?? args.old_string ?? '')
+      if (!oldString) return 'file_edit: 缺少 oldString 参数（要被替换的原文）'
+      const newString = String(args.newString ?? args.new_string ?? '')
+      if (!(await requestWriteApproval('file_edit', args))) {
+        return 'file_edit: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.fileEdit) throw new Error('file_edit not available')
+      const r = await window.electronAPI.fileEdit({ filePath, oldString, newString, replaceAll: args.replaceAll === true || args.replace_all === true })
+      if (!r.success) return `编辑失败: ${r.error || ''}`
+      return `已编辑: ${r.path || filePath}（替换 ${r.replaced ?? 0} 处）`
+    }
+
     // 2026-10-07（Wave 2）：search_files —— 与 macroExecutor 的分发器保持同集（parity 测试守住）。
     // 读类工具，不经 O10 写门。
     if (fullName === 'search_files') {

@@ -12,7 +12,7 @@
 import type { ToolDef } from './nativeToolTypes'
 
 /** 常驻工具名（任何过滤/召回环节都不得剔除；shell_exec 已在 buildMcpTools 硬编码，此处仅纳入白名单） */
-export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract', 'search_files'] as const
+export const NATIVE_TOOL_NAMES = ['shell_exec', 'read_file', 'list_directory', 'file_write', 'file_move', 'file_copy', 'file_convert', 'create_docx', 'rename_images_by_date', 'image_process', 'media_process', 'doc_extract', 'search_files', 'file_edit'] as const
 
 /**
  * 关于 `create_directory`（2026-10-07 落定：**刻意不注入模型工具表**）
@@ -352,6 +352,22 @@ export const NATIVE_TOOL_DEFS: ToolDef[] = [
         maxResults: { type: 'number', description: '最多返回多少条（缺省 50，上限 200）' }
       },
       required: ['root', 'query']
+    }
+  },
+  {
+    // 2026-10-07（可用性补强 W1）：精确编辑。此前只有 file_write（整文件覆盖），改一行要把整个文件
+    // 重打一遍——长文件必然截断/丢内容，是"改完自己验证"回路走不通的直接原因。
+    name: 'file_edit',
+    description: '对本机文本文件做**精确替换**：把 oldString 换成 newString，其余内容原样保留。oldString 必须在文件中唯一（不唯一时请补足上下文，或显式 replaceAll）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: '目标文件绝对路径' },
+        oldString: { type: 'string', description: '要被替换的原文（需在文件中唯一，建议带上下文几行）' },
+        newString: { type: 'string', description: '替换后的新文本' },
+        replaceAll: { type: 'boolean', description: 'true=替换所有出现处（缺省 false：不唯一即报错）' }
+      },
+      required: ['filePath', 'oldString', 'newString']
     }
   }
 ]

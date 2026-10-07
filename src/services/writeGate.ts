@@ -18,7 +18,7 @@
 import { globalBus } from '@/kernel/bus'
 
 /** 受本边界约束的写类原生工具 */
-export const WRITE_TOOLS = ['file_write', 'file_move', 'file_copy', 'create_docx', 'file_convert', 'rename_images_by_date', 'image_process', 'media_process'] as const
+export const WRITE_TOOLS = ['file_write', 'file_move', 'file_copy', 'file_edit', 'create_docx', 'file_convert', 'rename_images_by_date', 'image_process', 'media_process'] as const
 export type WriteTool = (typeof WRITE_TOOLS)[number]
 export type WriteDecision = 'deny' | 'once' | 'always'
 
@@ -29,6 +29,7 @@ export const WRITE_TOOL_LABELS: Record<string, string> = {
   file_write: '写入/覆盖文件',
   file_move: '重命名/移动文件',
   file_copy: '复制文件',
+  file_edit: '精确编辑文件',
   rename_images_by_date: '按拍摄日期批量重命名图片',
   create_docx: '生成 Word 文档',
   file_convert: '生成 PDF 文件',

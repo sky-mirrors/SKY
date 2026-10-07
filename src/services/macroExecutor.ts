@@ -461,6 +461,19 @@ export async function callToolDirectWithTier(
     return `命令执行失败(exit code ${result.code}): ${result.stderr || result.stdout || '未知错误'}`
   }
 
+  // 2026-10-07（可用性补强 W1）：精确编辑——写类，先过写门（file_edit 在 WRITE_TOOLS 内）。
+  if (fullName === 'file_edit') {
+    if (!window.electronAPI?.fileEdit) throw new Error('file_edit not available')
+    const filePath = await resolveFilePath(String(args.filePath || args.path || args.file_path || ''))
+    if (!filePath) throw new Error('file_edit: missing filePath')
+    const oldString = String(args.oldString ?? args.old_string ?? '')
+    const newString = String(args.newString ?? args.new_string ?? '')
+    if (!oldString) throw new Error('file_edit: missing oldString')
+    const r = await window.electronAPI.fileEdit({ filePath, oldString, newString, replaceAll: args.replaceAll === true || args.replace_all === true })
+    if (!r.success) throw new Error(r.error || 'file_edit failed')
+    return `已编辑: ${r.path || filePath}（替换 ${r.replaced ?? 0} 处）`
+  }
+
   // 2026-10-07（Wave 2）：递归文件检索（按名 / 按内容）——读类，不经写门。
   if (fullName === 'search_files') {
     if (!window.electronAPI?.fileSearch) throw new Error('search_files not available')

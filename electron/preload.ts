@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileSearch: (opts: { root: string; query: string; mode?: 'name' | 'content'; maxResults?: number }) =>
     ipcRenderer.invoke('file:search', opts),
 
+  // 2026-10-07（可用性补强 W1）：精确编辑（唯一子串替换），写类
+  fileEdit: (opts: { filePath: string; oldString: string; newString: string; replaceAll?: boolean }) =>
+    ipcRenderer.invoke('file:edit', opts),
+
   fileWrite: (opts: { filePath: string; content: string; encoding?: string }) =>
     ipcRenderer.invoke('file:write', opts),
   fileMove: (opts: { from: string; to: string }) =>

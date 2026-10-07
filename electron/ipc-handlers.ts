@@ -7,6 +7,7 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, readFile, createWriteStream, rmSync, renameSync, copyFileSync } from 'fs'
 import { listDirectoryWithMeta } from './fileListing'
 import { searchFiles } from './fileSearch'
+import { editFileOnDisk } from './fileEdit'
 import { convertDocumentToPdf } from './docConvert'
 import { extractDocumentText } from './docExtract'
 import { renderHtmlToPdf } from './pdfRenderer'
@@ -387,6 +388,24 @@ export function setupIpc(_win: BrowserWindow | null) {
       return { success: true, from: srcCheck.resolved, to: dstCheck.resolved }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 2026-10-07（可用性补强 W1）：精确编辑——改几行，而不是把整个文件重打一遍。
+  // 写门：file_edit 在 writeGate.WRITE_TOOLS 内（渲染层先行确认）；路径过 validateWritePath；
+  // 唯一性判定与"失败不落盘"在 ./fileEdit（可单测）。
+  ipcMain.handle('file:edit', (_event, opts: { filePath: string; oldString: string; newString: string; replaceAll?: boolean }) => {
+    try {
+      const pathCheck = validateWritePath(String(opts?.filePath || ''))
+      if (!pathCheck.safe) return { success: false, error: pathCheck.reason }
+      const target = pathCheck.resolved
+      if (!target || !existsSync(target)) return { success: false, error: '文件不存在' }
+      if (!statSync(target).isFile()) return { success: false, error: '不是文件' }
+      const r = editFileOnDisk(target, String(opts?.oldString ?? ''), String(opts?.newString ?? ''), opts?.replaceAll === true)
+      if (!r.ok) return { success: false, error: r.error }
+      return { success: true, replaced: r.replaced, path: target }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
 
