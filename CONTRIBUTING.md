@@ -43,11 +43,14 @@ npm run dev
 
 ### 命名
 
-- 文件：kebab-case（`l0-skill-router.ts`）
-- 组件：PascalCase（`StarMap.vue`）
-- Composable：`use` 前缀（`useThreeScene.ts`）
-- Store：`use` 前缀 + `Store` 后缀（`useApiStore`）
-- Service：camelCase（`pipelineExecutor.ts`）
+> 2026-10-07：本节示例原先引用的是**已不存在的文件**（`StarMap.vue`、`useThreeScene.ts` —— 3D 星图已于 2026-09-26 移除），
+> 且 `文件：kebab-case` 与仓库实际不符（`src/services/*.ts` 实际是 **camelCase**）。以下按磁盘实况更正。
+
+- 组件：PascalCase（`CommandPalette.vue`、`DialogPanel.vue`）
+- Composable：`use` 前缀（`useDagEngine.ts`）—— `src/composables/` 目前只有这一个
+- Store：`use` 前缀 + `Store` 后缀（`useApiStore`）—— 定义在 `src/stores/*.ts`
+- Service / 工具模块：**camelCase**（`l0SkillRouter.ts`、`pipelineExecutor.ts`、`convMemory.ts`）—— 实际风格，非 kebab-case
+- 测试：`.spec.ts` 后缀（**不是 `.test.ts`**）—— `test/unit` 下现有 171 个 `.spec.ts`、0 个 `.test.ts`
 
 ### Vue 组件
 
@@ -89,8 +92,8 @@ npm test
 # 运行覆盖率
 npm run test:coverage
 
-# 运行单个测试文件
-npx vitest run test/unit/scheduleOptimizer.test.ts
+# 运行单个测试文件（注意后缀是 .spec.ts，不是 .test.ts）
+npx vitest run test/unit/examRunner.spec.ts
 ```
 
 ---
