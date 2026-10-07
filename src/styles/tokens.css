@@ -47,6 +47,10 @@
   --font-sm: 13px;
   --font-md: 14px;
   --font-lg: 18px;
+
+  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
+  --t-bg-img: url('../assets/bg/gothic.svg');
+  --t-veil: rgba(38, 26, 46, 0.68);
 }
 
 /* ② light = 浅色·少女萝莉：奶粉白底、樱粉强调、薰衣草次强调、大圆角、圆体、字号最小档 */
@@ -72,6 +76,11 @@
   --font-sm: 12px;
   --font-md: 13px;
   --font-lg: 17px;
+
+  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
+  --t-bg-img: url('../assets/bg/loli.svg');
+  --t-veil: rgba(255, 250, 253, 0.66);
+
 }
 
 /* ③ green = 浅绿·生命力蓬勃：嫩白绿底、嫩绿强调、黄绿次强调、中圆角、字号中档 */
@@ -97,6 +106,11 @@
   --font-sm: 12px;
   --font-md: 13px;
   --font-lg: 17px;
+
+  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
+  --t-bg-img: url('../assets/bg/vitality.svg');
+  --t-veil: rgba(248, 254, 250, 0.66);
+
 }
 
 /* ---------- 共用结构：三档同规则、只换变量 ---------- */
@@ -133,7 +147,13 @@
 :root[data-theme="dark"] .dialog-panel,
 :root[data-theme="light"] .dialog-panel,
 :root[data-theme="green"] .dialog-panel {
-  background: var(--t-panel) !important;
+  background-color: var(--t-panel) !important;
+  /* 背景插画 + 同色薄纱（薄纱在上层，保证文字区对比度不被插画破坏；消息气泡另有底色）。
+     用 linear-gradient 作薄纱而不是 ::before 层，避免与组件的 z-index 打架。 */
+  background-image: linear-gradient(var(--t-veil), var(--t-veil)), var(--t-bg-img) !important;
+  background-repeat: no-repeat, no-repeat !important;
+  background-position: 0 0, right 10px bottom 10px !important;
+  background-size: auto, auto 62% !important;
   color: var(--t-text) !important;
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-lg) !important;

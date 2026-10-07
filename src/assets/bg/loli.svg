@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 520" width="300" height="520">
+  <!-- 原创占位插画：浅色档「少女萝莉」（Q 版剪影，双马尾 + 蓬裙）。可整文件替换成你自己的图。 -->
+  <g fill="#ff9ec7">
+    <!-- 双马尾 -->
+    <ellipse cx="86" cy="196" rx="34" ry="72"/>
+    <ellipse cx="214" cy="196" rx="34" ry="72"/>
+    <circle cx="86" cy="132" r="20"/>
+    <circle cx="214" cy="132" r="20"/>
+    <!-- 头 -->
+    <circle cx="150" cy="140" r="60"/>
+    <!-- 刘海 -->
+    <path d="M92 128 q16 -44 58 -44 q42 0 58 44 q-26 -22 -58 -22 q-32 0 -58 22 z" fill="#ffd0e4"/>
+    <!-- 身体 / 蓬裙 -->
+    <path d="M150 196 q-14 34 -14 62 l28 0 q0 -28 -14 -62 z"/>
+    <path d="M150 252 q-52 12 -70 76 l140 0 q-18 -64 -70 -76 z"/>
+    <path d="M80 328 q70 -22 140 0 l14 42 q-84 -26 -168 0 z"/>
+    <!-- 腿 -->
+    <rect x="128" y="366" width="16" height="76" rx="8"/>
+    <rect x="156" y="366" width="16" height="76" rx="8"/>
+    <ellipse cx="136" cy="452" rx="18" ry="10"/>
+    <ellipse cx="164" cy="452" rx="18" ry="10"/>
+  </g>
+  <!-- 面部（用更深一档的色，让剪影有表情） -->
+  <g fill="#c9６" opacity="0">
+  </g>
+  <g fill="#b3６" opacity="0">
+  </g>
+  <g fill="#3a2130">
+    <circle cx="128" cy="146" r="7"/>
+    <circle cx="172" cy="146" r="7"/>
+    <path d="M140 168 q10 8 20 0" fill="none" stroke="#3a2130" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g fill="#ff77aa" opacity="0.5">
+    <ellipse cx="112" cy="162" rx="11" ry="7"/>
+    <ellipse cx="188" cy="162" rx="11" ry="7"/>
+  </g>
+</svg>
