@@ -664,7 +664,7 @@ export const V2_EXTRA_CASES: ExamCaseV2[] = [
     prompt: '帮我写一份会议通知，下午三点开会',
     followUps: ['时间错了，是上午十点；另外地点在 3 楼会议室，重写'],
     assertions: [
-      { kind: 'contains', needles: ['十点'] },
+      { kind: 'containsAny', needles: ['十点', '10点', '10:00', '10：00'] },
       { kind: 'notContains', needles: ['下午三点'] }
     ],
     judgeHint: '第二轮给出了修正（时间改为上午十点 + 补充地点）。新版本必须体现修正；**保留旧时间"下午三点"即失败**。',

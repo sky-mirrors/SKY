@@ -409,3 +409,43 @@ describe('多轮题验收口径 evalScope（修正/改口类不再被首轮旧�
     expect(report!.summary.deliverableRate).toBe(1)
   })
 })
+
+
+// ===== 2026-10-07（V2-T04）：同义写法任一命中 —— 汉字「十点」与阿拉伯「10:00」应等价 =====
+describe('containsAny（同义写法任一命中）', () => {
+  const CASE = makeCase({
+    id: 'ANY-1',
+    category: 'multiturn',
+    title: '改口：同义数字写法',
+    prompt: '帮我写一份会议通知，下午三点开会',
+    followUps: ['时间错了，是上午十点；另外地点在 3 楼会议室，重写'],
+    assertions: [
+      { kind: 'containsAny', needles: ['十点', '10点', '10:00', '10：00'] },
+      { kind: 'notContains', needles: ['下午三点'] }
+    ],
+    judgeHint: '看最终稿',
+    evalScope: 'last'
+  })
+
+  async function runWith(reply: string) {
+    const runner = createExamRunner(makeFakeDeps({ reply }))
+    const report = await runner.run({ ...fastTiming, timeoutMsPerQuestion: 5000, cases: [CASE] })
+    return report!.questions[0]
+  }
+
+  it('汉字「上午十点」→ 通过', async () => {
+    const q = await runWith('会议通知：兹定于上午十点在三楼会议室召开，请准时参加。')
+    expect(q.hardAssertPassed).toBe(true)
+  })
+
+  it('阿拉伯「上午 10:00」→ 同样通过（V2-T04 实测形态）', async () => {
+    const q = await runWith('会议通知 今天上午 10:00 在三楼会议室召开会议，请准时参加。 特此通知。')
+    expect(q.hardAssertPassed).toBe(true)
+  })
+
+  it('保留旧时间「下午三点」→ 仍失败（负向断言不被放宽）', async () => {
+    const q = await runWith('会议通知：今天下午三点召开，请准时参加。')
+    expect(q.hardAssertPassed).toBe(false)
+    expect(String(q.hardAssertNote)).toContain('下午三点')
+  })
+})

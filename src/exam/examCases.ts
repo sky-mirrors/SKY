@@ -18,6 +18,9 @@ export type ExamCategory =
 export type ExamAssertion =
   | { kind: 'number'; expected: number; tolerance?: number }
   | { kind: 'contains'; needles: string[] }
+  // 2026-10-07：**同义写法任一命中（OR）**——V2-T04 实测：断言要求字面「十点」，而模型写「10:00」，
+  // 改口机制其实已生效却因数字写法不同判失败。数字/汉字/全角写法应等价。
+  | { kind: 'containsAny'; needles: string[] }
   | { kind: 'fileExists'; path: string }
   | { kind: 'dirPattern'; dir: string; pattern: string; mode?: 'every' | 'some' }
   // 2026-09-30（V2 题库引入）：**硬约束"不许出现"** —— 用于假完成/编造类负例。

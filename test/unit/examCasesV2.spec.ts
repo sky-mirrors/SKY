@@ -52,7 +52,7 @@ describe('EXAM_CASES_V2 · 结构', () => {
   })
 
   it('断言 kind 全部受支持（含本轮新增的 notContains）', () => {
-    const supported = new Set(['number', 'contains', 'fileExists', 'dirPattern', 'notContains'])
+    const supported = new Set(['number', 'contains', 'containsAny', 'fileExists', 'dirPattern', 'notContains'])
     for (const c of EXAM_CASES_V2) {
       for (const a of c.assertions) {
         expect(supported.has(a.kind), `${c.id}: ${a.kind}`).toBe(true)

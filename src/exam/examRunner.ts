@@ -253,6 +253,10 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
     if (a.kind === 'contains') {
       return a.needles.length > 0 && a.needles.every(n => reply.includes(n))
     }
+    if (a.kind === 'containsAny') {
+      // 同义写法任一命中即算通过（V2-T04：十点 / 10:00 / 10点 等价）
+      return a.needles.length > 0 && a.needles.some(n => reply.includes(n))
+    }
     if (a.kind === 'fileExists') {
       return deps.fileExists(a.path)
     }
@@ -270,6 +274,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
   function describeAssertion(a: ExamAssertion): string {
     if (a.kind === 'number') return `数值断言未命中（期望 ${a.expected}${a.tolerance ? `±${a.tolerance}` : ''}）`
     if (a.kind === 'contains') return `关键信息缺失（${a.needles.join('/')}）`
+    if (a.kind === 'containsAny') return `关键信息缺失（任一同义写法均未命中：${a.needles.join('/')}）`
     if (a.kind === 'fileExists') return `预期文件不存在（${a.path}）`
     if (a.kind === 'notContains') return `出现不应出现的内容（${a.needles.join('/')}）`
     return `目录命名模式不匹配（${a.dir}）`
