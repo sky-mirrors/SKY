@@ -397,3 +397,55 @@ describe('L0 快速Shell命令：被追加会话上下文（多行）时命令�
     expect(plan!.steps[0].params.command).toBe('ls -la')
   })
 })
+
+
+// ===== 2026-10-07：V2-T02 回归 —— 追加的会话文件清单不得污染 L0 路由 =====
+// 根因：sendMessage 把 withSessionFilesContext(content)（含 .md/.docx 文件名的清单）喂给路由，
+// 「文件格式转换」规则的首条 triggerPattern 是 /\.(md|txt|html|csv).*(docx|pdf|xlsx)/i ——
+// 被**追加清单里的文件名**命中，于是「培训通知」请求被劫持成格式转换计划（实测 funnel(L4)
+// → 文件格式转换：未识别到源文件路径）。路由应只看用户原话，不看追加的上下文。
+describe('L0 路由：追加的会话文件清单不得污染规则匹配（V2-T02）', () => {
+  const MARK = '\n\n【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】\n'
+  const DECORATED_TRAINING = '不对，不是发布会，是内部培训通知，重来' + MARK + '- 2026.9.24最新快照.md（12 块）\n- AUDIT-REPORT-2026-09.md（8 块）\n- 项目周报.docx（3 块）'
+  const DECORATED_SHELL = '运行 ls 看看当前目录' + MARK + '- 2026.9.24最新快照.md（12 块）'
+
+  it('带清单的「培训通知」输入不得被判成格式转换', async () => {
+    const plan = await tryL0Skill(DECORATED_TRAINING)
+    const isConvert = !!plan && /格式转换/.test(String(plan.intent))
+    expect(isConvert).toBe(false)
+  })
+
+  it('带清单的 shell 输入，命令仍取用户首行（R15 同源回归）', async () => {
+    const plan = await tryL0Skill(DECORATED_SHELL)
+    expect(plan).not.toBeNull()
+    expect(plan!.steps[0].tool).toBe('shell_exec')
+    expect(String(plan!.steps[0].params.command)).toBe('ls 看看当前目录')
+    expect(String(plan!.steps[0].params.command)).not.toContain('\n')
+  })
+
+  it('无清单时行为不变（回归护栏）', async () => {
+    const plan = await tryL0Skill('不对，不是发布会，是内部培训通知，重来')
+    const isConvert = !!plan && /格式转换/.test(String(plan.intent))
+    expect(isConvert).toBe(false)
+  })
+})
+
+
+// ===== 2026-10-07：V2-T02 真根因 —— 追加清单让探索层把请求判成"列 .md 文件" =====
+describe('L0 探索层：追加清单不得把请求判成文件列举（V2-T02）', () => {
+  const MARK = '\n\n【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】\n'
+  const RAW = '不对，不是发布会，是内部培训通知，重来'
+  const DEC = RAW + MARK + '- 2026.9.24最新快照.md（12 块）\n- AUDIT-REPORT-2026-09.md（8 块）\n- 项目周报.docx（3 块）'
+
+  it('带清单时不得产出 list_directory 步（此前被清单里的 .md 文件名带偏）', async () => {
+    const plan = await buildExplorePlan(DEC)
+    const isListing = plan.steps.some(s => s.tool === 'list_directory')
+    expect(isListing).toBe(false)
+  })
+
+  it('带清单时的探索计划与裸输入一致（回归护栏）', async () => {
+    const rawPlan = await buildExplorePlan(RAW)
+    const decPlan = await buildExplorePlan(DEC)
+    expect(decPlan.steps.map(s => s.tool)).toEqual(rawPlan.steps.map(s => s.tool))
+  })
+})

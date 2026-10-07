@@ -10,6 +10,7 @@ import { planTask, reflectOnResult, saveTaskCase, replan, disambiguateChoice, tr
 import { executeMacro, resolveDirectPrompt, formatLineage, computeLineageSavings, substitutePlaceholdersInArgs } from '@/services/macroExecutor'
 import type { MacroLineage } from '@/services/macroExecutor'
 import { beautify } from '@/services/resultBeautifier'
+import { SESSION_FILES_CONTEXT_MARKER } from '@/services/sessionFilesContext'
 import { contentHash, truncateForLog } from '@/services/scheduleOptimizer'
 import { logManifestUsage } from '@/services/proactiveScheduler'
 import { selectRewriteStrategy, selectDisambigStrategy, extractStrategyContext } from '@/services/strategySelector'
@@ -426,7 +427,7 @@ export const useDialogStore = defineStore('dialog', () => {
     if (files.length === 0) return content
     return `${content}
 
-【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】
+${SESSION_FILES_CONTEXT_MARKER}
 ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
   }
 

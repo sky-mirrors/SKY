@@ -3,6 +3,7 @@ import { getLLM } from '@/kernel/plugins/llm'
 import { debugLog } from '@/services/debugLog'
 import { extractInstructionSegment } from '@/services/inputForm'
 import { extractListingExt, isListingIntent } from '@/services/fileListing'
+import { stripSessionFilesContext } from '@/services/sessionFilesContext'
 
 interface L0SkillRule {
   name: string
@@ -724,6 +725,8 @@ export function classifyDomain(input: string): string[] {
 }
 
 export async function tryL0Skill(input: string): Promise<L0DirectPlan | null> {
+  // 2026-10-07：路由只看用户原话——剥掉 sendMessage 追加的会话文件清单（其文件名会污染规则匹配）
+  input = stripSessionFilesContext(input)
   for (const rule of skillRules) {
     const triggered = rule.triggerPatterns.some(p => p.test(input))
     if (!triggered) continue
@@ -1057,6 +1060,8 @@ function extractMentionedDir(input: string): string | null {
 }
 
 export async function buildExplorePlan(input: string): Promise<L0DirectPlan> {
+  // 2026-10-07：同 tryL0Skill——探索层的文件/列举判定不得被追加清单里的文件名带偏（V2-T02）
+  input = stripSessionFilesContext(input)
   const filePath = extractFilePath(input)
   const targetFormat = extractTargetFormat(input)
   const sourceExt = extractSourceExt(input)
