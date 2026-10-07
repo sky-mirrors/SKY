@@ -365,3 +365,35 @@ describe('L0 文件复制（2026-09-30 新增规则）', () => {
     expect(plan!.steps[0].tool).toBe('file_move')
   })
 })
+
+
+// ===== 2026-10-07：V2-R15 回归 —— 输入被 funnel 追加会话上下文（含换行）时，shell 命令须取首行 =====
+// 背景：sendMessage 会把 withSessionFilesContext(content)（含换行的知识库清单）喂给路由，
+// 原 `^(?:运行|执行)?\s*(.*)$` 在多行输入上因 `.` 不跨 `\n` 而整体不匹配 → cmd 回落成整个含 `\n`
+// 的输入 → 被 isShellCommandAllowed 以「命令包含shell元字符 '\n'」拒绝（V2-R15 实测）。
+describe('L0 快速Shell命令：被追加会话上下文（多行）时命令取首行', () => {
+  const DECORATED = '运行 ls 看看当前目录\n\n【本会话可用的知识库文件（请直接依据此清单回答，不要反问目录）】\n- 2026.9.24最新快照.md（12 块）'
+
+  it('命令不得包含换行（否则被 shell 元字符校验拒绝）', async () => {
+    const plan = await tryL0Skill(DECORATED)
+    expect(plan).not.toBeNull()
+    expect(plan!.steps[0].tool).toBe('shell_exec')
+    const cmd = String(plan!.steps[0].params.command ?? '')
+    expect(cmd).not.toContain('\n')
+  })
+
+  it('命令为去掉「运行/执行」前缀后的首行内容', async () => {
+    const plan = await tryL0Skill(DECORATED)
+    expect(plan!.steps[0].params.command).toBe('ls 看看当前目录')
+  })
+
+  it('单行输入行为不变（回归护栏）', async () => {
+    const plan = await tryL0Skill('运行 ls -la')
+    expect(plan!.steps[0].params.command).toBe('ls -la')
+  })
+
+  it('直给命令（无前缀）行为不变（回归护栏）', async () => {
+    const plan = await tryL0Skill('ls -la')
+    expect(plan!.steps[0].params.command).toBe('ls -la')
+  })
+})

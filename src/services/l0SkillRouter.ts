@@ -417,8 +417,11 @@ const skillRules: L0SkillRule[] = [
       /(格式|转换|文档|分析|审查|报告)/
     ],
     async buildPlan(input: string): Promise<L0DirectPlan | null> {
-      const cmdMatch = input.match(/^(?:运行|执行)?\s*(.*)$/)
-      const cmd = (cmdMatch ? cmdMatch[1] : input).trim()
+      // 2026-10-07（V2-R15）：输入可能被追加会话文件清单（含换行），原正则在多行输入上整体不匹配，
+      // cmd 回落成整个含换行的输入 → 被 shell 元字符校验拒绝。shell 命令语义上只取首行。
+      const firstLine = input.split(/\r?\n/, 1)[0]
+      const cmdMatch = firstLine.match(/^(?:运行|执行)?\s*(.*)$/)
+      const cmd = (cmdMatch ? cmdMatch[1] : firstLine).trim()
       if (!cmd || cmd.length < 2) return null
       return {
         intent: `执行命令：${cmd.substring(0, 60)}`,
