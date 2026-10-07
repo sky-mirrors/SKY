@@ -166,3 +166,72 @@
   box-shadow: 0 0 44px rgba(255, 119, 170, 0.18), inset 0 0 70px rgba(255, 179, 217, 0.06);
   animation: kawaii-glow 6s ease-in-out infinite;
 }
+
+/* ===== 结构级少女风（2026-10-07 第三版）=====
+ * 用户反馈"只是颜色变了，排版/二次元风格都没有" —— 上一版只覆盖了颜色与圆角，
+ * 本块改的是**排版气质**：留白与呼吸（padding/line-height/margin）、右侧面板**卡片化**、
+ * 模块标题的装饰前缀（✿）、侧栏项圆润化。仍然只作用于 data-theme="kawaii"。
+ * 说明：类名取自运行中 DOM 实测（.wb-nav 侧栏 / .wb-rt-* 右侧"路由与执行"面板 / .dialog-panel / .msg-*）。
+ * 取舍：padding 增大可能让某些面板需要滚动 —— 面板本就 overflow:auto，可接受；
+ * 若某处溢出难看，改这几个数值即可（已集中在变量层之外的本块内）。
+ */
+:root[data-theme="kawaii"] #app {
+  line-height: 1.7;
+}
+:root[data-theme="kawaii"] .dialog-panel {
+  padding: 18px !important;
+  line-height: 1.78 !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .msg-content {
+  padding: 12px 16px !important;
+  line-height: 1.78 !important;
+  margin-bottom: 12px !important;
+}
+:root[data-theme="kawaii"] .dialog-panel .chat-input {
+  padding: 12px 14px !important;
+}
+/* 左侧导航：松一点、圆一点 */
+:root[data-theme="kawaii"] .wb-nav {
+  padding: 12px 10px !important;
+  gap: 6px !important;
+}
+:root[data-theme="kawaii"] .wb-nav > * {
+  border-radius: 12px !important;
+  padding: 7px 10px !important;
+}
+:root[data-theme="kawaii"] .wb-nav > *:hover {
+  background: rgba(255, 179, 217, 0.12) !important;
+}
+/* 右侧"路由与执行"面板：卡片化 + 标题装饰 */
+:root[data-theme="kawaii"] .wb-rt-section {
+  background: rgba(88, 62, 132, 0.3) !important;
+  border: 1px solid var(--k-line) !important;
+  border-radius: 16px !important;
+  padding: 12px 14px !important;
+  margin-bottom: 10px !important;
+  box-shadow: 0 2px 14px rgba(255, 119, 170, 0.1) !important;
+}
+:root[data-theme="kawaii"] .wb-rt-section::before {
+  content: '✿ ';
+  color: var(--k-pink);
+}
+:root[data-theme="kawaii"] .wb-rt-section > *:first-child {
+  letter-spacing: 0.5px;
+}
+/* 面板内的小行：给点内边距与圆角，别挤成表格 */
+:root[data-theme="kawaii"] .wb-rt-packrow,
+:root[data-theme="kawaii"] .wb-rt-budget-row,
+:root[data-theme="kawaii"] .wb-rt-log-item,
+:root[data-theme="kawaii"] .wb-rt-v {
+  border-radius: 10px !important;
+  padding: 6px 8px !important;
+}
+:root[data-theme="kawaii"] .wb-rt-log-item {
+  background: rgba(120, 90, 160, 0.18) !important;
+  margin-bottom: 4px !important;
+}
+/* 顶栏/底栏：留白与圆润 */
+:root[data-theme="kawaii"] .titlebar {
+  padding: 0 16px !important;
+  letter-spacing: 0.6px;
+}
