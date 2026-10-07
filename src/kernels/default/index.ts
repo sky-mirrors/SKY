@@ -13,6 +13,7 @@ import {
   type RaapMatchResult
 } from '@/services/toolRetrieval'
 import { selectRewriteStrategy, selectDisambigStrategy, extractStrategyContext } from '@/services/strategySelector'
+import { looksComposite, actionFamilies } from '@/services/compositeIntent'
 import { gateTemplateForInput, classifyTemplateInput, detectInputForm } from '@/services/inputForm'
 import { extractEntities } from '@/services/nerExtractor'
 import { getPackIdForManifest, getPackWeight } from '@/host/packRuntime'
@@ -241,6 +242,14 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
   switch (strategy) {
     case 'show_candidates': {
       if (cands.length > 1) {
+        // 2026-10-07（用户裁定「不能用户提一个我加一条规则」）：**组合意图不出候选，转规划**。
+        // 候选池是"已编译的成品 + 部分工具名"，而可组合的算子（如刻意不进模型工具表的 create_directory）
+        // 结构性缺席 ⇒ 对组合请求而言候选**不可能有正确选项**。实测代价：用户被迫在 5 个错选项里选 1，
+        // 系统真去建了一份 Word 文档。返回 miss 让 L3/L4 的规划接管（它们能组合能力）。
+        if (looksComposite(input)) {
+          console.warn(`[kernel:default] L2 组合意图 → 不出候选，降级规划（动作家族=${actionFamilies(input).join(',')}）`)
+          return { kind: 'miss' }
+        }
         return {
           kind: 'candidates',
           candidates: cands.slice(0, 5).map(c => ({ id: c.manifest.identity.id, name: c.manifest.identity.name, score: c.score }))
@@ -290,6 +299,11 @@ async function competeAcrossPacks(input: string, raap: RaapMatchResult, ctx: Def
     }
     case 'ask_clarify': {
       if (cands.length > 1) {
+        // 2026-10-07：同一条组合意图守卫（候选机制共有三处产生点，必须同口径，否则漏出同一缺陷）
+        if (looksComposite(input)) {
+          console.warn(`[kernel:default] L2(clarify) 组合意图 → 不出候选，降级规划（动作家族=${actionFamilies(input).join(',')}）`)
+          return { kind: 'miss' }
+        }
         return {
           kind: 'candidates',
           candidates: cands.slice(0, 5).map(c => ({ id: c.manifest.identity.id, name: c.manifest.identity.name, score: c.score }))
@@ -421,6 +435,12 @@ async function l2(input: string, _merged: AdvisoryContribution | null, ctx: Defa
     if (universalResult.isAmbiguous) {
       const cands = universalResult.candidates || []
       if (cands.length > 1) {
+        // 2026-10-07：与含 show_candidates 的同一条守卫 —— 组合意图不出候选（见 services/compositeIntent.ts）。
+        // 候选机制有**两处**产生点，只改一处会留下同一缺陷的另一条路径（本测试正是这样抓到的）。
+        if (looksComposite(input)) {
+          console.warn(`[kernel:default] L2(MCP) 组合意图 → 不出候选，降级规划（动作家族=${actionFamilies(input).join(',')}）`)
+          return { kind: 'miss' }
+        }
         return {
           kind: 'candidates',
           candidates: cands.slice(0, 5).map(c => ({ id: c.item.id, name: c.item.name, score: c.score }))

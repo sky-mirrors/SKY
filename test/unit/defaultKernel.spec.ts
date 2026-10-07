@@ -236,6 +236,45 @@ describe('P3.3：默认内核插件（六层行为等价）', () => {
     }
   })
 
+  it('L2：**组合意图**且候选>1 → miss（不出候选、转规划）——2026-10-07', async () => {
+    // 病理：组合请求（建目录 + 归类）在候选池里**不可能有正确选项**（create_directory 刻意不进模型工具表），
+    // 给候选等于把系统的不确定性转嫁成用户的挫败——实测用户被迫在 5 个错选项里选 1，系统真去建了份 Word 文档。
+    // 判据见 src/services/compositeIntent.ts。
+    const cands = Array.from({ length: 3 }, (_, i) => ({
+      item: makeMatchItem({ source: 'mcp', id: `t${i}`, name: `工具${i}` }),
+      score: 0.7 - i * 0.1,
+      method: 'keyword'
+    }))
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: cands[0].item,
+      confidence: 0.7,
+      matchMethod: 'keyword',
+      isAmbiguous: true,
+      candidates: cands,
+      gate: 'yellow'
+    } as UniversalMatchResult)
+    const result = await layers.l2('把桌面的 docx 都移进一个新建的文件夹', null, makeCtx())
+    expect(result.kind).toBe('miss')
+  })
+
+  it('L2：**非**组合且候选>1 → 仍出 candidates（守卫不得误伤常规消歧）', async () => {
+    const cands = Array.from({ length: 3 }, (_, i) => ({
+      item: makeMatchItem({ source: 'mcp', id: `t${i}`, name: `工具${i}` }),
+      score: 0.7 - i * 0.1,
+      method: 'keyword'
+    }))
+    vi.mocked(universalMatch).mockResolvedValue({
+      item: cands[0].item,
+      confidence: 0.7,
+      matchMethod: 'keyword',
+      isAmbiguous: true,
+      candidates: cands,
+      gate: 'yellow'
+    } as UniversalMatchResult)
+    const result = await layers.l2('查工具', null, makeCtx())
+    expect(result.kind).toBe('candidates')
+  })
+
   it('L2：MCP 歧义但候选≤1 → miss（降级 L3）', async () => {
     vi.mocked(universalMatch).mockResolvedValue({
       item: makeMatchItem({ source: 'mcp' }),
