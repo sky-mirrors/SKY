@@ -58,7 +58,7 @@ describe('configStore', () => {
     expect(store.config.selectedL2Ids).toEqual(['tool-b'])
   })
 
-  it('toggleTheme cycles through dark -> light -> green -> kawaii -> dark', () => {
+  it('toggleTheme cycles through dark -> light -> green -> dark', () => {
     const store = useConfigStore()
     vi.stubGlobal('document', { documentElement: { setAttribute: vi.fn() } })
     expect(store.theme).toBe('dark')
@@ -69,11 +69,8 @@ describe('configStore', () => {
     store.toggleTheme()
     expect(store.theme).toBe('green')
     expect(store.isLightTheme).toBe(true)
-    // 2026-10-07：循环末尾追加 kawaii（可爱/二次元主题，样式见 src/styles/tokens.css）——
-    // kawaii 是深色系，故 isLightTheme 应为 false
-    store.toggleTheme()
-    expect(store.theme).toBe('kawaii')
-    expect(store.isLightTheme).toBe(false)
+    // 2026-10-07（第四版）：主题收敛为三档二次元少女风（dark 哥特御姐 / light 少女萝莉 / green 生命力），
+    // 原先临时加的 kawaii 档已并入 light
     store.toggleTheme()
     expect(store.theme).toBe('dark')
     expect(store.isLightTheme).toBe(false)

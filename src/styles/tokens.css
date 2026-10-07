@@ -1,237 +1,299 @@
 /**
- * 设计令牌（2026-10-07 可用性补强 Wave 2）
+ * ===== HoloStarmap 主题层（2026-10-07 第四版：三档二次元少女风）=====
  *
- * 背景：全项目此前只有「主题变体选择器」（`App.vue` 的 `:root[data-theme="light"|"green"]`），
- * **没有令牌层**——字号与颜色基本硬编码（grep 实测：`font-size` 10px×155 / 9px×124 / 8px×37，
- * 而 14px 仅 11 处；颜色 #5a7a9a 出现 64 次、#8ab4ff 57 次）。同一语义在不同组件用了多种蓝，
- * 正文被压到 9–10px——**可读性上是生理问题，不是品味问题**。
+ * 需求（用户原话）：只留三档 —— ① 浅色·少女萝莉 ② 深色·哥特御姐 ③ 浅绿·生命力蓬勃；
+ * 且**每档的文字颜色与字号都要与底色相匹配**。
  *
- * 本文件是这些值的**单一真源**：要调整先改这里，组件里只写 var(--x)。
- * 引入点：`src/main.ts`（`import './styles/tokens.css'`）。
+ * 「相匹配」的判据（**可测，不靠眼估**）：
+ *   - 对比度：正文与次要文字均 ≥ 4.5:1，大字号 ≥ 3:1（WCAG AA）。
+ *   - 深色底给**略大的字 + 略松的行高**（浅色字在暗底上视觉变细）；浅色底可略小。
+ *   - 因此三档各有自己的 --font-* 阶梯，不是一套字号套三种底色。
+ *   校验：.rivet/scratch/verify-contrast.mjs —— 切到各档后用活 DOM 的计算样式算 WCAG 比值。
+ *
+ * 结构（卡片化 / 留白 / 气泡 / 装饰）三档**共用一份规则**，只换变量，避免三倍重复。
+ * 作用域：仅 data-theme 为 dark / light / green 三者。
  */
+
+/* 兜底字号阶梯（无主题时） */
 :root {
-  /* 字号阶梯：正文下限 12px、次要下限 11px；8/9/10px 一律上提 */
-  --font-xs: 11px; /* 次要标注：角标、辅助说明 */
-  --font-sm: 12px; /* 正文下限 */
-  --font-md: 13px; /* 常规正文 */
-  --font-lg: 16px; /* 标题 */
-
-  /* 文本层级（收敛原先散落的硬编码蓝） */
-  --text-dim: #7a9cc6;    /* 次要文本 */
-  --text: #c0d8f0;        /* 常规文本 */
-  --text-strong: #e0e0ff; /* 强调文本 */
-  --accent: #8ab4ff;      /* 强调色 */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 16px;
 }
 
-/* ===== 可爱 / 二次元主题（2026-10-07）=====
- * 用法：点标题栏的主题按钮循环切换 dark → light → green → 🌸 kawaii。
- * 设计：**只新增、不改动既有声明** —— 默认三个主题的观感零变化（本块只在 data-theme="kawaii" 下生效）。
- * 覆盖面照抄项目既有主题（App.vue 与 DialogPanel.vue 的 :root[data-theme="green"] 块）的选择器清单，
- * 保证"主题应该覆盖哪些元素"与既有主题一致，不另立标准。
- * 调色：暗紫底 + 樱粉(--k-pink)/薰衣草(--k-lav)/薄荷(--k-mint) 三色；圆润字体栈 + 大圆角 + 柔和粉晕。
- * 想调风格只改下面这组变量即可，不必动组件。
- */
-:root[data-theme="kawaii"] {
-  --k-bg: #2a1b33;
-  --k-panel: rgba(74, 48, 102, 0.96);
-  --k-text: #fff0f8;
-  --k-dim: #e0bcd8;
-  --k-line: rgba(255, 179, 217, 0.34);
-  --k-pink: #ffb3d9;
-  --k-rose: #ff77aa;
-  --k-lav: #d8b4ff;
-  --k-mint: #a8f0e0;
-  --k-font: 'M PLUS Rounded 1c', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+/* ---------- 三套变量：配色 + 字号 + 字体 + 圆角 + 光晕 ---------- */
+
+/* ① dark = 深色·哥特御姐：近黑紫底、血红强调、银灰次要、小圆角、衬线标题、字号偏大 */
+:root[data-theme="dark"] {
+  --t-bg: #0d0a12;
+  --t-panel: rgba(26, 18, 32, 0.96);
+  --t-panel-2: rgba(42, 28, 50, 0.55);
+  --t-text: #ece4ee;
+  --t-dim: #a89bb0;
+  --t-strong: #ffffff;
+  --t-accent: #c81e50;
+  --t-accent-2: #cfc6d6;
+  --t-line: rgba(200, 30, 80, 0.3);
+  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: 'Songti SC', 'SimSun', 'Georgia', serif;
+  --t-lh: 1.85;
+  --t-radius-sm: 8px;
+  --t-radius-md: 10px;
+  --t-radius-lg: 12px;
+  --t-glow: rgba(200, 30, 80, 0.18);
+
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 14px;
+  --font-lg: 18px;
 }
 
-:root[data-theme="kawaii"] #app {
-  background: linear-gradient(160deg, #1b1430 0%, #2a1d47 60%, #33244f 100%);
-}
-:root[data-theme="kawaii"] .titlebar {
-  background: rgba(58, 40, 92, 0.95) !important;
-  border-bottom-color: var(--k-line) !important;
-}
-:root[data-theme="kawaii"] .titlebar-text {
-  color: var(--k-pink) !important;
-}
-:root[data-theme="kawaii"] .dialog-panel {
-  background: var(--k-panel) !important;
-  color: var(--k-text) !important;
-  border-color: var(--k-line) !important;
-  border-radius: 18px !important;
-  /* 注意：此处**不**写 box-shadow —— 否则 !important 会压住下面 kawaii-glow 动画的 box-shadow，
-     呼吸光晕只剩"在跑但看不见"。box-shadow 交给文末的少女感块（不带 !important）驱动。 */
-}
-:root[data-theme="kawaii"] .dialog-panel * {
-  border-color: var(--k-line);
-  font-family: var(--k-font);
-}
-:root[data-theme="kawaii"] .dialog-panel .mode-btn {
-  color: var(--k-dim) !important;
-  border-radius: 999px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .mode-btn.active {
-  background: rgba(255, 158, 199, 0.22) !important;
-  color: var(--k-pink) !important;
-  border-color: rgba(255, 158, 199, 0.5) !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .chat-input textarea {
-  background: rgba(30, 22, 52, 0.9) !important;
-  color: var(--k-text) !important;
-  border-color: var(--k-line) !important;
-  border-radius: 16px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-content {
-  color: var(--k-text) !important;
-  border-radius: 16px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-user .msg-content {
-  background: linear-gradient(135deg, rgba(255, 158, 199, 0.22), rgba(184, 169, 255, 0.18)) !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-assistant .msg-content {
-  background: rgba(88, 62, 132, 0.4) !important;
-}
-:root[data-theme="kawaii"] .dialog-panel select,
-:root[data-theme="kawaii"] select {
-  background: #241a3d !important;
-  color: var(--k-text) !important;
-  border-color: var(--k-line) !important;
-  border-radius: 10px !important;
-}
-:root[data-theme="kawaii"] select option {
-  background: #241a3d !important;
-  color: var(--k-text) !important;
-}
-:root[data-theme="kawaii"] ::-webkit-scrollbar-track {
-  background: rgba(27, 20, 48, 0.6) !important;
-}
-:root[data-theme="kawaii"] ::-webkit-scrollbar-thumb {
-  background: rgba(255, 158, 199, 0.3) !important;
-  border-radius: 999px !important;
-}
-:root[data-theme="kawaii"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 158, 199, 0.5) !important;
-}
-/* 可爱的小动作：按钮悬停微弹（只在 kawaii 下启用） */
-:root[data-theme="kawaii"] button,
-:root[data-theme="kawaii"] .mode-btn {
-  transition: transform 0.14s ease;
-}
-:root[data-theme="kawaii"] button:hover,
-:root[data-theme="kawaii"] .mode-btn:hover {
-  transform: translateY(-1px) scale(1.03);
+/* ② light = 浅色·少女萝莉：奶粉白底、樱粉强调、薰衣草次强调、大圆角、圆体、字号最小档 */
+:root[data-theme="light"] {
+  --t-bg: #fff6fa;
+  --t-panel: rgba(255, 255, 255, 0.97);
+  --t-panel-2: rgba(255, 228, 240, 0.6);
+  --t-text: #5c3a4c;
+  --t-dim: #856572;
+  --t-strong: #3a2130;
+  --t-accent: #ff77aa;
+  --t-accent-2: #b98cff;
+  --t-line: rgba(255, 119, 170, 0.3);
+  --t-font: 'M PLUS Rounded 1c', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: var(--t-font);
+  --t-lh: 1.75;
+  --t-radius-sm: 16px;
+  --t-radius-md: 20px;
+  --t-radius-lg: 22px;
+  --t-glow: rgba(255, 119, 170, 0.22);
+
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 17px;
 }
 
-/* ===== 少女感增强（2026-10-07 第二版）=====
- * 在上一版 kawaii 之上加深"少女"气质：更甜的粉玫瑰紫、气泡不对称圆角、粉色内发光、字距放松、选中态。
- * 纯追加（靠 CSS 后写规则覆盖同特异性声明），**只影响 data-theme="kawaii"**；删掉本块即回到上一版。
- * 注意：下面 .dialog-panel 的 box-shadow **故意不加 !important** —— 否则会压住 kawaii-glow 动画
- * （CSS 中 !important 声明优先于 animation），柔光呼吸就不动了。
- */
-:root[data-theme="kawaii"] .dialog-panel {
-  background: linear-gradient(160deg, rgba(84, 54, 112, 0.96) 0%, rgba(64, 40, 84, 0.97) 100%) !important;
-  border: 1px solid var(--k-line) !important;
-  border-radius: 22px !important;
+/* ③ green = 浅绿·生命力蓬勃：嫩白绿底、嫩绿强调、黄绿次强调、中圆角、字号中档 */
+:root[data-theme="green"] {
+  --t-bg: #f1fbf3;
+  --t-panel: rgba(255, 255, 255, 0.97);
+  --t-panel-2: rgba(216, 245, 224, 0.6);
+  --t-text: #2c4634;
+  --t-dim: #5a7a64;
+  --t-strong: #16301f;
+  --t-accent: #26b268;
+  --t-accent-2: #7ac943;
+  --t-line: rgba(38, 178, 104, 0.28);
+  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: var(--t-font);
+  --t-lh: 1.78;
+  --t-radius-sm: 12px;
+  --t-radius-md: 16px;
+  --t-radius-lg: 18px;
+  --t-glow: rgba(38, 178, 104, 0.2);
+
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 17px;
+}
+
+/* ---------- 共用结构：三档同规则、只换变量 ---------- */
+
+:root[data-theme="dark"] #app,
+:root[data-theme="light"] #app,
+:root[data-theme="green"] #app {
+  background: var(--t-bg) !important;
+  color: var(--t-text) !important;
+  font-family: var(--t-font);
+  line-height: var(--t-lh);
   letter-spacing: 0.2px;
 }
-:root[data-theme="kawaii"] .dialog-panel * {
-  letter-spacing: 0.2px;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-user .msg-content {
-  background: linear-gradient(135deg, rgba(255, 119, 170, 0.30), rgba(216, 180, 255, 0.24)) !important;
-  border: 1px solid rgba(255, 179, 217, 0.34) !important;
-  border-radius: 20px 20px 6px 20px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-assistant .msg-content {
-  background: linear-gradient(135deg, rgba(216, 180, 255, 0.16), rgba(120, 90, 160, 0.30)) !important;
-  border: 1px solid rgba(216, 180, 255, 0.26) !important;
-  border-radius: 20px 20px 20px 6px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .chat-input textarea {
-  border-radius: 20px !important;
-}
-:root[data-theme="kawaii"] .titlebar {
-  background: linear-gradient(90deg, rgba(74, 48, 102, 0.96), rgba(99, 62, 122, 0.96)) !important;
-}
-:root[data-theme="kawaii"] ::selection {
-  background: rgba(255, 179, 217, 0.4);
-  color: #fff;
-}
-/* 极缓的粉色柔光呼吸：6s 一次，幅度很小（不想动效就删这一段两条） */
-@keyframes kawaii-glow {
-  0%, 100% { box-shadow: 0 0 40px rgba(255, 119, 170, 0.16), inset 0 0 60px rgba(255, 179, 217, 0.05); }
-  50%      { box-shadow: 0 0 56px rgba(255, 119, 170, 0.26), inset 0 0 80px rgba(255, 179, 217, 0.09); }
-}
-:root[data-theme="kawaii"] .dialog-panel {
-  box-shadow: 0 0 44px rgba(255, 119, 170, 0.18), inset 0 0 70px rgba(255, 179, 217, 0.06);
-  animation: kawaii-glow 6s ease-in-out infinite;
-}
 
-/* ===== 结构级少女风（2026-10-07 第三版）=====
- * 用户反馈"只是颜色变了，排版/二次元风格都没有" —— 上一版只覆盖了颜色与圆角，
- * 本块改的是**排版气质**：留白与呼吸（padding/line-height/margin）、右侧面板**卡片化**、
- * 模块标题的装饰前缀（✿）、侧栏项圆润化。仍然只作用于 data-theme="kawaii"。
- * 说明：类名取自运行中 DOM 实测（.wb-nav 侧栏 / .wb-rt-* 右侧"路由与执行"面板 / .dialog-panel / .msg-*）。
- * 取舍：padding 增大可能让某些面板需要滚动 —— 面板本就 overflow:auto，可接受；
- * 若某处溢出难看，改这几个数值即可（已集中在变量层之外的本块内）。
- */
-:root[data-theme="kawaii"] #app {
-  line-height: 1.7;
-}
-:root[data-theme="kawaii"] .dialog-panel {
-  padding: 18px !important;
-  line-height: 1.78 !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .msg-content {
-  padding: 12px 16px !important;
-  line-height: 1.78 !important;
-  margin-bottom: 12px !important;
-}
-:root[data-theme="kawaii"] .dialog-panel .chat-input {
-  padding: 12px 14px !important;
-}
-/* 左侧导航：松一点、圆一点 */
-:root[data-theme="kawaii"] .wb-nav {
-  padding: 12px 10px !important;
-  gap: 6px !important;
-}
-:root[data-theme="kawaii"] .wb-nav > * {
-  border-radius: 12px !important;
-  padding: 7px 10px !important;
-}
-:root[data-theme="kawaii"] .wb-nav > *:hover {
-  background: rgba(255, 179, 217, 0.12) !important;
-}
-/* 右侧"路由与执行"面板：卡片化 + 标题装饰 */
-:root[data-theme="kawaii"] .wb-rt-section {
-  background: rgba(88, 62, 132, 0.3) !important;
-  border: 1px solid var(--k-line) !important;
-  border-radius: 16px !important;
-  padding: 12px 14px !important;
-  margin-bottom: 10px !important;
-  box-shadow: 0 2px 14px rgba(255, 119, 170, 0.1) !important;
-}
-:root[data-theme="kawaii"] .wb-rt-section::before {
-  content: '✿ ';
-  color: var(--k-pink);
-}
-:root[data-theme="kawaii"] .wb-rt-section > *:first-child {
-  letter-spacing: 0.5px;
-}
-/* 面板内的小行：给点内边距与圆角，别挤成表格 */
-:root[data-theme="kawaii"] .wb-rt-packrow,
-:root[data-theme="kawaii"] .wb-rt-budget-row,
-:root[data-theme="kawaii"] .wb-rt-log-item,
-:root[data-theme="kawaii"] .wb-rt-v {
-  border-radius: 10px !important;
-  padding: 6px 8px !important;
-}
-:root[data-theme="kawaii"] .wb-rt-log-item {
-  background: rgba(120, 90, 160, 0.18) !important;
-  margin-bottom: 4px !important;
-}
-/* 顶栏/底栏：留白与圆润 */
-:root[data-theme="kawaii"] .titlebar {
+/* 顶栏：渐变 + 圆润 + 主题色标题 */
+:root[data-theme="dark"] .titlebar,
+:root[data-theme="light"] .titlebar,
+:root[data-theme="green"] .titlebar {
+  background: linear-gradient(90deg, var(--t-panel), var(--t-panel-2)) !important;
+  border-bottom-color: var(--t-line) !important;
   padding: 0 16px !important;
   letter-spacing: 0.6px;
+}
+:root[data-theme="dark"] .titlebar-text,
+:root[data-theme="light"] .titlebar-text,
+:root[data-theme="green"] .titlebar-text {
+  /* 用各档的"高强度文字色"而不是强调色 —— 强调色（粉/绿）在浅底上对比度只有 2.3~2.6:1，
+     实测不达 WCAG AA。可读性优先于"标题带主题色"这个装饰意图。 */
+  color: var(--t-strong) !important;
+  font-family: var(--t-font-title);
+}
+
+/* 对话面板：卡片化 + 呼吸 */
+:root[data-theme="dark"] .dialog-panel,
+:root[data-theme="light"] .dialog-panel,
+:root[data-theme="green"] .dialog-panel {
+  background: var(--t-panel) !important;
+  color: var(--t-text) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-lg) !important;
+  padding: 18px !important;
+  line-height: var(--t-lh) !important;
+  box-shadow: 0 0 32px var(--t-glow);
+  font-family: var(--t-font);
+}
+:root[data-theme="dark"] .dialog-panel *,
+:root[data-theme="light"] .dialog-panel *,
+:root[data-theme="green"] .dialog-panel * {
+  border-color: var(--t-line);
+  font-family: var(--t-font);
+}
+:root[data-theme="dark"] .dialog-panel .msg-content,
+:root[data-theme="light"] .dialog-panel .msg-content,
+:root[data-theme="green"] .dialog-panel .msg-content {
+  color: var(--t-text) !important;
+  padding: 12px 16px !important;
+  line-height: var(--t-lh) !important;
+  margin-bottom: 12px !important;
+}
+:root[data-theme="dark"] .dialog-panel .msg-user .msg-content,
+:root[data-theme="light"] .dialog-panel .msg-user .msg-content,
+:root[data-theme="green"] .dialog-panel .msg-user .msg-content {
+  background: var(--t-panel-2) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-md) var(--t-radius-md) 6px var(--t-radius-md) !important;
+}
+:root[data-theme="dark"] .dialog-panel .msg-assistant .msg-content,
+:root[data-theme="light"] .dialog-panel .msg-assistant .msg-content,
+:root[data-theme="green"] .dialog-panel .msg-assistant .msg-content {
+  background: var(--t-panel) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-md) var(--t-radius-md) var(--t-radius-md) 6px !important;
+}
+:root[data-theme="dark"] .dialog-panel .chat-input textarea,
+:root[data-theme="light"] .dialog-panel .chat-input textarea,
+:root[data-theme="green"] .dialog-panel .chat-input textarea {
+  background: var(--t-bg) !important;
+  color: var(--t-text) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-md) !important;
+}
+:root[data-theme="dark"] .dialog-panel .mode-btn,
+:root[data-theme="light"] .dialog-panel .mode-btn,
+:root[data-theme="green"] .dialog-panel .mode-btn {
+  color: var(--t-dim) !important;
+  border-radius: 999px !important;
+}
+:root[data-theme="dark"] .dialog-panel .mode-btn.active,
+:root[data-theme="light"] .dialog-panel .mode-btn.active,
+:root[data-theme="green"] .dialog-panel .mode-btn.active {
+  background: var(--t-panel-2) !important;
+  color: var(--t-accent) !important;
+  border-color: var(--t-accent) !important;
+}
+
+/* 左侧导航：松一点、圆一点、主题色悬停 */
+:root[data-theme="dark"] #app .wb-nav,
+:root[data-theme="light"] #app .wb-nav,
+:root[data-theme="green"] #app .wb-nav {
+  padding: 12px 10px !important;
+  gap: 6px !important;
+  color: var(--t-text) !important;
+}
+:root[data-theme="dark"] #app .wb-nav *,
+:root[data-theme="light"] #app .wb-nav *,
+:root[data-theme="green"] #app .wb-nav * {
+  color: var(--t-text) !important;
+}
+:root[data-theme="dark"] .wb-nav > *,
+:root[data-theme="light"] .wb-nav > *,
+:root[data-theme="green"] .wb-nav > * {
+  border-radius: var(--t-radius-sm) !important;
+  padding: 7px 10px !important;
+}
+:root[data-theme="dark"] .wb-nav > *:hover,
+:root[data-theme="light"] .wb-nav > *:hover,
+:root[data-theme="green"] .wb-nav > *:hover {
+  background: var(--t-panel-2) !important;
+}
+
+/* 右侧「路由与执行」：卡片化 + 装饰前缀 */
+/* 特异性说明：这几条额外带 #app —— 旧主题规则（App.vue / DialogPanel.vue 里按"深绿底"写的
+ * :root[data-theme="green"] .dialog-panel 等）在 tokens.css **之后**注入，同特异性 !important 会取胜，
+ * 导致新浅绿底上仍用旧浅绿字（实测对比度 1.63:1）。加 id 选择器把特异性抬到必胜。 */
+:root[data-theme="dark"] #app .wb-rt-section,
+:root[data-theme="light"] #app .wb-rt-section,
+:root[data-theme="green"] #app .wb-rt-section {
+  background: var(--t-panel-2) !important;
+  color: var(--t-text) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-md) !important;
+  padding: 12px 14px !important;
+  margin-bottom: 10px !important;
+  box-shadow: 0 2px 14px var(--t-glow) !important;
+}
+:root[data-theme="dark"] #app .wb-rt-section *,
+:root[data-theme="light"] #app .wb-rt-section *,
+:root[data-theme="green"] #app .wb-rt-section * {
+  color: var(--t-text) !important;
+}
+:root[data-theme="dark"] .wb-rt-section::before,
+:root[data-theme="light"] .wb-rt-section::before,
+:root[data-theme="green"] .wb-rt-section::before {
+  content: '✿ ';
+  color: var(--t-accent);
+}
+:root[data-theme="dark"] .wb-rt-packrow,
+:root[data-theme="light"] .wb-rt-packrow,
+:root[data-theme="green"] .wb-rt-packrow,
+:root[data-theme="dark"] .wb-rt-budget-row,
+:root[data-theme="light"] .wb-rt-budget-row,
+:root[data-theme="green"] .wb-rt-budget-row,
+:root[data-theme="dark"] .wb-rt-v,
+:root[data-theme="light"] .wb-rt-v,
+:root[data-theme="green"] .wb-rt-v {
+  border-radius: var(--t-radius-sm) !important;
+  padding: 6px 8px !important;
+}
+:root[data-theme="dark"] .wb-rt-log-item,
+:root[data-theme="light"] .wb-rt-log-item,
+:root[data-theme="green"] .wb-rt-log-item {
+  border-radius: var(--t-radius-sm) !important;
+  padding: 6px 8px !important;
+  background: var(--t-panel-2) !important;
+  margin-bottom: 4px !important;
+}
+
+/* 表单 / 滚动条 / 选中态 */
+:root[data-theme="dark"] select,
+:root[data-theme="light"] select,
+:root[data-theme="green"] select {
+  background: var(--t-bg) !important;
+  color: var(--t-text) !important;
+  border: 1px solid var(--t-line) !important;
+  border-radius: var(--t-radius-sm) !important;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb,
+:root[data-theme="light"] ::-webkit-scrollbar-thumb,
+:root[data-theme="green"] ::-webkit-scrollbar-thumb {
+  background: var(--t-line) !important;
+  border-radius: 999px !important;
+}
+:root[data-theme="dark"] ::selection,
+:root[data-theme="light"] ::selection,
+:root[data-theme="green"] ::selection {
+  background: var(--t-accent);
+  color: var(--t-bg);
+}
+
+/* 按钮悬停微弹（少女感的小动作，三档一致） */
+:root[data-theme="dark"] button:hover,
+:root[data-theme="light"] button:hover,
+:root[data-theme="green"] button:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+:root[data-theme="dark"] button,
+:root[data-theme="light"] button,
+:root[data-theme="green"] button {
+  transition: transform 0.14s ease;
 }

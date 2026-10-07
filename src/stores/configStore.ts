@@ -28,7 +28,7 @@ export const useConfigStore = defineStore('config', () => {
     llmTimeoutScale: 1,
     restoreSessionMemoryOnStartup: false
   })
-  const theme = ref<'dark' | 'light' | 'green' | 'kawaii'>('dark')
+  const theme = ref<'dark' | 'light' | 'green'>('dark')
 
   const isFirstLaunch = computed(() => !config.value.firstLaunchDone)
   const currentJobRole = computed(() => config.value.jobRole)
@@ -60,7 +60,7 @@ export const useConfigStore = defineStore('config', () => {
     saveToStorage()
   }
 
-  function setTheme(next: 'light' | 'green' | 'dark' | 'kawaii') {
+  function setTheme(next: 'light' | 'green' | 'dark') {
     // D-12：主题下拉框需要按选定值直达——toggleTheme 是循环切换，
     // dark 状态下选 green 实际会得到 light
     theme.value = next
@@ -69,8 +69,9 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   function toggleTheme() {
-    // 2026-10-07：主题循环末尾追加 kawaii（可爱/二次元），样式见 src/styles/tokens.css
-    const cycle: Record<string, 'light' | 'green' | 'dark' | 'kawaii'> = { dark: 'light', light: 'green', green: 'kawaii', kawaii: 'dark' }
+    // 2026-10-07（第四版）：三档二次元少女风 —— dark 哥特御姐 / light 少女萝莉 / green 生命力。
+    // kawaii 档已并入 light（样式见 src/styles/tokens.css）。
+    const cycle: Record<string, 'light' | 'green' | 'dark'> = { dark: 'light', light: 'green', green: 'dark' }
     setTheme(cycle[theme.value] ?? 'dark')
   }
 
@@ -182,7 +183,10 @@ export const useConfigStore = defineStore('config', () => {
         }
         if (parsed.restoreSessionMemoryOnStartup !== undefined) config.value.restoreSessionMemoryOnStartup = parsed.restoreSessionMemoryOnStartup
         if (parsed.theme) {
-          theme.value = parsed.theme as 'dark' | 'light' | 'green' | 'kawaii'
+          // 2026-10-07：主题收敛为三档；旧配置里的 kawaii（已并入 light）等未知值一律归一到 dark，
+          // 否则 data-theme 会指向没有样式定义的值 → 界面退回无主题裸样式
+          const KNOWN = ['dark', 'light', 'green']
+          theme.value = (KNOWN.includes(parsed.theme) ? parsed.theme : 'dark') as 'dark' | 'light' | 'green'
           document.documentElement.setAttribute('data-theme', theme.value)
         }
       } catch { /* ignore */ }
