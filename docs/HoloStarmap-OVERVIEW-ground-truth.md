@@ -338,23 +338,30 @@ flowchart TD
 
 ### 本文档自身的完成度声明（必须在对外引用前看）
 
-**第二波吸收后**（2026-10-07）：旧文档合计 **765 034 字节（23 份）**，本文档现约 **30 KB**。
+**第三波吸收后**（2026-10-07）：旧文档合计 **765 034 字节（23 份）**，本文档现约 **40 KB / 25 节**。
 
-**已吸收（有对应章节）**：`README.md`→§0/§1；`最新口径.md`+`MECHANISM-BOUNDARIES.md`+`MECHANISM-DORMANCY*`+`MECHANISM-ROT-AUDIT*`→§4/§20；
+**已吸收（有对应章节）**：`README.md`→§0/§1；`最新口径.md`+`MECHANISM-BOUNDARIES.md`+`MECHANISM-DORMANCY*`+`MECHANISM-ROT-AUDIT*`→§4/§20/§25；
 `LIFECYCLE-GAPS.md`→§6/§20.3；`REQUEST-LIFECYCLE.md`→§3；`CORE-ANALYSIS.md`→§4；
-`HOTPLUG-ARCHITECTURE.md`+`领域包-现状评审与待填清单.md`→§9 + `DomainPack-design-ground-truth.md`；
-`ARCHITECTURE.md`+`ARCHITECTURE-SUMMARY.md`→**§16（已判定其星图章节作废）**；
-`AUDIT-REPORT`+`AUDIT-RECONCILIATION`→**§17（已列其自相矛盾处）**；
-`MODEL-CAPABILITY-LEDGER-DESIGN.md`→**§18（已判定未实施）**；`EXAM-RUNBOOK`+`SOAK-RUNBOOK`→**§19**。
+`HOTPLUG-ARCHITECTURE.md`+`领域包-现状评审与待填清单.md`→§9 + §25 + `DomainPack-design-ground-truth.md`；
+`ARCHITECTURE.md`+`ARCHITECTURE-SUMMARY.md`→§16（判其星图章节作废）；`AUDIT-REPORT`+`AUDIT-RECONCILIATION`→§17（列其自相矛盾处）；
+`MODEL-CAPABILITY-LEDGER-DESIGN.md`→§18（判其未实施）；`EXAM-RUNBOOK`+`SOAK-RUNBOOK`→§19；
+`SECURITY.md`→**§21（发现两处硬错）**；`TEST_REPORT.md`+`CONTRIBUTING.md`→**§22**；
+三份 `快照`→**§23（判其递进覆盖、后者作废前者）**；`知识沉淀-匹配度与RaaP.md`+`漏斗前四层盘点`→**§24（公式已回代码复核）**。
 
-**仍未吸收正文**：`2026.9.24最新快照.md`、`2026.9.26最新快照.md`、`2026.9.27.1-30快照.md`（三份"快照"类，体量大且内容很可能已被后续文档取代）、
-`知识沉淀-匹配度与RaaP.md`、`漏斗前四层盘点与L1补齐.md`、`HOTPLUG-ARCHITECTURE.md` 的 M1–M20 逐条正文、`TEST_REPORT.md` / `SECURITY.md` / `CONTRIBUTING.md`。
+**仍未吸收正文**：`HOTPLUG-ARCHITECTURE.md` 的 §1–§7 / §8–§11 / 附录 A–D 细节（§25 只做了一句话速查）、`CORE-ANALYSIS.md` 的八条证据链原文、三份快照的 56+ 条逐条内容（§23 只给了结论）。
 
-**逐条核实率**：文中标 `[已复核]`/`[实测]` 的条目已回代码；标 `[转述·未复核]` 的（尤其 §17 审计、§19 手册、§20 的 O/G 条目）**尚未逐条回代码**。
+**逐条核实率**：标 `[已复核]`/`[实测]` 的已回代码（§0、§5、§8、§9.2、§21、§24 等）；标 `[转述·未复核]` 的（**§17 审计、§19 手册、§20 的 O/G 条目、§22 测试报告、§23 快照、§25 M1–M20**）**尚未逐条回代码**。
 
-**因此：现在可以删旧文档了吗？—— 建议先别删。** 理由：本文档对 §17/§19/§20 的内容仍属"转述级"，
-而旧文档本身含有大量**代码里读不出来的**上下文（当时的取舍理由、失败案例、排查记录）。稳妥做法：
-**先用本文档做对外说明，旧文档转入 `docs/archive/` 保留**；等 §17/§19/§20 也逐条复核过，再删。
+**因此：现在可以删旧文档了吗？—— 仍建议先别删。** 理由不变：§17/§19/§20/§22/§23/§25 仍是转述级，
+且旧文档含**代码读不出来的上下文**（当时取舍理由、失败案例、排查与踩坑记录）。推荐路径：
+**本文档做对外说明 → 旧文档转 `docs/archive/` 保留 → 等上述转述级章节也逐条复核过，再删。**
+
+### 开源前的**必修清单**（按紧急度）
+
+1. **`SECURITY.md` 两处硬错**（§21.1）：xlsx 版本 0.18.5→0.20.3、extract-zip 依赖性质——**披露文件出错最伤可信度**。
+2. **`README.md` 四处数字**（§0 第 1–4 条）与 **`TEST_REPORT.md` 全部数字**（§22.1，自述过期且 24 vs 23 自相矛盾）。
+3. **`package.json` 缺 `repository` 字段**；`CONTRIBUTING.md` 的仓库名仍是占位、示例文件名可能是旧结构（§21.2/§22.2）。
+4. **删星图/清 L3 类**条目（旧文档多处）：**与项目约定冲突，不要照做**（§16.3、§12 第 8 条）。
 
 ## 16. 架构详解与历史文档的处置（吸收 `ARCHITECTURE.md` 87 KB / `ARCHITECTURE-SUMMARY.md` 80 KB）
 
@@ -450,5 +457,128 @@ flowchart TD
 G-3 条目头"✅ 已修" vs 归档表"❌ P1"（**经我复核，G-3 确已修**，见 §0 第 6 条）；G-6 同型（条目头"部分修" vs 表"❌"）；G-1 同型。
 
 **跨文档矛盾**：`MECHANISM-BOUNDARIES.md`（09-22 快照）用现在时把 G-1/G-3/G-6/G-9 描述为**仍存在**，而 `LIFECYCLE-GAPS.md`（09-27 复核后）已标已修/部分修。**以晚者为准，但仍要回代码。**
+
+---
+
+## 21. 安全披露（`SECURITY.md`）—— **开源前必须修**
+
+[已复核：本会话直接读 `SECURITY.md` + `package.json`]
+
+`SECURITY.md` 的 "Known Vulnerabilities" 表列出 **5 条未缓解的上游漏洞**（`:9-13`，均无编号、无受影响代码位置）：
+
+| 包 | 文档标定严重度 | 文档结论 |
+|---|---|---|
+| protobufjs ≤7.2.6 | Critical | 未缓解（仅本地数据） |
+| xlsx **0.18.5** | High | 未缓解（计划换 exceljs） |
+| sharp | High | 未缓解（仅本地数据） |
+| electron 33.4.0 | High | 未缓解（计划升 44.x） |
+| extract-zip | High | 称"随 Electron 升级解决" |
+
+文档自评 **Practical risk: Low**（`:24`），理由是本地桌面应用、无网络服务、无远程不可信输入。
+
+### 21.1 两处**与代码不符**（必须修）
+
+1. **xlsx 版本写错**：文档 `:10` 称 `xlsx 0.18.5`，而 `package.json:39` 实际是
+   `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` ⇒ **0.20.3**。
+   而 0.18.5 关联的原型污染（CVE-2023-30533）与 ReDoS（CVE-2024-22363）**在其后续版本已修复** ⇒
+   这条的**严重度与"换 exceljs"整改计划都需重判**。
+2. **extract-zip 的依赖性质写错**：文档 `:13` 称它是 electron 的**间接**依赖、"Resolves with Electron upgrade"；
+   而 `package.json:30` 把它列为**直接依赖**（`^2.0.1`）⇒ **该缓解推断不成立**。
+
+### 21.2 其余口径问题
+
+- 漏洞表**无编号、无受影响 file:line**（Source 列填的是依赖链），披露粒度不足以对外。
+- `electron 33.4.0` 与 `package.json:56` **一致** ✓（升级确实未发生）。
+- 仓库名不一致：`SECURITY.md:36` 用 `sky-mirrors/HoloStarmap`，`CONTRIBUTING.md:18` 仍是占位 `<username>/holostarmap`，
+  且 `package.json` **没有 `repository` 字段**。
+
+---
+
+## 22. 测试报告与贡献者文档（`TEST_REPORT.md` / `CONTRIBUTING.md`）
+
+### 22.1 `TEST_REPORT.md`（282 行）—— **自述过期 + 数字自相矛盾** [转述·未复核]
+
+- `:3-4` **自述已过期**：报告定格于 **1129 用例 / 48 文件**（2026-09-02），并称"当前基线 87 文件 / 1685 用例"，
+  要求以 `npm test` 实测为准。⇒ **该文件的所有数字都不能对外引用**（当前实测 **2653** 用例）。
+- `:115` 标题称"安全漏洞修复 **(24个)**"，但实际只枚举 **23 个 ID**（VULN-01..24 中 **VULN-20 缺失**）⇒ 开源后会被当证据瑕疵。
+- `:248` 判定 **🟡 Conditional Go**，`:254/:263` 记覆盖率 ~40% 而**自承低于可发布阈值 ≥60%**。
+- `:161` 唯一未修 Bug **B3**：`dialogStore.ts` 7 个 `awaiting*` 暂停点标志**无互斥锁**（中危）。
+
+### 22.2 `CONTRIBUTING.md`（约 110 行）[转述·未复核]
+
+开发环境（Node ≥18 / npm ≥9 / **仅 Windows 打包**）、分支策略、TypeScript 规范（`strict: true`，禁 `any`/`as`）、
+Vue 组件约定、Conventional Commits、`npm test` / `npm run test:coverage`、Fork → `checkout -b` → PR 检查项。
+
+⚠️ 该文档里的**示例文件名**（`l0-skill-router.ts`、`StarMap.vue`、`useApiStore`）**未对源码核验**，可能是旧结构残留。
+
+---
+
+## 23. 三份"快照"文档的递进关系
+
+[转述·未复核：均引自文档自述]
+
+| 文档 | 体量 | 角色 |
+|---|---|---|
+| `2026.9.24最新快照.md` | **638 行** | 收录三域并行深查的 **56 条**新发现（E×15 / H×17 / S×8 / K×7 / D×2 / T×5 / X×2）+ 11 批次修复动态 |
+| `2026.9.26最新快照.md` | 345 行 | 对 56 条做**全量四档复核** |
+| `2026.9.27.1-30快照.md` | 304 行 | **逐条亲验**，并更正前份的行号/文件定位/影响面 |
+
+**结论**：三者是**递进覆盖链，后者作废前者**。⇒ **引用必须用最晚一份，且仍要回代码**（本会话已多次证明"已修/未修"标记不可信）。
+
+---
+
+## 24. 匹配度与 RaaP：公式与阈值
+
+[已复核：本会话 `grep` 到源码，行号为**实测值**]
+
+| 层 | 公式 | 位置 |
+|---|---|---|
+| L0.5 `hitRatio` | `matchedKws.length / kws.length`（**刻意不归一化**） | `src/services/l0SkillRouter.ts:766` |
+| L0.5 `confidence` | `Math.min(top.hitRatio * 1.5, 1.0)` | `src/services/l0SkillRouter.ts:795-796` |
+| L1 `confidence` | `denom = Math.min(rule.keywords.length, 3)`；`Math.min(matchedKwCount / denom * 2, 0.9)` | `src/services/l0SkillRouter.ts:1004-1005` |
+| L2 `score` | `denom = Math.min(keywords.length, 3)`；`Math.min(hits / denom, 1)` | `src/services/toolRetrieval.ts:398-399` |
+| L2 关键词 green 门 | `GATE_GREEN_THRESHOLD = 0.95` | `src/services/toolRetrieval.ts:299`（旧文档标 `:281`，已漂移） |
+| L2 向量歧义下界 | `VECTOR_AMBIGUOUS_LOW = 0.55` | `src/services/toolRetrieval.ts:298` |
+| L0.5 内层硬门 | `confidence >= 0.8` **已移除**（注释载：曾使典型输入仅约 8% 命中、且遮蔽上层 `l05Pass` gate） | `src/services/l0SkillRouter.ts:799-802` |
+
+⚠️ **「分母是表长」是这套公式的核心特征**：`denom` 被 `min(..., 3)` 夹住，所以**条目自身的关键词表越长，越难达标** ——
+这是理解"为什么长表单永远不命中"的关键（本项目曾因此设计过短的 2–3 词表）。[转述·未复核：该设计理由见 `docs/知识沉淀-匹配度与RaaP.md`]
+
+**漏斗前四层盘点结论**（`docs/漏斗前四层盘点与L1补齐.md`，HEAD `feff101`）[转述·未复核]：
+L0 声明 9→10 条规则、全实现；L0.5 覆盖 direct 型与单步 `dagPlan`、无落差；
+**L1 声明 6 节点但补齐前只有 4 个产出 `nodeId`**（死节点 `task-translator`/`result-beautifier`/`pipeline-builder`/`workspace-memory`，而 L2 高频依赖它们）；
+L2 声明 **27** manifest（macro 20 / direct 6 / chain 1），判为全实现。
+
+---
+
+## 25. 热插拔机制 M1–M20（一句话速查）
+
+[转述·未复核：逐条取自 `docs/HOTPLUG-ARCHITECTURE.md` 正文；该文档**自述为"评审稿 + 实施修订记录"**，其 §1.4/M1–M20 正文多为**目标态设计**，现状须以 R1–R16a 修订记录 + 源码为准]
+
+| # | 机制 | 一句话 |
+|---|---|---|
+| M1 | 插件注册 | id/manifest/依赖/环校验后 mount，超时 10s，失败全量回滚，超时置 zombie |
+| M2 | 插件卸载 | 默认拒有依赖者；unmount 抛错不阻断清理；无半卸载回滚 |
+| M3 | NamespacedBus 台账 | 注册即入台账返回幂等 Disposer；孤儿通道仅告警 |
+| M4 | 换内核状态机 | draining/switching；超时取消在途；失败回滚；旧也失败则"内核空缺态" |
+| M5 | 逐层 dispatch | L0→L4 依序；钩子收集→顾问→合并→覆盖→门评估→否决门→簇定点；逐层失败降级 |
+| M6 | 否决门 | 仅 `pre-execute` / `pre-output` 两道；**全量评估不短路**；默认 fail-open |
+| M7 | 覆盖冲突消解 | 每层单槽按 priority 竞争；unmount **不自动晋升** |
+| M8 | pack 加载器 | 事务式分层加载；任一步失败**逆序全量回滚**；缺子目录视为空层 |
+| M9 | 约束 DSL 评估器 | 全 AND 评估；evaluator 逃生舱优先；单条异常视为**未触发**（fail-open） |
+| M10 | 缓存精确匹配 | 废除两条宽松隐式通过；pack/domain 精确匹配；unmount 自动 `invalidateByPack` |
+| M11 | 检索 scope 过滤 | partition 正交分区；**无 scope 的查询看不见 pack 条目** |
+| M12 | 迁移脚本 | 先备份否则中止；无主条目归 `user`；逐 namespace 对账 |
+| M13 | 顾问贡献合并 | 按注册顺序确定性合并；terminology **先注册者胜** |
+| M14 | 运行时权限校验 | 不匹配即跳过 + warning；**永不抛入主流程** |
+| M15 | 在途请求快照 | 新请求不见旧钩子；在途请求用快照跑完 |
+| M16 | 竞争评分与影子评估 | **默认关、零开销**；竞标分 = 置信度 × weight × 质量 EMA |
+| M17 | Ollama provider | 不可达时自报 unavailable |
+| M18 | 内核纯度 CI | 按字符串字面量 + 词边界匹配；**白名单登记制** |
+| M19 | watch 自动重挂 | unmount + mount 全循环；失败**不自动还原** |
+| M20 | provider 降级链 | 链首可用带 TTL 缓存；降级不抛错 |
+
+> ⚠️ `HOTPLUG-ARCHITECTURE.md` §4.2 的门值表（L0.5 ≥ 0.8）**与当前代码不符**（`funnel.ts:36` 为 0.6，见 §0 第 5 条）。
+> 该文档 R1–R16a 声称的实装（pack 运行时、funnel 默认翻转、hotplugStore、工作台 UI 等）**本次未逐项核验**。
 
 ---
