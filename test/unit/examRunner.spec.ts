@@ -136,12 +136,12 @@ describe('examRunner 考试流程（注入依赖）', () => {
     expect(report!.summary.deliverableRate).toBe(1)
   })
 
-  it('监考归因：record-cost 按 traceId 窗口聚合 token；funnel:routed 记录路径', async () => {
+  it('监考归因：record-cost 按 traceId 窗口聚合 token；funnel:routed 记录路径与**层**', async () => {
     const deps = makeFakeDeps({ reply: '1+1 等于 2。' })
     const runner = createExamRunner(deps)
     setTimeout(() => {
       globalBus.emit('debug:record-cost', { totalTokens: 120, traceId: 'trace-fake' })
-      globalBus.emit('funnel:routed', { kind: 'plan', traceId: 'trace-fake' })
+      globalBus.emit('funnel:routed', { kind: 'plan', source: 'L2', traceId: 'trace-fake' })
     }, 20)
     const report = await runner.run({
       ...fastTiming, timeoutMsPerQuestion: 5000,
@@ -149,6 +149,9 @@ describe('examRunner 考试流程（注入依赖）', () => {
     })
     expect(report!.questions[0].totalTokens).toBe(120)
     expect(report!.questions[0].routeKind).toBe('plan')
+    // 2026-10-07：kind 是各层共同值（区分不出层），报告须另记真正服务请求的层
+    expect(report!.questions[0].routeLayer).toBe('L2')
+    expect(report!.summary.byRouteLayer).toEqual({ L2: 1 })
     expect(report!.summary.totalTokens).toBe(120)
   })
 

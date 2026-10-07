@@ -38,6 +38,10 @@ export interface ExamQuestionResult {
   durationMs: number
   interventions: number
   routeKind: string
+  /** 2026-10-07：真正服务本请求的**路由层**（L0/L0.5/L1/L2/L3/L4）。
+   *  `routeKind` 是各层产出计划的共同 kind（plan/candidates/…），**区分不出层**——
+   *  这正是「快路径命中率」长期算不出来的原因（曾据此误判为"18 题全走 LLM 规划"）。 */
+  routeLayer: string
   hardAssertPassed: boolean | null
   hardAssertNote: string
   judgeVerdict: 'deliverable' | 'not-deliverable' | 'judge-error' | 'skipped' | null
@@ -68,6 +72,8 @@ export interface ExamReport {
     judgeErrors: number
     /** X-1：可判题数（graded − judgeErrors），可交付率的分母 */
     judgeable: number
+    /** 2026-10-07：路由层分布（L0/L0.5/L1/L2/L3/L4）——「快路径命中率」的可算口径，秒回 token 主张 */
+    byRouteLayer: Record<string, number>
   }
   questions: ExamQuestionResult[]
   notes: string[]
@@ -210,6 +216,7 @@ interface QuestionWindow {
   active: boolean
   interventions: number
   routeKind: string
+  routeLayer: string
   totalTokens: number
   traceId: string
 }
@@ -226,7 +233,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
   }
 
   let cancelled = false
-  let win: QuestionWindow = { active: false, interventions: 0, routeKind: '', totalTokens: 0, traceId: '' }
+  let win: QuestionWindow = { active: false, interventions: 0, routeKind: '', routeLayer: '', totalTokens: 0, traceId: '' }
 
   async function runHardAssertions(c: ExamCase, reply: string): Promise<{ passed: boolean | null; note: string }> {
     if (c.assertions.length === 0) return { passed: null, note: '' }
@@ -292,7 +299,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
   async function runQuestion(c: ExamCase, timing: { timeoutMs: number; pollMs: number; graceMs: number }): Promise<ExamQuestionResult> {
     const start = Date.now()
     const baseline = deps.getState().messages.length
-    win = { active: true, interventions: 0, routeKind: '', totalTokens: 0, traceId: '' }
+    win = { active: true, interventions: 0, routeKind: '', routeLayer: '', totalTokens: 0, traceId: '' }
 
     // 发题（2026-09-30 V2 多轮）：首轮 `prompt` + 可选 `followUps`，逐条发送、每轮各自等完成。
     // `followUps` 缺省时 turns 只有一条 —— 单轮题的行为与 V1 逐字节等价。
@@ -368,6 +375,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
       durationMs: wallMs,
       interventions: win.interventions,
       routeKind: win.routeKind,
+      routeLayer: win.routeLayer,
       hardAssertPassed: null,
       hardAssertNote: '',
       judgeVerdict: null,
@@ -441,8 +449,10 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
     const offPause = globalBus.on('dialog:pause-acquired', (payload: { point?: string; traceId?: string; ts?: number }) => {
       if (win.active) win.interventions++
     })
-    const offRouted = globalBus.on('funnel:routed', (payload: { kind?: string; traceId?: string }) => {
+    const offRouted = globalBus.on('funnel:routed', (payload: { kind?: string; source?: string; traceId?: string }) => {
       if (win.active && payload.kind) win.routeKind = payload.kind
+      // 2026-10-07：记下真正服务本请求的**层**（kind 是 L0/L0.5/L1/L2/L4 的共同值，区分不出层）
+      if (win.active && payload.source) win.routeLayer = payload.source
       if (win.active && payload.traceId) win.traceId = payload.traceId
     })
     const offCost = globalBus.on('debug:record-cost', (payload: { totalTokens?: number; traceId?: string }) => {
@@ -464,7 +474,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
           progress.currentStatus = '跳过（素材未就位）'
           results.push({
             id: c.id, title: c.title, category: c.category, status: 'skipped-fixture',
-            durationMs: 0, interventions: 0, routeKind: '', hardAssertPassed: null, hardAssertNote: '',
+            durationMs: 0, interventions: 0, routeKind: '', routeLayer: '', hardAssertPassed: null, hardAssertNote: '',
             judgeVerdict: 'skipped', judgeNote: '桌面考试素材未就位，跳过（EXAM-RUNBOOK.md 素材清单）',
             failureStage: null, traceId: '', replyExcerpt: '', totalTokens: 0
           })
@@ -533,7 +543,12 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
         avgDurationMs: graded.length > 0 ? Math.round(graded.reduce((s, r) => s + r.durationMs, 0) / graded.length) : 0,
         totalTokens: results.reduce((s, r) => s + r.totalTokens, 0),
         judgeErrors: judgeErrors.length,
-        judgeable: judgeable.length
+        judgeable: judgeable.length,
+        byRouteLayer: results.reduce<Record<string, number>>((acc, r) => {
+          const k = r.routeLayer || '(unknown)'
+          acc[k] = (acc[k] || 0) + 1
+          return acc
+        }, {})
       },
       questions: results,
       notes
