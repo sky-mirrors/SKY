@@ -3019,11 +3019,12 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       return ''
     }
 
-    // 兜底：manifest 缺失或执行模式未覆盖时明示失败，不再静默无响应
+    // 兜底：manifest 缺失或执行模式未覆盖时必须给出**可读回复**——原先只写 system 通知，
+    // 与注释宣称的「不再静默无响应」并不相符（用户与考试器都收不到 assistant 消息）。
     if (!manifest) {
-      addSystemNotice('❌ 工具未找到，请重新描述需求')
+      addAssistantMessage('⚠️ 这个意图指向的执行入口在当前内核里找不到，我没有做任何改动。请重新描述需求。')
     } else {
-      addSystemNotice(`❌ 工具 ${manifest.identity.name} 的执行模式 ${manifest.execution.mode} 暂不支持确认后执行`)
+      addAssistantMessage(`⚠️ 我没能执行「${manifest.identity.name}」——其执行模式（${manifest.execution.mode}）目前不支持在确认后直接运行，我没有做任何改动。`)
     }
     isProcessing.value = false
     return ''
@@ -3112,11 +3113,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       return ''
     }
 
-    // 兜底：manifest 缺失或执行模式未覆盖时明示失败，不再静默无响应
+    // 兜底：同 confirmTranslatedIntent —— 失败必须可读（原先只有 system 通知）。
     if (!manifest) {
-      addSystemNotice('❌ 工具未找到，请重新描述需求')
+      addAssistantMessage('⚠️ 这个意图指向的执行入口在当前内核里找不到，我没有做任何改动。请重新描述需求。')
     } else {
-      addSystemNotice(`❌ 工具 ${manifest.identity.name} 的执行模式 ${manifest.execution.mode} 暂不支持填参后执行`)
+      addAssistantMessage(`⚠️ 我没能执行「${manifest.identity.name}」——其执行模式（${manifest.execution.mode}）目前不支持在填参后直接运行，我没有做任何改动。`)
     }
     isProcessing.value = false
     return ''
@@ -3131,7 +3132,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
   async function pickCandidate(index: number, originalInput?: string): Promise<string> {
     const list = pendingCandidateList.value
     if (index < 0 || index >= list.length) {
-      addSystemNotice('❌ 无效选择，请输入正确编号')
+      // 2026-10-07：失败必须**可读**——只写 system 通知时，用户（与考试器）都收不到任何回复，
+      // 表现即「选完候选什么都没发生」。改成 assistant 消息，明确说明没做改动与下一步。
+      addAssistantMessage('⚠️ 这次候选选择没有生效——候选列表已失效或编号越界，我没有做任何改动。请重新描述一次需求，我会再给一批候选。')
       return ''
     }
     const picked = list[index]
@@ -3142,7 +3145,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     const manifest = globalBus.request<L2ToolManifest | null>('node:get-l2-manifest', { id: picked.manifestId })
     if (!manifest) {
-      addSystemNotice('❌ 工具未找到，请重新描述需求')
+      // 2026-10-07：候选清单里的 id 与 L2 manifest id 空间可能不一致（MCP 工具候选即如此），
+      // 此处必须**如实告知**而非只写 system 通知——否则用户看到的就是「零回复」。
+      addAssistantMessage(`⚠️ 我没能执行「${picked.manifestName}」——这个候选项在当前内核里找不到对应的执行入口，我没有做任何改动。请换个说法重新描述需求，或直接说明你要产出的文件/结果。`)
       isProcessing.value = false
       return ''
     }
@@ -3208,6 +3213,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       return ''
     }
 
+    // 2026-10-07：兜底分支同样必须**可读**——此前这里是裸 `return ''`（连通知都没有），
+    // 是三条静默路径里最彻底的一条。manifest 已确认存在（`!manifest` 在上方早退），
+    // 走到这里说明执行模式不在支持范围。
+    addAssistantMessage(`⚠️ 我没能执行「${picked.manifestName}」——它的执行模式（${manifest.execution.mode}）目前不支持在选定候选后直接运行，我没有做任何改动。请换个说法重新描述需求。`)
     isProcessing.value = false
     return ''
   }

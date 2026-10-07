@@ -706,3 +706,51 @@ describe('暂停点恢复执行必须经统一呈现点（macro 分支漏呈现�
     expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
   })
 })
+
+/**
+ * 回归（2026-10-07，V2 50 题端到端验收）：
+ *   `pickCandidate` 有**三条静默 return '' 路径**——无效编号 / manifest 查不到 / 执行模式不受支持——
+ *   它们只写（或干脆不写）system 通知，**不产出任何 assistant 消息**。
+ *   用户视角即「选完候选，什么都没发生」；考试器只采集 assistant 消息，故把这 5 题记成「无回复内容」。
+ *
+ *   实测：2026-10-07 端到端验收，candidates 路由的 M02/M03/M04/H04/R16 五题 replyExcerpt 长度仍为 0
+ *   —— 说明上一轮补的 presentExecutionOutput **没有覆盖这些早退分支**（那条路考试根本没走到）。
+ *   失败必须可读（Holo 诚实性原则）：宁可明说「没做成、为什么、下一步」，不可静默。
+ */
+describe('pickCandidate 失败路径必须产出可读回复（消除静默失败）', () => {
+  let store: ReturnType<typeof useDialogStore>
+
+  beforeEach(() => {
+    vault.clearCache()
+    globalBus.clear()
+    store = createStore()
+  })
+
+  it('候选列表为空 / 编号越界 → 落 assistant 说明', async () => {
+    store.pendingCandidateList = []
+    store.awaitingCandidatePick = true
+    await store.pickCandidate(0)
+    expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
+  })
+
+  it('manifest 查不到（如 MCP 工具 id 误作 manifestId）→ 落 assistant 说明', async () => {
+    globalBus.registerHandler('node:get-l2-manifest', () => null)
+    store.pendingCandidateList = [{ manifestId: 'mcp-tool-id', manifestName: '某工具', score: 0.5 }]
+    store.awaitingCandidatePick = true
+    await store.pickCandidate(0)
+    expect(store.messages[store.messages.length - 1]?.role).toBe('assistant')
+  })
+
+  it('执行模式不受支持（既非 macro/chain+dagPlan 也非 direct）→ 落 assistant 说明', async () => {
+    globalBus.registerHandler('node:get-l2-manifest', () => ({
+      identity: { id: 'm-odd', name: '模式未覆盖的工具' },
+      execution: { mode: 'unknown-mode' }
+    }))
+    store.pendingCandidateList = [{ manifestId: 'm-odd', manifestName: '模式未覆盖的工具', score: 0.5 }]
+    store.awaitingCandidatePick = true
+    await store.pickCandidate(0)
+    const last = store.messages[store.messages.length - 1]
+    expect(last?.role).toBe('assistant')
+    expect((last?.content || '').length).toBeGreaterThan(0)
+  })
+})
