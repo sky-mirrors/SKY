@@ -73,6 +73,9 @@ interface ElectronAPI {
   fileUnzip: (opts: { fromDir: string; toDir?: string }) => Promise<{ success: boolean; extracted?: { archive: string; dir: string; files: number }[]; skipped?: string[]; failed?: string[]; unsupported?: string[]; fromDir?: string; toDir?: string; error?: string }>
   /** 2026-10-08：批量改扩展名（**就地**，不挪窝）—— 目标已存在同名文件则跳过（不覆盖，可重复执行） */
   fileRenameExt: (opts: { fromDir: string; fromExt: string; toExt: string }) => Promise<{ success: boolean; renamed?: { from: string; to: string }[]; skipped?: string[]; failed?: string[]; fromDir?: string; error?: string }>
+  /** 2026-10-08：**批量**转 PDF（file_convert 的批量形态）—— 只挑可转换源（docx/md/html/txt），
+   *  目标已存在则跳过；逐文件汇报 converted/skipped/failed（一个坏源不中断整批） */
+  docConvertBatchToPdf: (opts: { fromDir: string; ext?: string; targetDir: string }) => Promise<{ success: boolean; converted?: { source: string; target: string; bytes: number }[]; skipped?: string[]; failed?: string[]; fromDir?: string; targetDir?: string; error?: string }>
   createDirectory: (dirPath: string) => Promise<{ success: boolean; path?: string; error?: string }>
   createDocx: (opts: { filePath: string; content?: string; title?: string }) => Promise<{ success: boolean; path?: string; error?: string }>
   docConvertToPdf: (opts: { source: string; target: string }) => Promise<{ success: boolean; path?: string; bytes?: number; title?: string; error?: string }>

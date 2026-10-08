@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 2026-10-08：批量改扩展名（就地）——CI-07 缺口的算子
   fileRenameExt: (opts: { fromDir: string; fromExt: string; toExt: string }) =>
     ipcRenderer.invoke('file:renameExt', opts),
+  // 2026-10-08：批量转 PDF（CI-03 缺口的算子）—— file_convert 的批量形态
+  docConvertBatchToPdf: (opts: { fromDir: string; ext?: string; targetDir: string }) =>
+    ipcRenderer.invoke('doc:convertBatchToPdf', opts),
 
   createDirectory: (dirPath: string) =>
     ipcRenderer.invoke('file:createDirectory', dirPath),

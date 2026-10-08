@@ -74,20 +74,24 @@ describe('组合意图 · 已覆盖（契约生效，必须通过）', () => {
     expect(plan!.steps[0].params).toMatchObject({ fromExt: 'txt', toExt: 'md' })
     expect(String(plan!.steps[1].params.ext)).toBe('md')
   })
-})
-
-describe('组合意图 · 缺口登记（it.fails：实现后会自动报"意外通过"，届时移入已覆盖组）', () => {
-  // 2026-10-08：登记册从「感觉缺东西」升级为「可机读缺口」——同一份缺口现在有两面：
-  //   · 数据面：src/data/compositeCombos.json 的 $missing（引擎据此**如实拒绝**，绝不"少做一半"）；
-  //   · 契约面：本组的 it.fails（实现后翻牌，防止缺口被遗忘）。
-  // 两面的 id 一一对应：只剩 CI-03↔convert-collect。
-  // （CI-04↔rename-collect、CI-06↔split-by-type、CI-05↔archive-collect、CI-07↔change-ext-collect
-  //   均已实现并翻牌，见上一组。CI-03 缺的是**批量转换**算子：file_convert 是单文件、且只出 PDF。）
-  it.fails('CI-03 转换 + 归档：把桌面的 md 都转成 pdf 并收进新建文件夹', async () => {
+  it('CI-03 转换 + 归档：把桌面的 md 都转成 pdf 收进新建文件夹（2026-10-08 由缺口翻牌：file_convert 补批量形态）', async () => {
+    // 缺口原由：file_convert 是**单文件**算子（source/target 都必填，只出 PDF），静态计划表达不了
+    // 「对目录下每个文件都转一次」⇒ 补批量形态 { fromDir, ext, targetDir }（主进程逐个调用同一转换管线）。
     const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
-    expect(planTools(plan)).toEqual(['file_convert', 'file_move'])
+    expect(planTools(plan)).toEqual(['file_convert'])
+    expect(String(plan!.steps[0].params.ext)).toBe('md')
+    expect(String(plan!.steps[0].params.fromDir)).toContain('Desktop')
+    expect(String(plan!.steps[0].params.targetDir)).toContain('新建文件夹')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 缺口登记册（it.fails 组）——**当前为空**：CI-03..CI-07 六条已全部实现并翻牌。
+// 机制保留：以后遇到"感觉缺东西"的组合意图，按下面的三步加回去——
+//   ① 数据面：src/data/compositeCombos.json 的 $missing 加一条（引擎据此**如实拒绝**，绝不"少做一半"）；
+//   ② 契约面：本文件加一条 `it.fails('CI-XX …')`，写明输入与期望的最小计划（实现后它会自动报"意外通过"，逼人翻牌）；
+//   ③ 行为面：在下面的「缺口当前行为」组加一条，钉住"如实说明 + 给替代做法"这个出口。
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 缺口的**当前行为**契约（2026-10-08）：能力还没补上时，系统必须"如实说做不到"，
@@ -108,15 +112,13 @@ describe('组合意图 · 缺口当前行为：如实说明，不"少做一半"'
     expect(steps.some(s => s.tool === 'file_move' && (s.params as Record<string, string>)?.fromDir), '应正常批量移动 zip').toBe(true)
   })
 
-  it('批量转格式 + 归类：必须走缺口如实说明，不得被单文件转换规则抢去"要完整路径"', async () => {
-    // 2026-10-08：这条请求先命中『文件格式转换』（在组合规则之前）。该规则是**单文件**转换器
-    // （source/target 必填），抽不到路径时只能回一句「请提供完整路径」——用户的批次语义
-    // （「所有的 md」）根本没被处理，等于用一句错误的澄清吃掉了整个请求。
-    // 期望：下沉给组合规则，按 $missing 的 convert-collect 如实说明「批量转格式没有算子」+ 替代做法。
-    const plan = await tryL0Skill('把桌面上所有的 md 文件转成 pdf，然后都放进一个新建的文件夹里')
+  it('批量转格式 + 归类：目标**不是 PDF** 时不得假装能转（应用内转换只出 PDF）', async () => {
+    // 2026-10-08：PDF 目标已有真算子（convert-collect）；但用户要 →docx 这类目标时仍无能力，
+    // 此时必须如实说明，不得回落成"只搬不转"的 mkdir-collect，也不得产出假转换计划。
+    const plan = await tryL0Skill('把桌面上所有的 md 文件转成 docx，然后都放进一个新建的文件夹里')
     const steps = plan?.steps || []
     const prompt = steps.map(s => String((s.params as Record<string, string>)?.prompt || '')).join('\n')
-    expect(prompt, `实得步骤：${JSON.stringify(steps.map(s => s.tool))}`).toContain('没有组合算子')
-    expect(steps.some(s => s.tool === 'file_convert'), '不得假装能批量转换').toBe(false)
+    expect(prompt, `实得步骤：${JSON.stringify(steps.map(s => s.tool))}`).toContain('只出 PDF')
+    expect(steps.some(s => s.tool === 'file_convert')).toBe(false)
   })
 })

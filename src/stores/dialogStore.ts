@@ -879,6 +879,25 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       const { renameImagesByDate, summarizeRename } = await import('@/services/imageRenameByDate')
       return summarizeRename(await renameImagesByDate(dir))
     }
+    // 2026-10-08：file_convert 的**批量形态**（{ fromDir, ext?, targetDir }）—— 与 macroExecutor 同口径同顺序：
+    // 批量判定在单文件形态之前；先过 O10 写门再执行；如实报告 converted/skipped/failed。
+    if (fullName === 'file_convert' && String(args.fromDir || '')) {
+      if (!(await requestWriteApproval('file_convert', args))) {
+        return 'file_convert: ⚠️ 用户拒绝执行（未做任何改动）'
+      }
+      if (!window.electronAPI?.docConvertBatchToPdf) throw new Error('file_convert(batch) not available')
+      const bFrom = String(args.fromDir || '')
+      const bTo = String(args.targetDir || args.toDir || '')
+      if (!bTo) return 'file_convert: 缺少 targetDir 参数（批量转换的输出目录）'
+      const br = await window.electronAPI.docConvertBatchToPdf({ fromDir: bFrom, ext: String(args.ext || ''), targetDir: bTo })
+      if (!br.success) return `批量转 PDF 失败：${br.error || '未知错误'}`
+      const bdone = (br as { converted?: { target: string; bytes: number }[] }).converted || []
+      const bskip = (br as { skipped?: string[] }).skipped || []
+      const bfail = (br as { failed?: string[] }).failed || []
+      const btail = [bskip.length ? `${bskip.length} 个跳过：${bskip.slice(0, 3).join('；')}` : '', bfail.length ? `${bfail.length} 个失败：${bfail.slice(0, 3).join('；')}` : ''].filter(Boolean).join('；')
+      if (bdone.length === 0) return `⚠️ 未转换任何文件（${bFrom} 下没有可转换的源${String(args.ext || '') ? `（*.${args.ext}）` : ''}${btail ? '；' + btail : ''}）`
+      return `已转换 ${bdone.length} 个文件为 PDF（输出到 ${bTo}）${btail ? `；${btail}` : ''}`
+    }
     // 第一波·文档能力：文档 → PDF（应用内转换）。与 file_write 同路径：先经 O10 用户裁决再生产文件。
     if (fullName === 'file_convert') {
       const source = String(args.source || args.from || args.path || '')

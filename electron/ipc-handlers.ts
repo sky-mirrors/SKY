@@ -11,8 +11,9 @@ import { parseExtSpec, matchesExtSpec } from './fileMoveBatch'
 import { planSortByType } from './fileSortByType'
 import { planUnzip } from './fileUnzip'
 import { planRenameExt, renameTargetPath } from './fileRenameExt'
+import { planConvertBatch } from './fileConvertBatch'
 import { editFileOnDisk } from './fileEdit'
-import { convertDocumentToPdf } from './docConvert'
+import { convertDocumentToPdf, isConvertibleSource, CONVERT_SOURCE_EXTS, baseName } from './docConvert'
 import { extractDocumentText } from './docExtract'
 import { renderHtmlToPdf } from './pdfRenderer'
 import { processImages, type ImageOp } from './imageOps'
@@ -709,6 +710,55 @@ export function setupIpc(_win: BrowserWindow | null) {
         writeTarget: async (p, buf) => { writeFileSync(p, buf) }
       })
       return { success: true, path: targetPath, bytes: result.bytes, title: result.title }
+    } catch (e: unknown) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // 2026-10-08：**批量**转 PDF（CI-03 缺口的算子）。动机：file_convert 只有单文件形态，
+  // 静态计划表达不了「把桌面上所有的 md 都转成 pdf」——此前只能如实说"没有批量转换算子"。
+  // 校验口径与单文件一致（源 validateReadPath、目标目录 validateWritePath）；
+  // 三处与前几个批量算子同款的约束：
+  //   ① 只挑**可转换源**（docConvert.CONVERT_SOURCE_EXTS 单一来源），其它如实上报"不支持转换"；
+  //   ② 目标已存在同名 pdf ⇒ 跳过并上报（不覆盖 ⇒ 可重复执行）；
+  //   ③ 逐个转换、失败逐个记录：一个坏源不中断整批（每个文件仍走 %PDF- 魔数校验，无效则不写盘）。
+  ipcMain.handle('doc:convertBatchToPdf', async (_event, opts: { fromDir?: string; ext?: string; targetDir?: string }) => {
+    try {
+      const srcDir = validateReadPath(String(opts?.fromDir || ''))
+      if (!srcDir.safe) return { success: false, error: srcDir.reason }
+      if (!srcDir.resolved || !existsSync(srcDir.resolved)) return { success: false, error: `源目录不存在: ${opts?.fromDir || ''}` }
+      const dstDir = validateWritePath(String(opts?.targetDir || ''))
+      if (!dstDir.safe) return { success: false, error: dstDir.reason }
+      const targetDir = dstDir.resolved as string
+      if (!existsSync(targetDir)) mkdirSync(targetDir, { recursive: true })
+      const names = readdirSync(srcDir.resolved, { withFileTypes: true }).filter(d => d.isFile()).map(d => d.name)
+      const tasks = planConvertBatch(names, String(opts?.ext || ''), targetDir)
+      const planned = new Set(tasks.map(t => t.source))
+      const converted: { source: string; target: string; bytes: number }[] = []
+      const skipped: string[] = []
+      const failed: string[] = []
+      for (const n of names) {
+        if (planned.has(n)) continue
+        // 明确"点了名却转不了"的源如实上报（未点名的不吭声，避免噪音）
+        if (matchesExtSpec(n, parseExtSpec(String(opts?.ext || ''))) && !isConvertibleSource(n)) {
+          skipped.push(`${n}: 不支持转换（支持 ${CONVERT_SOURCE_EXTS.join(' / ')}）`)
+        }
+      }
+      for (const t of tasks) {
+        const src = join(srcDir.resolved, t.source)
+        if (existsSync(t.target)) { skipped.push(`${t.source}: 目标已存在（${baseName(t.target)}），跳过`); continue }
+        try {
+          const r = await convertDocumentToPdf(src, t.target, {
+            readSource: async (p) => readFileSync(p),
+            renderPdf: async ({ html }) => renderHtmlToPdf(html),
+            writeTarget: async (p, buf) => { writeFileSync(p, buf) }
+          })
+          converted.push({ source: t.source, target: t.target, bytes: r.bytes })
+        } catch (e: unknown) {
+          failed.push(`${t.source}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      return { success: true, converted, skipped, failed, fromDir: srcDir.resolved, targetDir }
     } catch (e: unknown) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }

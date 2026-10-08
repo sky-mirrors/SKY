@@ -62,15 +62,25 @@
         { "tool": "file_rename_ext", "description": "把 {dir} 下的 {extLabel}**就地**改成 .{toExt}（目标已存在则跳过，不覆盖）", "params": { "fromDir": "{dir}", "fromExt": "{ext}", "toExt": "{toExt}" } },
         { "tool": "file_move", "description": "把改好后缀的 .{toExt} 文件收进 {target}", "params": { "fromDir": "{dir}", "ext": "{toExt}", "toDir": "{target}" } }
       ]
+    },
+    {
+      "id": "convert-collect",
+      "name": "批量转 PDF 后归类",
+      "enabled": true,
+      "intent": "把 {dir} 下的 {extLabel}转成 PDF 并收进新文件夹：{folderName}",
+      "when": { "familiesAllOf": ["convert", "move"], "patternsAllOf": ["pdf"], "forbidPatterns": ["docx|word|xlsx|pptx"] },
+      "plan": [
+        { "tool": "file_convert", "description": "把 {dir} 下的 {extLabel}逐个转成 PDF 放进 {target}（目标已存在则跳过；可转换源限 docx / md / markdown / html / txt）", "params": { "fromDir": "{dir}", "ext": "{ext}", "targetDir": "{target}" } }
+      ]
     }
   ],
 
   "$missing": [
     {
-      "id": "convert-collect",
-      "reason": "「转格式 + 归类」没有组合算子：file_convert 是**单文件**算子（source + target 两个必填参数，只出 PDF，见 src/services/nativeTools.ts 与 macroExecutor 的 file_convert 分支），而静态计划无法表达「对目录下每个文件都转一次」；单文件情形同样没有「转完自动归类」的组合形态（占位符里没有具体源文件名）。",
-      "alternative": "先对单个文件说「把 X 转成 pdf」，或先用外部工具批量转完，再让我把产物归类。",
-      "when": { "familiesAllOf": ["convert", "move"] }
+      "id": "convert-collect-non-pdf",
+      "reason": "「转换成其它格式再归类」没有算子：应用内的文档转换**只出 PDF**（docConvert 的管线是 mammoth/marked → HTML → Electron printToPDF），不支持 →docx / →xlsx 之类的目标格式。",
+      "alternative": "先对单个文件说「把 X 转成 pdf」，或用外部工具转成目标格式后再让我归类。",
+      "when": { "familiesAllOf": ["convert", "move"], "forbidPatterns": ["pdf"] }
     }
   ]
 }

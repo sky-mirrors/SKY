@@ -402,6 +402,26 @@ export async function callToolDirectWithTier(
   // 第一波·文档能力：文档 → PDF。应用内转换（mammoth 出 HTML + Electron printToPDF 出 PDF），
   // 不依赖本机 Word/LibreOffice/pandoc（实测均无）。返回值带产物路径与字节数，便于上游如实报告。
   if (fullName === 'file_convert') {
+    // 2026-10-08：**批量形态** { fromDir, ext?, targetDir } —— 把目录下（可按扩展名筛选）的可转换源
+    // 逐个转成 PDF 放进 targetDir（C-03 缺口：单文件形态表达不了"所有 md"）。
+    // 判定必须在单文件形态**之前**（两者都读 args.source/args.target 时批量的 fromDir 更具体）。
+    const bFromDir = String(args.fromDir || '')
+    if (bFromDir) {
+      if (!window.electronAPI?.docConvertBatchToPdf) throw new Error('file_convert(batch) not available')
+      const rd = await resolveFilePath(bFromDir)
+      if (!rd) throw new Error('file_convert: missing fromDir')
+      const rawTargetDir = String(args.targetDir || args.toDir || '')
+      if (!rawTargetDir) throw new Error('file_convert: missing targetDir')
+      const td = await resolveFilePath(rawTargetDir)
+      const r = await window.electronAPI.docConvertBatchToPdf({ fromDir: rd, ext: String(args.ext || ''), targetDir: td })
+      if (!r.success) throw new Error(r.error || 'file_convert(batch) failed')
+      const done = (r as { converted?: { source: string; target: string; bytes: number }[] }).converted || []
+      const skipped = (r as { skipped?: string[] }).skipped || []
+      const failed = (r as { failed?: string[] }).failed || []
+      const tail = [skipped.length ? `${skipped.length} 个跳过：${skipped.slice(0, 3).join('；')}` : '', failed.length ? `${failed.length} 个失败：${failed.slice(0, 3).join('；')}` : ''].filter(Boolean).join('；')
+      if (done.length === 0) return `⚠️ 未转换任何文件（${rd} 下没有可转换的源${String(args.ext || '') ? `（*.${args.ext}）` : ''}${tail ? '；' + tail : ''}）`
+      return `已转换 ${done.length} 个文件为 PDF（输出到 ${td}）：${done.slice(0, 10).map(x => x.target.split(/[\\/]/).pop()).join('、')}${tail ? `；${tail}` : ''}`
+    }
     if (!window.electronAPI?.docConvertToPdf) throw new Error('file_convert not available')
     const source = await resolveFilePath(String(args.source || args.from || args.path || ''))
     if (!source) throw new Error('file_convert: missing source')
