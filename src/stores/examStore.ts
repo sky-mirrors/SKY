@@ -123,7 +123,7 @@ export const useExamStore = defineStore('exam', () => {
       }).electronAPI
       const home = await api?.resolvePath?.('%USERPROFILE%')
       if (!home || !api?.fileWrite) return null
-      const filePath = `${home}\\Desktop\\HoloStarmap\\exam-report.json`
+      const filePath = `${home}\\Desktop\\SKY\\exam-report.json`
       const result = await api.fileWrite({ filePath, content: JSON.stringify(report, null, 2) })
       return result.success ? filePath : null
     } catch {

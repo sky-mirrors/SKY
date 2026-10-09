@@ -32,7 +32,7 @@ function formula(label, formula_text) {
 const children = []
 
 // ═══ TITLE PAGE ═══
-children.push(new Paragraph({ spacing: { before: 2000 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'HoloStarmap', size: 52, bold: true, color: C.H1 })] }))
+children.push(new Paragraph({ spacing: { before: 2000 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'SKY', size: 52, bold: true, color: C.H1 })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: 'Benchmark Test Report', size: 40, color: C.H2 })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new TextRun({ text: 'V2 General + Professional Simulation', size: 28, color: C.GRAY })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 600 }, children: [new TextRun({ text: 'Date: 2026-08-30  |  Model: DeepSeek V4 Flash', size: 20, color: C.GRAY })] }))
@@ -87,7 +87,7 @@ children.push(formula('LatencySaved%', '(Baseline_TotalLatency - Optimized_Total
 children.push(formula('TTFTSaved%', '(Baseline_AvgTTFT - Optimized_AvgTTFT) / Baseline_AvgTTFT \u00D7 100'))
 
 children.push(h2('A.4 Routing Architecture (Data Source: src/services/l0SkillRouter.ts)'))
-children.push(p('HoloStarmap uses a 4-layer routing system to determine how each request is processed:'))
+children.push(p('SKY uses a 4-layer routing system to determine how each request is processed:'))
 children.push(tbl(
   ['Layer', 'Matching Logic', 'Max Output Tokens', 'Token Cost', 'Typical Hit Rate'],
   [
@@ -545,7 +545,7 @@ children.push(bullet('Per-group cache clearing: Fingerprint cache is cleared bet
 children.push(bullet('KV cache warming: The "overtime" groups (both accounting and legal) show 0% KV cache hit rate because they were run in separate sessions with no prior cache warming. In a real continuous work session, KV cache from morning/afternoon would still be warm during overtime.'))
 children.push(bullet('Synthetic data: All invoices, contracts, and financial reports are synthetic. Real professional documents may have different token distributions.'))
 children.push(bullet('Single model: Only DeepSeek V4 Flash. Other models (GPT-4.1, Claude) may have different caching behavior and pricing.'))
-children.push(bullet('No semantic cache: HoloStarmap currently only has exact-match fingerprint cache. A semantic cache (like GPTCache) would increase hit rates for variant requests but was not implemented.'))
+children.push(bullet('No semantic cache: SKY currently only has exact-match fingerprint cache. A semantic cache (like GPTCache) would increase hit rates for variant requests but was not implemented.'))
 children.push(bullet('Output truncation: L0.5 mini tier caps output at 1024 tokens, which may truncate longer professional documents (e.g., DD reports that generated 4096 tokens at standard tier). The quality impact of truncation was not evaluated.'))
 children.push(bullet('Cross-benchmark comparison: V2 and Professional benchmarks use different datasets and CANNOT be directly compared. The Professional benchmark\'s higher savings (48.7% vs 38.9%) is influenced by higher repeat/variant rates (63.3% vs 10%), not solely by workload type.'))
 
@@ -594,7 +594,7 @@ const doc = new Document({
 })
 
 Packer.toBuffer(doc).then(buf => {
-  const outPath = 'C:\\Users\\Administrator\\Desktop\\HoloStarmap Benchmark Test Report.docx'
+  const outPath = 'C:\\Users\\Administrator\\Desktop\\SKY Benchmark Test Report.docx'
   fs.writeFileSync(outPath, buf)
   console.log('Report saved:', outPath, '(' + Math.round(buf.length / 1024) + ' KB)')
 }).catch(err => {

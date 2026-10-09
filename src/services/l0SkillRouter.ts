@@ -301,7 +301,7 @@ const skillRules: L0SkillRule[] = [
       if (!effectiveTarget) return null
 
       // 2026-09-25 修复：拿不到真实路径时**不再伪造** `input.<ext>` 占位符。
-      // 实测（用户报告 + 运行中 app 的消息流）：发「把桌面上 HoloStarmap\docs 文件夹下的
+      // 实测（用户报告 + 运行中 app 的消息流）：发「把桌面上 SKY\docs 文件夹下的
       // 2026.9.24最新快照.md 文件转为 docx…」时 extractFilePath 抽不到绝对路径，旧实现伪造 `input.9`
       // ⇒ 计划跑到 step2 报「文件不存在（路径：input.9）」⇒ 计划失败 → 回退直答 → 只回一句
       // 「我先确认文件是否存在」就没了下文。把"没识别出路径"伪装成"计划执行失败"，对用户既无信息也无出路。
@@ -314,7 +314,7 @@ const skillRules: L0SkillRule[] = [
             description: '如实说明未识别到路径，并请用户给出完整路径',
             tool: 'llm_generate',
             params: {
-              prompt: `用户要求做文件格式转换，但没能从请求里识别出**真实存在**的源文件路径。请按顺序处理：① 如果用户给了位置线索（例如「桌面上 HoloStarmap\\docs 文件夹下」），就用 list_directory 去那个目录找目标文件；② 找到后，用它的**完整绝对路径**继续（或直接告知用户已找到的完整路径并请他确认）；③ 确实找不到时，请用户提供完整路径。全程不得编造路径、不得假装已经完成转换。支持 docx / pdf / txt / md / xlsx / html 互转。用户原话：${input}`
+              prompt: `用户要求做文件格式转换，但没能从请求里识别出**真实存在**的源文件路径。请按顺序处理：① 如果用户给了位置线索（例如「桌面上 SKY\\docs 文件夹下」），就用 list_directory 去那个目录找目标文件；② 找到后，用它的**完整绝对路径**继续（或直接告知用户已找到的完整路径并请他确认）；③ 确实找不到时，请用户提供完整路径。全程不得编造路径、不得假装已经完成转换。支持 docx / pdf / txt / md / xlsx / html 互转。用户原话：${input}`
             },
             expectedOutput: '澄清与路径请求'
           }],

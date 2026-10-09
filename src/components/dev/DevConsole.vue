@@ -1,7 +1,7 @@
 <template>
   <div class="dev-console">
     <header class="dev-titlebar">
-      <span class="dev-titlebar-text">🛠 HoloStarmap 开发者端</span>
+      <span class="dev-titlebar-text">🛠 SKY 开发者端</span>
       <nav class="dev-tabs">
         <button
           v-for="t in TABS"

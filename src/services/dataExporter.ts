@@ -125,7 +125,7 @@ export async function exportToZip(items: string[]): Promise<void> {
     try {
       const result = await window.electronAPI.dataExportZip({
         data: jsonStr,
-        defaultName: `holostarmap-export-${new Date().toISOString().slice(0, 10)}.json`
+        defaultName: `sky-export-${new Date().toISOString().slice(0, 10)}.json`
       })
       if (result.success) return
     } catch { /* fallback to download */ }
@@ -134,7 +134,7 @@ export async function exportToZip(items: string[]): Promise<void> {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `holostarmap-export-${new Date().toISOString().slice(0, 10)}.json`
+  a.download = `sky-export-${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
 }

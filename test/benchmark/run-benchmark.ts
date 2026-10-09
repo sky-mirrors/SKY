@@ -303,7 +303,7 @@ async function runOptimized(stats: TestStats, sleepMs: number): Promise<void> {
 
 async function main(): Promise<void> {
   console.log('═══════════════════════════════════════════════════')
-  console.log('  HoloStarmap DeepSeek V4 Flash Token优化压测')
+  console.log('  SKY DeepSeek V4 Flash Token优化压测')
   console.log('═══════════════════════════════════════════════════')
   console.log(`  模型: ${MODEL}`)
   console.log(`  API:  ${BASE_URL}`)

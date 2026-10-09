@@ -32,7 +32,7 @@ function formula(label, formula_text) {
 const children = []
 
 // ═══ 封面 ═══
-children.push(new Paragraph({ spacing: { before: 2000 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'HoloStarmap', size: 52, bold: true, color: C.H1 })] }))
+children.push(new Paragraph({ spacing: { before: 2000 }, alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'SKY', size: 52, bold: true, color: C.H1 })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: '\u57FA\u51C6\u6D4B\u8BD5\u62A5\u544A', size: 40, color: C.H2 })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 }, children: [new TextRun({ text: 'V2\u901A\u7528\u57FA\u51C6 + \u4E13\u4E1A\u5C97\u4F4D\u6A21\u62DF', size: 28, color: C.GRAY })] }))
 children.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 600 }, children: [new TextRun({ text: '\u65E5\u671F: 2026-08-30  |  \u6A21\u578B: DeepSeek V4 Flash', size: 20, color: C.GRAY })] }))
@@ -87,7 +87,7 @@ children.push(formula('\u5EF6\u8FDF\u8282\u7701%', '(\u57FA\u7EBF_\u603B\u5EF6\u
 children.push(formula('TTFT\u8282\u7701%', '(\u57FA\u7EBF_\u5E73\u5747TTFT - \u4F18\u5316_\u5E73\u5747TTFT) / \u57FA\u7EBF_\u5E73\u5747TTFT \u00D7 100'))
 
 children.push(h2('A.4 \u8DEF\u7531\u67B6\u6784 (\u6570\u636E\u6765\u6E90: src/services/l0SkillRouter.ts)'))
-children.push(p('HoloStarmap\u4F7F\u75244\u5C42\u8DEF\u7531\u7CFB\u7EDF\u6765\u51B3\u5B9A\u6BCF\u4E2A\u8BF7\u6C42\u7684\u5904\u7406\u65B9\u5F0F:'))
+children.push(p('SKY\u4F7F\u75244\u5C42\u8DEF\u7531\u7CFB\u7EDF\u6765\u51B3\u5B9A\u6BCF\u4E2A\u8BF7\u6C42\u7684\u5904\u7406\u65B9\u5F0F:'))
 children.push(tbl(
   ['\u5C42\u7EA7', '\u5339\u914D\u903B\u8F91', '\u6700\u5927\u8F93\u51FATokens', 'Token\u6210\u672C', '\u5178\u578B\u547D\u4E2D\u7387'],
   [
@@ -545,7 +545,7 @@ children.push(bullet('\u7EC4\u95F4\u7F13\u5B58\u6E05\u9664: \u6307\u7EB9\u7F13\u
 children.push(bullet('KV\u7F13\u5B58\u9884\u70ED: "\u52A0\u73ED"\u7EC4 (\u4F1A\u8BA1\u548C\u6CD5\u52A1\u5747\u662F) \u663E\u793A0% KV\u7F13\u5B58\u547D\u4E2D\u7387\uFF0C\u56E0\u4E3A\u5B83\u4EEC\u5728\u5355\u72EC\u4F1A\u8BDD\u4E2D\u8FD0\u884C\uFF0C\u65E0\u5148\u524D\u7F13\u5B58\u9884\u70ED\u3002\u5728\u771F\u5B9E\u7684\u8FDE\u7EED\u5DE5\u4F5C\u4F1A\u8BDD\u4E2D\uFF0C\u4E0A\u5348/\u4E0B\u5348\u7684KV\u7F13\u5B58\u5728\u52A0\u73ED\u65F6\u4ECD\u7136\u6E29\u70ED\u3002'))
 children.push(bullet('\u5408\u6210\u6570\u636E: \u6240\u6709\u53D1\u7968\u3001\u5408\u540C\u548C\u8D22\u52A1\u62A5\u8868\u5747\u4E3A\u5408\u6210\u6570\u636E\u3002\u771F\u5B9E\u4E13\u4E1A\u6587\u6863\u7684token\u5206\u5E03\u53EF\u80FD\u4E0D\u540C\u3002'))
 children.push(bullet('\u5355\u6A21\u578B: \u4EC5DeepSeek V4 Flash\u3002\u5176\u4ED6\u6A21\u578B (GPT-4.1\u3001Claude) \u53EF\u80FD\u6709\u4E0D\u540C\u7684\u7F13\u5B58\u884C\u4E3A\u548C\u5B9A\u4EF7\u3002'))
-children.push(bullet('\u65E0\u8BED\u4E49\u7F13\u5B58: HoloStarmap\u76EE\u524D\u4EC5\u6709\u5B8C\u5168\u5339\u914D\u7684\u6307\u7EB9\u7F13\u5B58\u3002\u8BED\u4E49\u7F13\u5B58 (\u5982GPTCache) \u4F1A\u63D0\u9AD8\u53D8\u4F53\u8BF7\u6C42\u7684\u547D\u4E2D\u7387\uFF0C\u4F46\u672A\u5B9E\u73B0\u3002'))
+children.push(bullet('\u65E0\u8BED\u4E49\u7F13\u5B58: SKY\u76EE\u524D\u4EC5\u6709\u5B8C\u5168\u5339\u914D\u7684\u6307\u7EB9\u7F13\u5B58\u3002\u8BED\u4E49\u7F13\u5B58 (\u5982GPTCache) \u4F1A\u63D0\u9AD8\u53D8\u4F53\u8BF7\u6C42\u7684\u547D\u4E2D\u7387\uFF0C\u4F46\u672A\u5B9E\u73B0\u3002'))
 children.push(bullet('\u8F93\u51FA\u622A\u65AD: L0.5 mini\u5C42\u5C06\u8F93\u51FA\u9650\u5236\u4E3A1024 tokens\uFF0C\u53EF\u80FD\u622A\u65AD\u8F83\u957F\u7684\u4E13\u4E1A\u6587\u6863 (\u5982\u6807\u51C6\u5C42\u751F\u62104096 tokens\u7684\u5C3D\u8C03\u62A5\u544A)\u3002\u622A\u65AD\u5BF9\u8D28\u91CF\u7684\u5F71\u54CD\u672A\u8BC4\u4F30\u3002'))
 children.push(bullet('\u8DE8\u57FA\u51C6\u5BF9\u6BD4: V2\u548C\u4E13\u4E1A\u57FA\u51C6\u4F7F\u7528\u4E0D\u540C\u6570\u636E\u96C6\uFF0C\u4E0D\u53EF\u76F4\u63A5\u6BD4\u8F83\u3002\u4E13\u4E1A\u57FA\u51C6\u66F4\u9AD8\u7684\u8282\u7701\u7387(48.7% vs 38.9%)\u53D7\u66F4\u9AD8\u91CD\u590D/\u53D8\u4F53\u7387(63.3% vs 10%)\u5F71\u54CD\uFF0C\u800C\u975E\u4EC5\u4EC5\u56E0\u4E3A\u5DE5\u4F5C\u8D1F\u8F7D\u7C7B\u578B\u3002'))
 
@@ -594,7 +594,7 @@ const doc = new Document({
 })
 
 Packer.toBuffer(doc).then(buf => {
-  const outPath = 'C:\\Users\\Administrator\\Desktop\\HoloStarmap \u57FA\u51C6\u6D4B\u8BD5\u62A5\u544A.docx'
+  const outPath = 'C:\\Users\\Administrator\\Desktop\\SKY \u57FA\u51C6\u6D4B\u8BD5\u62A5\u544A.docx'
   fs.writeFileSync(outPath, buf)
   console.log('\u62A5\u544A\u5DF2\u4FDD\u5B58:', outPath, '(' + Math.round(buf.length / 1024) + ' KB)')
 }).catch(err => {

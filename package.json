@@ -1,16 +1,16 @@
 {
-  "name": "holo-starmap",
+  "name": "sky",
   "version": "0.1.0",
   "description": "全息星图集成工具控制台 - 125节点太空拓扑交互界面",
   "main": "./out/main/index.js",
   "author": "sky-mirrors",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sky-mirrors/HoloStarmap.git"
+    "url": "https://github.com/sky-mirrors/SKY.git"
   },
-  "homepage": "https://github.com/sky-mirrors/HoloStarmap#readme",
+  "homepage": "https://github.com/sky-mirrors/SKY#readme",
   "bugs": {
-    "url": "https://github.com/sky-mirrors/HoloStarmap/issues"
+    "url": "https://github.com/sky-mirrors/SKY/issues"
   },
   "license": "Apache-2.0",
   "scripts": {
@@ -47,8 +47,8 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "build": {
-    "appId": "com.holostarmap.app",
-    "productName": "HoloStarmap",
+    "appId": "com.sky.app",
+    "productName": "SKY",
     "asar": false,
     "npmRebuild": false,
     "afterPack": "./build-after-pack.js",

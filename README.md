@@ -1,4 +1,4 @@
-# HoloStarmap ⭐
+# SKY ⭐
 
 A local-first AI tool console — route, validate, and optimize your LLM calls from one desktop app.
 
@@ -6,7 +6,7 @@ Built by a solo developer who got tired of copying prompts between browser tabs.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-212%20spec%20files-blue.svg)](docs/60-测试与验收.md)
 
-<!-- ![HoloStarmap Screenshot](docs/screenshot.png) -->
+<!-- ![SKY Screenshot](docs/screenshot.png) -->
 
 ---
 
@@ -86,8 +86,8 @@ Your input → [L0 Rule Router] → [L0.5 Keyword Match] → [L2 Manifest/Cache]
 ### Run in Dev Mode
 
 ```bash
-git clone https://github.com/sky-mirrors/HoloStarmap.git
-cd HoloStarmap
+git clone https://github.com/sky-mirrors/SKY.git
+cd SKY
 npm install
 npm run dev
 ```
@@ -97,7 +97,7 @@ npm run dev
 ```bash
 npx electron-vite build
 npx electron-builder --win portable
-# Output: dist/HoloStarmap 0.1.0.exe
+# Output: dist/SKY 0.1.0.exe
 ```
 
 ---
@@ -182,7 +182,7 @@ Full details: [docs/40-安全模型](docs/40-安全模型.md).
 ## Project Structure
 
 ```
-HoloStarmap/
+SKY/
 ├── electron/                # Main process (32 modules)
 │   ├── main.ts              # Entry: window management + IPC dispatch
 │   ├── ipc-handlers.ts      # IPC routes (file/shell/HTTP/MCP/keys)

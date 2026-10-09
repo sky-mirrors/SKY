@@ -195,7 +195,7 @@ async function callProvider(provider: ProviderConfig, input: string, maxTokens: 
 
 async function main() {
   console.log('═══════════════════════════════════════════════════')
-  console.log('  HoloStarmap Multi-Model Compatibility Tests')
+  console.log('  SKY Multi-Model Compatibility Tests')
   console.log('═══════════════════════════════════════════════════')
   console.log(`  Providers: ${providers.map(p => p.name).join(', ') || 'NONE (set API keys as env vars)'}`)
   console.log(`  Test cases: ${TEST_CASES.length}`)

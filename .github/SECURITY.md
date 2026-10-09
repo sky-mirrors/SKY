@@ -40,7 +40,7 @@ The following are out of scope:
 
 ## Known Security Mechanisms
 
-HoloStarmap implements multiple security layers:
+SKY implements multiple security layers:
 
 - **Shell Security Engine**: 77 dangerous pattern blacklist + 6 trusted signature whitelist
 - **Dual Engine Validator**: Rule-based + LLM-based validation for write operations

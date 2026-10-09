@@ -676,7 +676,7 @@ async function main(): Promise<void> {
   const legalCases = allCases.filter(c => c.profession === 'legal')
 
   console.log(`${'═'.repeat(60)}`)
-  console.log('  HoloStarmap Professional Simulation Benchmark')
+  console.log('  SKY Professional Simulation Benchmark')
   console.log(`${'═'.repeat(60)}`)
   console.log(`  Model:      ${MODEL}`)
   console.log(`  API:        ${BASE_URL}`)

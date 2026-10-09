@@ -1,4 +1,4 @@
-# AGENTS.md — HoloStarmap 项目约定
+# AGENTS.md — SKY 项目约定
 
 > 面向在本仓库工作的 AI 助手与人类贡献者。**改动前先读这一页。**
 > 文档状态：复核到 HEAD `8032938`。

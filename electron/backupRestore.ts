@@ -86,7 +86,7 @@ export function snapshotDirFor(live: string, timestamp: number): string {
 export function planRestoreTargets(tmpDir: string, dirs: RestoreDirs): RestoreTarget[] {
   const storeStaged = join(tmpDir, 'store')
   if (!existsSync(storeStaged)) {
-    throw new Error('备份内不含 store 目录，不是有效的 HoloStarmap 备份')
+    throw new Error('备份内不含 store 目录，不是有效的 SKY 备份')
   }
   const plan: RestoreTarget[] = [{ kind: 'store', live: dirs.storeDir, staged: storeStaged }]
   const vaultsStaged = join(tmpDir, 'vaults')

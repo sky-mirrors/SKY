@@ -429,7 +429,7 @@ async function runMode(
 async function main(): Promise<void> {
   const allCases = getTestCasesV2()
   console.log(`${'═'.repeat(60)}`)
-  console.log('  HoloStarmap DeepSeek V4 Flash Benchmark V2')
+  console.log('  SKY DeepSeek V4 Flash Benchmark V2')
   console.log(`${'═'.repeat(60)}`)
   console.log(`  Model:  ${MODEL}`)
   console.log(`  API:    ${BASE_URL}`)

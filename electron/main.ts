@@ -4,6 +4,8 @@ import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
 // 避免 WAL 文件残留与数据未 checkpoint 落盘
 import { closeVault } from './vault'
+import { existsSync, renameSync } from 'fs'
+import { join } from 'path'
 
 let pendingPipelineNodes: { toolId: string; toolName: string; toolLevel: string }[] = []
 
@@ -20,6 +22,24 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Rejection]', reason)
 })
+
+// 改名兼容（HoloStarmap → SKY，2026-10）：Electron 的 userData 目录名取自 package.json 的
+// productName，改名后默认会指向新目录，存量的 vault / 会话 / API 配置会「消失」。
+// 首次启动时把旧目录整体迁移到新目录；迁移失败（目录被占用 / 权限不足）则沿用旧目录，
+// 保证任何情况下数据都可读。必须在 app.whenReady() 之前执行。
+const appDataDir = app.getPath('appData')
+const legacyUserData = join(appDataDir, 'HoloStarmap')
+const nextUserData = join(appDataDir, 'SKY')
+if (existsSync(legacyUserData) && !existsSync(nextUserData)) {
+  try {
+    renameSync(legacyUserData, nextUserData)
+  } catch (err) {
+    console.warn('[rename] userData 迁移失败，沿用旧目录:', err)
+  }
+}
+if (existsSync(legacyUserData)) {
+  app.setPath('userData', legacyUserData)
+}
 
 // E-8：单实例锁。原架构文档承诺「启动序列: requestSingleInstanceLock(单实例)…
 // 第二个实例启动时聚焦已有主窗口」，但此前从未实现——双实例会并行写 vaults\default.db

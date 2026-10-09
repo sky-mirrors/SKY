@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a feature for HoloStarmap
+about: Suggest a feature for SKY
 title: '[Feature] '
 labels: enhancement
 assignees: ''

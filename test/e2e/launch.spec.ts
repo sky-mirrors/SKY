@@ -5,7 +5,7 @@ import { execSync } from 'child_process'
 
 const PROJECT_ROOT = join(__dirname, '..', '..')
 const OUT_MAIN = join(PROJECT_ROOT, 'out', 'main', 'index.js')
-const APPDATA_HOLO = join(process.env.APPDATA || '', 'holo-starmap')
+const APPDATA_HOLO = join(process.env.APPDATA || '', 'SKY')
 const STORE_DIR = join(APPDATA_HOLO, 'store')
 
 function ensureBuild(): void {

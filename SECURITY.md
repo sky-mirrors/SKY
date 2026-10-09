@@ -2,7 +2,7 @@
 
 ## Known Vulnerabilities (npm audit)
 
-The following vulnerabilities are present in **upstream transitive dependencies**. They do not originate from HoloStarmap source code and cannot be fixed without upstream updates or major dependency changes.
+The following vulnerabilities are present in **upstream transitive dependencies**. They do not originate from SKY source code and cannot be fixed without upstream updates or major dependency changes.
 
 | Package | Severity | CVE/Issue | Source | Status |
 |---------|----------|-----------|--------|--------|
@@ -14,7 +14,7 @@ The following vulnerabilities are present in **upstream transitive dependencies*
 
 ## Risk Assessment
 
-HoloStarmap is a **local desktop application** — it does not expose network services or accept untrusted remote input. This significantly reduces the practical exploitability of the above vulnerabilities:
+SKY is a **local desktop application** — it does not expose network services or accept untrusted remote input. This significantly reduces the practical exploitability of the above vulnerabilities:
 
 - **protobufjs / sharp**: Only process locally-generated data via `@xenova/transformers` (embedding inference). No remote protobuf input.
 - **xlsx**: Prototype pollution requires a maliciously-crafted file. Users load their own local files.
@@ -33,4 +33,4 @@ HoloStarmap is a **local desktop application** — it does not expose network se
 
 ## Reporting
 
-To report a security vulnerability, please open a [GitHub Issue](https://github.com/sky-mirrors/HoloStarmap/issues) with the label `security`.
+To report a security vulnerability, please open a [GitHub Issue](https://github.com/sky-mirrors/SKY/issues) with the label `security`.

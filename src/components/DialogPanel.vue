@@ -949,7 +949,7 @@ async function exportAs(msg: DialogMessage, format: 'docx' | 'html') {
     const fileName = `holo-export-${ts}.docx`
     const filePath = `${home}\\Desktop\\${fileName}`
     try {
-      const result = await window.electronAPI?.createDocx({ filePath, content, title: 'HoloStarmap 导出' })
+      const result = await window.electronAPI?.createDocx({ filePath, content, title: 'SKY 导出' })
       if (result?.success) {
         dialogStore.addSystemNotice('[导出] ✅ 已导出 docx 到桌面')
         await window.electronAPI?.openFilePath(filePath)
@@ -1067,7 +1067,7 @@ function exportFullDialog() {
   }
   const now = new Date()
   const dateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}-${String(now.getMinutes()).padStart(2,'0')}`
-  let md = `# HoloStarmap 对话导出\n\n导出时间: ${now.toLocaleString('zh-CN')}\n\n---\n\n`
+  let md = `# SKY 对话导出\n\n导出时间: ${now.toLocaleString('zh-CN')}\n\n---\n\n`
   for (const msg of msgs) {
     const role = msg.role === 'user' ? '👤 用户' : '🤖 助手'
     const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('zh-CN') : ''
@@ -1075,7 +1075,7 @@ function exportFullDialog() {
     // 2026-09-25：原有一段读 `msg.toolCalls` 的导出逻辑，但对话消息类型里没有 toolCalls
     // 字段、也没有任何代码往里写过它 ⇒ 恒为 undefined 的死分支。移除以消除假接口。
   }
-  md += `---\n\n*共 ${msgs.length} 条消息 | 由 HoloStarmap 导出*\n`
+  md += `---\n\n*共 ${msgs.length} 条消息 | 由 SKY 导出*\n`
   const blob = new Blob([md], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

@@ -206,7 +206,7 @@ describe('EXAM-1/EXAM-6：examStore（考试状态迁 Pinia + reactive 进度 + 
     expect(examStore.progress.phase).toBe('done')
 
     const path = await examStore.exportReport()
-    expect(path).toBe('C:\\Users\\test\\Desktop\\HoloStarmap\\exam-report.json')
+    expect(path).toBe('C:\\Users\\test\\Desktop\\SKY\\exam-report.json')
     const fileWrite = (window as unknown as { electronAPI: { fileWrite: ReturnType<typeof vi.fn> } }).electronAPI.fileWrite
     expect(JSON.parse(fileWrite.mock.calls[0][0].content).summary.deliverable).toBe(1)
   })

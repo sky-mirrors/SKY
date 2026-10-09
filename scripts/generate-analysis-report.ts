@@ -200,7 +200,7 @@ async function main() {
 
   sections.push(new Paragraph({
     alignment: AlignmentType.CENTER, spacing: { after: 200 },
-    children: [new TextRun({ text: 'HoloStarmap', font: FONT_EN, size: 56, bold: true, color: COLOR_HEADER_BG })]
+    children: [new TextRun({ text: 'SKY', font: FONT_EN, size: 56, bold: true, color: COLOR_HEADER_BG })]
   }));
 
   sections.push(new Paragraph({
@@ -273,8 +273,8 @@ async function main() {
 
   sections.push(heading2('\u7ED3\u8BBA\uFF1A\u4E0D\u662F\u201C\u4E0D\u60F3\u201D\uFF0C\u662F\u201C\u573A\u666F\u9A71\u52A8\u4E0D\u540C\uFF0C\u6CA1\u9700\u6C42\u5C31\u6CA1\u8BBE\u8BA1\u201D'));
 
-  sections.push(heading3('HoloStarmap\u516D\u5C42\u964D\u7EA7\u94FE\u5B58\u5728\u7684\u6839\u672C\u539F\u56E0'));
-  sections.push(bodyText('HoloStarmap\u540C\u65F6\u662F\u8DEF\u7531\u5668+\u5DE5\u5177\u68C0\u7D22\u5668+\u5BF9\u8BDD\u7F16\u6392\u5668\u3002sendMessage()\u4E00\u4E2A\u65B9\u6CD5\u627F\u62C5\u4E86\u4E09\u4E2A\u89D2\u8272\uFF0C\u8FD9\u5728\u7ADE\u54C1\u4E2D\u662F\u72EC\u4E00\u65E0\u4E8C\u7684\u3002'));
+  sections.push(heading3('SKY\u516D\u5C42\u964D\u7EA7\u94FE\u5B58\u5728\u7684\u6839\u672C\u539F\u56E0'));
+  sections.push(bodyText('SKY\u540C\u65F6\u662F\u8DEF\u7531\u5668+\u5DE5\u5177\u68C0\u7D22\u5668+\u5BF9\u8BDD\u7F16\u6392\u5668\u3002sendMessage()\u4E00\u4E2A\u65B9\u6CD5\u627F\u62C5\u4E86\u4E09\u4E2A\u89D2\u8272\uFF0C\u8FD9\u5728\u7ADE\u54C1\u4E2D\u662F\u72EC\u4E00\u65E0\u4E8C\u7684\u3002'));
   sections.push(emptyLine());
 
   sections.push(bodyText('\u5404\u5C42\u7684\u89E6\u53D1\u6761\u4EF6\u3001\u4EE3\u7801\u4F4D\u7F6E\u548C\u4EE3\u4EF7\uFF1A', true));
@@ -317,7 +317,7 @@ async function main() {
     { text: '\u4E09\u4E2A\u6761\u4EF6\u540C\u65F6\u6EE1\u8DB3\u65F6\u7684\u5FC5\u7136\u4EA7\u7269\u3002' }
   ]));
   sections.push(bulletPoint('\u7ADE\u54C1\u8981\u4E48\u5DE5\u5177\u5C11\uFF08\u4E0D\u9700\u8981\u8DEF\u7531\uFF09\uFF0C\u8981\u4E48\u7528\u6237\u624B\u52A8\u9009\uFF08\u7528\u6237\u5C31\u662F\u8DEF\u7531\u5668\uFF09\uFF0C\u8981\u4E48\u4E0D\u8BA1\u6210\u672C\uFF08\u76F4\u63A5\u8C03\u6700\u5927\u6A21\u578B\uFF09'));
-  sections.push(bulletPoint('HoloStarmap\u4E09\u4E2A\u6761\u4EF6\u90FD\u6EE1\u8DB3\uFF0C\u6240\u4EE5\u624D\u6F14\u5316\u51FA\u516D\u5C42'));
+  sections.push(bulletPoint('SKY\u4E09\u4E2A\u6761\u4EF6\u90FD\u6EE1\u8DB3\uFF0C\u6240\u4EE5\u624D\u6F14\u5316\u51FA\u516D\u5C42'));
   sections.push(bulletPoint('\u4E0D\u662F\u201C\u6CA1\u60F3\u5230\u201D\uFF0C\u662F\u201C\u4E0D\u9700\u8981\u201D\u3002\u4F46\u4E00\u65E6\u5176\u4ED6\u4EA7\u54C1\u4E5F\u8D70\u5411\u201C\u5DE5\u5177\u751F\u6001\u4E30\u5BCC+\u81EA\u52A8\u8DEF\u7531\u201D\u7684\u65B9\u5411\uFF0C\u5B83\u4EEC\u4E5F\u4F1A\u9762\u4E34\u540C\u6837\u7684\u8BBE\u8BA1\u95EE\u9898'));
 
   sections.push(new Paragraph({ children: [new PageBreak()] }));
@@ -577,10 +577,10 @@ async function main() {
 
   sections.push(emptyLine());
 
-  sections.push(heading3('HoloStarmap\u8BED\u4E49\u7F13\u5B58 vs DeepSeek KV Cache\u7684\u672C\u8D28\u533A\u522B'));
+  sections.push(heading3('SKY\u8BED\u4E49\u7F13\u5B58 vs DeepSeek KV Cache\u7684\u672C\u8D28\u533A\u522B'));
 
   sections.push(makeTable(
-    [{ text: '\u7EF4\u5EA6', width: 20 }, { text: 'HoloStarmap\u8BED\u4E49\u7F13\u5B58', width: 40 }, { text: 'DeepSeek KV Cache', width: 40 }],
+    [{ text: '\u7EF4\u5EA6', width: 20 }, { text: 'SKY\u8BED\u4E49\u7F13\u5B58', width: 40 }, { text: 'DeepSeek KV Cache', width: 40 }],
     [
       [{ text: '\u5C42\u7EA7' }, { text: '\u5E94\u7528\u5C42\uFF08\u5BA2\u6237\u7AEF\uFF09' }, { text: '\u57FA\u7840\u8BBE\u65BD\u5C42\uFF08\u670D\u52A1\u7AEF\uFF09' }],
       [{ text: '\u5339\u914D\u65B9\u5F0F' }, { text: '\u8BED\u4E49\u76F8\u4F3C\u5EA6\uFF08\u8DE8\u63AA\u8F9E\u547D\u4E2D\uFF09' }, { text: '\u7CBE\u786E\u524D\u7F00\u5339\u914D\uFF08\u5FC5\u987B\u76F8\u540C\u524D\u7F00\uFF09' }],
@@ -762,7 +762,7 @@ async function main() {
     }
   });
 
-  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'HoloStarmap\u4E94\u5927\u6280\u672F\u6DF1\u5EA6\u95EE\u9898\u5206\u6790\u62A5\u544A.docx');
+  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'SKY\u4E94\u5927\u6280\u672F\u6DF1\u5EA6\u95EE\u9898\u5206\u6790\u62A5\u544A.docx');
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(outputPath, buffer);
 

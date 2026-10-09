@@ -283,7 +283,7 @@ async function main() {
       spacing: { after: 200 },
       children: [
         new TextRun({
-          text: 'HoloStarmap',
+          text: 'SKY',
           font: FONT_EN,
           size: 56,
           bold: true,
@@ -404,7 +404,7 @@ async function main() {
     '第一章  功能全景速查（20大类 · 70+子功能）',
     '第二章  编排架构深度对比',
     '  2.1  三大架构范式对比',
-    '  2.2  HoloStarmap完整执行流程',
+    '  2.2  SKY完整执行流程',
     '  2.3  竞品可借鉴模式',
     '第三章  RAG架构深度对比',
     '  3.1  分块策略',
@@ -509,7 +509,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap EventBus', width: 28 },
+        { text: 'SKY EventBus', width: 28 },
         { text: 'DeepSeek Harness Cordis', width: 29 },
         { text: 'MetaGPT SOP', width: 28 }
       ],
@@ -520,12 +520,12 @@ async function main() {
 
   sections.push(emptyLine());
   sections.push(heading3('关键发现'));
-  sections.push(bulletPoint('HoloStarmap的同步request()是性能最优的——Map.get+函数调用零调度延迟，DeepSeek和MetaGPT都是全异步'));
+  sections.push(bulletPoint('SKY的同步request()是性能最优的——Map.get+函数调用零调度延迟，DeepSeek和MetaGPT都是全异步'));
   sections.push(bulletPoint('类型安全是最大弱点——dialogStore.ts有30+处as any强转，通道名拼写错误仅运行时暴露'));
-  sections.push(bulletPoint('DeepSeek Harness的Seam/ServiceProvider模式在可替换性和作用域隔离上优于HoloStarmap的Port模式'));
-  sections.push(bulletPoint('MetaGPT的SOP消息模式在流程可验证性和审计追踪上优于HoloStarmap'));
+  sections.push(bulletPoint('DeepSeek Harness的Seam/ServiceProvider模式在可替换性和作用域隔离上优于SKY的Port模式'));
+  sections.push(bulletPoint('MetaGPT的SOP消息模式在流程可验证性和审计追踪上优于SKY'));
 
-  sections.push(heading2('2.2  HoloStarmap完整执行流程'));
+  sections.push(heading2('2.2  SKY完整执行流程'));
   sections.push(bodyText('用户输入到LLM响应的完整路径：'));
 
   const flowLines = [
@@ -573,7 +573,7 @@ async function main() {
       [
         { text: '可借鉴模式', width: 30 },
         { text: '来源', width: 20 },
-        { text: '对HoloStarmap的启示', width: 50 }
+        { text: '对SKY的启示', width: 50 }
       ],
       borrowRows,
       [30, 20, 50]
@@ -600,7 +600,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'Open WebUI', width: 29 },
         { text: 'AnythingLLM', width: 28 }
       ],
@@ -612,7 +612,7 @@ async function main() {
   sections.push(emptyLine());
   sections.push(
     bodyTextMulti([
-      { text: 'HoloStarmap无重叠的风险', bold: true, color: COLOR_RED },
+      { text: 'SKY无重叠的风险', bold: true, color: COLOR_RED },
       { text: '：跨段落边界的事实可能丢失，但避免了检索结果重复。' }
     ])
   );
@@ -631,7 +631,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'Open WebUI', width: 29 },
         { text: 'AnythingLLM', width: 28 }
       ],
@@ -672,7 +672,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'Open WebUI', width: 29 },
         { text: 'AnythingLLM', width: 28 }
       ],
@@ -684,7 +684,7 @@ async function main() {
   sections.push(emptyLine());
   sections.push(
     bodyTextMulti([
-      { text: 'HoloStarmap独有', bold: true, color: COLOR_ACCENT },
+      { text: 'SKY独有', bold: true, color: COLOR_ACCENT },
       { text: '：动态阈值(computeDynamicThreshold)基于得分分布历史自适应，不依赖固定截断值。' }
     ])
   );
@@ -695,7 +695,7 @@ async function main() {
     ])
   );
 
-  sections.push(heading2('3.4  CJK关键词匹配（HoloStarmap独有）'));
+  sections.push(heading2('3.4  CJK关键词匹配（SKY独有）'));
   sections.push(bodyText('5层匹配策略：'));
 
   const cjkRows: CellDef[][] = [
@@ -750,7 +750,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'DeepSeek', width: 29 },
         { text: 'AnythingLLM', width: 28 }
       ],
@@ -790,7 +790,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'DeepSeek', width: 29 },
         { text: 'ChatGPT', width: 28 }
       ],
@@ -823,7 +823,7 @@ async function main() {
     makeTable(
       [
         { text: '维度', width: 15 },
-        { text: 'HoloStarmap', width: 28 },
+        { text: 'SKY', width: 28 },
         { text: 'DeepSeek KV Cache', width: 29 },
         { text: 'ChatGPT', width: 28 }
       ],
@@ -835,8 +835,8 @@ async function main() {
   sections.push(emptyLine());
   sections.push(
     bodyTextMulti([
-      { text: 'HoloStarmap是唯一具备客户端语义缓存的应用', bold: true, color: COLOR_ACCENT },
-      { text: '——DeepSeek和ChatGPT的缓存是基础设施级的精确前缀匹配，不是语义匹配。"帮我写一个Python排序函数"和"写一个排序算法用Python"在HoloStarmap中可命中同一缓存条目。' }
+      { text: 'SKY是唯一具备客户端语义缓存的应用', bold: true, color: COLOR_ACCENT },
+      { text: '——DeepSeek和ChatGPT的缓存是基础设施级的精确前缀匹配，不是语义匹配。"帮我写一个Python排序函数"和"写一个排序算法用Python"在SKY中可命中同一缓存条目。' }
     ])
   );
 
@@ -854,7 +854,7 @@ async function main() {
     makeTable(
       [
         { text: '可见信息', width: 20 },
-        { text: 'HoloStarmap', width: 25 },
+        { text: 'SKY', width: 25 },
         { text: 'DeepSeek', width: 15 },
         { text: 'AnythingLLM', width: 20 },
         { text: 'ChatGPT', width: 20 }
@@ -869,7 +869,7 @@ async function main() {
   // ===================== CHAPTER 5 =====================
   sections.push(heading1('第五章  综合评估'));
 
-  sections.push(heading2('5.1  HoloStarmap 12项独有优势'));
+  sections.push(heading2('5.1  SKY 12项独有优势'));
   sections.push(bodyText('技术实现确认的独有特性：'));
   sections.push(emptyLine());
 
@@ -909,7 +909,7 @@ async function main() {
   );
 
   sections.push(emptyLine());
-  sections.push(heading2('5.2  HoloStarmap 10项技术弱点'));
+  sections.push(heading2('5.2  SKY 10项技术弱点'));
 
   const weaknesses = [
     ['EventBus类型安全弱', 'payload: any + 30+处as any强转 + 字符串通道名', 'DeepSeek Seam<T>泛型约束'],
@@ -948,7 +948,7 @@ async function main() {
   sections.push(heading2('5.3  架构定位差异'));
 
   const archPosRows: CellDef[][] = [
-    [{ text: 'HoloStarmap' }, { text: '微内核+领域隔离' }, { text: '解耦最大化，代价：开发复杂度+EventBus注册时序+类型安全弱' }],
+    [{ text: 'SKY' }, { text: '微内核+领域隔离' }, { text: '解耦最大化，代价：开发复杂度+EventBus注册时序+类型安全弱' }],
     [{ text: 'DeepSeek Harness' }, { text: 'Cordis插件' }, { text: '可替换最大化，代价：学习曲线+配置复杂度' }],
     [{ text: 'n8n' }, { text: 'DAG工作流' }, { text: '集成最大化(500+)，代价：节点间数据传递开销' }],
     [{ text: 'MetaGPT' }, { text: 'SOP消息' }, { text: '角色协作最大化，代价：SOP固定+消息图调试难' }],
@@ -1085,7 +1085,7 @@ async function main() {
     }
   });
 
-  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'HoloStarmap功能全景与业界对比（技术深度版）.docx');
+  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'SKY功能全景与业界对比（技术深度版）.docx');
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(outputPath, buffer);
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { tryL0Skill } from '@/services/l0SkillRouter'
 
 /**
- * 用户实测（2026-09-25）：发「把桌面上 HoloStarmap\docs 文件夹下的 2026.9.24最新快照.md 文件转为 docx
+ * 用户实测（2026-09-25）：发「把桌面上 SKY\docs 文件夹下的 2026.9.24最新快照.md 文件转为 docx
  * 文档，将这个 docx 文档放在桌面上」→ Holo 只回一句「我先确认文件是否存在。」再无下文。
  *
  * 取证（运行中 app 的消息流）：
@@ -17,7 +17,7 @@ import { tryL0Skill } from '@/services/l0SkillRouter'
  */
 describe('L0「文件格式转换」：拿不到真实路径时不得伪造路径', () => {
   const USER_INPUT =
-    '把桌面上 HoloStarmap\\docs 文件夹下的 2026.9.24最新快照.md 文件转为 docx 文档，将这个 docx 文档放在桌面上。'
+    '把桌面上 SKY\\docs 文件夹下的 2026.9.24最新快照.md 文件转为 docx 文档，将这个 docx 文档放在桌面上。'
 
   it('描述性路径（非绝对路径）→ 计划里不得出现 input.<ext> 这种伪路径', async () => {
     const plan = await tryL0Skill(USER_INPUT)

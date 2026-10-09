@@ -4,7 +4,7 @@ import { join } from 'path'
 import { NATIVE_TOOL_DEFS, NATIVE_TOOL_NAMES, isAlwaysAvailableTool } from '@/services/nativeTools'
 
 /**
- * 用户实测（2026-09-25）：「把桌面上 HoloStarmap\docs 文件夹下的 2026.9.24最新快照.md 转为 docx 放桌面」
+ * 用户实测（2026-09-25）：「把桌面上 SKY\docs 文件夹下的 2026.9.24最新快照.md 转为 docx 放桌面」
  * → 模型读到文件后用 `file_convert` → 报「目标文件必须是 .pdf」。因为：
  *   - `file_convert` 出口被写死为 PDF（electron/docConvert.ts 有 `if (extOf(target) !== 'pdf') throw`）；
  *   - app **本来就会写真 docx**（主进程 `file:createDocx`，见 electron/ipc-handlers.ts:419），

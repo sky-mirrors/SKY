@@ -210,7 +210,7 @@ export const useSoakStore = defineStore('soak', () => {
     try {
       const api = (window as unknown as { electronAPI?: { resolvePath?: (p: string) => Promise<string>; fileWrite?: (args: { filePath: string; content: string }) => Promise<{ success: boolean; error?: string }> } }).electronAPI
       const home = (await api?.resolvePath?.('%USERPROFILE%')) || 'C:\\Users\\Default'
-      const filePath = `${home}\\Desktop\\HoloStarmap\\soak-report.json`
+      const filePath = `${home}\\Desktop\\SKY\\soak-report.json`
       const result = await api?.fileWrite?.({ filePath, content: json })
       if (result?.success) {
         lastExportPath.value = filePath

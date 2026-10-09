@@ -116,7 +116,7 @@ export function createPipelineWindow(): BrowserWindow {
     show: true,
     frame: false,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - 流水线工作台',
+    title: 'SKY - 流水线工作台',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -174,7 +174,7 @@ export function createDebugWindow(): BrowserWindow {
     frame: false,
     alwaysOnTop: true,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - 调试监视器',
+    title: 'SKY - 调试监视器',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -228,7 +228,7 @@ export function createDevWindow(): BrowserWindow {
     show: true,
     frame: false,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - 开发者端',
+    title: 'SKY - 开发者端',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -280,7 +280,7 @@ export function createKnowledgeWindow(): BrowserWindow {
     show: true,
     frame: false,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - 知识库',
+    title: 'SKY - 知识库',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -332,7 +332,7 @@ export function createBenchmarkWindow(): BrowserWindow {
     show: true,
     frame: false,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - Token优化压测台',
+    title: 'SKY - Token优化压测台',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -380,7 +380,7 @@ export function createRuleReviewWindow(): BrowserWindow {
     show: true,
     frame: false,
     backgroundColor: '#050510',
-    title: 'HoloStarmap - 规则审核',
+    title: 'SKY - 规则审核',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,

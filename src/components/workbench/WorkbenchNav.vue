@@ -2,8 +2,8 @@
   <div class="wb-nav" :class="{ collapsed: navCollapsed }">
     <div class="wb-nav-header">
       <!-- 2026-10-01：收起后只剩窄条、其他操作够不到 —— 双击 HS 图标即恢复展开（用户反馈） -->
-      <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'HoloStarmap'">HS</span>
-      <span v-if="!navCollapsed" class="wb-nav-title">HoloStarmap</span>
+      <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'SKY'">HS</span>
+      <span v-if="!navCollapsed" class="wb-nav-title">SKY</span>
       <button v-if="!navCollapsed" class="wb-nav-collapse-btn" @click="navCollapsed = true" title="收起导航">«</button>
     </div>
 

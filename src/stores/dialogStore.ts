@@ -97,7 +97,7 @@ import { yieldToUI } from '@/services/uiYield'
 // 只能猜路径（Q14/Q16 实测猜成 C:\Users 被安全策略拒）。见模块头注释的取证。
 import { buildNativeFileTaskSystemPrompt } from '@/services/fileTaskSystemPrompt'
 
-const FIXED_SYSTEM_PROMPT = `你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。
+const FIXED_SYSTEM_PROMPT = `你是 SKY 全息星图助手，一个拥有真实工具能力的 AI。
 
 【核心规则 - 必须严格遵守】
 1. 你拥有通过 function calling 调用 MCP 工具和原生工具的能力。以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、shell_exec（执行命令/脚本）。当用户请求需要实际操作（尤其涉及用户本机文件路径）时，你【必须】调用对应工具实际执行——你有这个能力，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。

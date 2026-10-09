@@ -30,7 +30,7 @@ export function buildNativeFileTaskSystemPrompt(opts: { userProfile?: string; de
     : '【工具】以下原生工具【始终可用】：read_file（读文件）、list_directory（列目录）、file_write（写文件）、file_move（重命名/移动文件）、file_convert（转换格式）、shell_exec（执行命令）。涉及本机文件的操作【必须】调用它们实际执行，绝不许以"我无法访问你电脑上的本地路径"为由推脱，也绝不许编造结果。'
 
   const lines: string[] = [
-    '你是 HoloStarmap 全息星图助手，一个拥有真实工具能力的 AI。',
+    '你是 SKY 全息星图助手，一个拥有真实工具能力的 AI。',
     '',
     toolLine,
     '',

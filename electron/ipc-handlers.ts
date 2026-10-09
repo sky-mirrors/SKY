@@ -986,7 +986,7 @@ export function setupIpc(_win: BrowserWindow | null) {
       const initResult = await sendMcpRequest(entry, 'initialize', {
         protocolVersion: '2024-11-05',
         capabilities: {},
-        clientInfo: { name: 'HoloStarmap', version: '0.1.0' }
+        clientInfo: { name: 'SKY', version: '0.1.0' }
       }, 60000)
 
       const mw = getMainWindow()

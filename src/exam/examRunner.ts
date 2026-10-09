@@ -578,7 +578,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
       const api = (window as unknown as { electronAPI?: { resolvePath?: (p: string) => Promise<string>; fileWrite?: (args: { filePath: string; content: string }) => Promise<{ success: boolean; error?: string }> } }).electronAPI
       const home = await api?.resolvePath?.('%USERPROFILE%')
       if (!home || !api?.fileWrite) return null
-      const filePath = `${home}\\Desktop\\HoloStarmap\\exam-report.json`
+      const filePath = `${home}\\Desktop\\SKY\\exam-report.json`
       const result = await api.fileWrite({ filePath, content: JSON.stringify(report, null, 2) })
       return result.success ? filePath : null
     } catch {

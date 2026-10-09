@@ -2,7 +2,7 @@
     <div class="holo-app">
     <div class="titlebar">
       <div class="titlebar-left">
-        <span class="titlebar-text">HoloStarmap</span>
+        <span class="titlebar-text">SKY</span>
         <!-- 2026-10-01 UI 分端：探针 / 压测台 / 规则审核属开发者向，已从用户端顶栏移出，
              经导航「开发者」区（调试中心 / 压测台 / 规则审核）进入。用户端只留主题 / 通知 / 设置。 -->
         <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换到 少女萝莉（浅色）' : configStore.theme === 'light' ? '切换到 生命力（浅绿）' : '切换到 哥特御姐（深色）'">{{ configStore.theme === 'dark' ? '🖤' : configStore.theme === 'light' ? '🌸' : '🌿' }}</span>

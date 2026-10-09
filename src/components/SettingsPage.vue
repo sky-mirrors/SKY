@@ -163,7 +163,7 @@
 
           <div v-if="activeTab === 'about'" class="sp-section">
             <div class="sp-about-logo">🌌</div>
-            <div class="sp-about-name">HoloStarmap</div>
+            <div class="sp-about-name">SKY</div>
             <div class="sp-about-version">v0.1.0</div>
             <div class="sp-about-row"><span>节点数</span><span>{{ nodeStore.nodes.length }}</span></div>
             <div class="sp-about-row"><span>L2清单</span><span>{{ nodeStore.getAllL2Manifests().length }}</span></div>

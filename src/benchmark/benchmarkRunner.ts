@@ -276,7 +276,7 @@ export function createBenchmarkRunner(): BenchmarkRunner {
     const json = JSON.stringify(progress.report, null, 2)
     try {
       const home = await window.electronAPI?.resolvePath('%USERPROFILE%') || 'C:\\Users\\Default'
-      const filePath = `${home}\\Desktop\\HoloStarmap\\benchmark-result.json`
+      const filePath = `${home}\\Desktop\\SKY\\benchmark-result.json`
       const result = await window.electronAPI?.fileWrite({ filePath, content: json })
       if (result?.success) {
         debugLog(`[Benchmark] Report saved to ${filePath}`)

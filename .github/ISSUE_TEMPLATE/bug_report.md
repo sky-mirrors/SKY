@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in HoloStarmap
+about: Report a bug in SKY
 title: '[Bug] '
 labels: bug
 assignees: ''
@@ -13,7 +13,7 @@ A clear description of what the bug is.
 ## Environment
 
 - OS: Windows __
-- HoloStarmap version: __
+- SKY version: __
 - Node.js version: __
 - Local LLM endpoint: __ (e.g. http://127.0.0.1:11434/v1)
 

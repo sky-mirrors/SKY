@@ -233,7 +233,7 @@ async function testRouteAccuracy() {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════')
-  console.log('  HoloStarmap Edge Case + Route Accuracy Tests')
+  console.log('  SKY Edge Case + Route Accuracy Tests')
   console.log('═══════════════════════════════════════════════════')
   console.log(`  API: ${BASE_URL}`)
   console.log(`  Key: ${API_KEY.substring(0, 8)}...`)

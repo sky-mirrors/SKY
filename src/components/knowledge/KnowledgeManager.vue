@@ -1,7 +1,7 @@
 <template>
   <div class="km-root">
     <header class="km-titlebar">
-      <span class="km-titlebar-text">📚 HoloStarmap 知识库</span>
+      <span class="km-titlebar-text">📚 SKY 知识库</span>
       <span class="km-notice" v-if="notice">{{ notice }}</span>
       <div class="km-titlebar-actions">
         <button class="km-tb-btn" @click="onMinimize" title="最小化">─</button>

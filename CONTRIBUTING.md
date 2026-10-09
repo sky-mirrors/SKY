@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 HoloStarmap 的贡献兴趣！
+感谢你对 SKY 的贡献兴趣！
 
 ---
 
@@ -15,7 +15,7 @@
 **搭建**：
 
 ```bash
-git clone https://github.com/sky-mirrors/HoloStarmap.git
+git clone https://github.com/sky-mirrors/SKY.git
 cd holostarmap
 npm install
 npm run dev

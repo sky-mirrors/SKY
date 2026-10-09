@@ -16,7 +16,7 @@
           <p class="ob-desc">{{ steps[currentStep].description }}</p>
           <div class="ob-body">
             <div v-if="steps[currentStep].id === 'welcome'" class="ob-welcome">
-              <p>这是你第一次使用 HoloStarmap，让我们花1分钟完成初始设置。</p>
+              <p>这是你第一次使用 SKY，让我们花1分钟完成初始设置。</p>
             </div>
             <div v-if="steps[currentStep].id === 'role'" class="ob-role-select">
               <button
@@ -123,7 +123,7 @@ const termOptions = [
 ]
 
 const steps = [
-    { id: 'welcome', icon: '🌌', title: '欢迎来到 HoloStarmap', description: '你的企业 AI 工具工作台' },
+    { id: 'welcome', icon: '🌌', title: '欢迎来到 SKY', description: '你的企业 AI 工具工作台' },
   { id: 'role', icon: '👤', title: '选择你的角色', description: '我们将根据角色推荐适合的工具配置' },
   { id: 'api', icon: '🧠', title: '连接AI大脑', description: '配置模型网关以启用智能功能' },
   { id: 'terminology', icon: '📖', title: '术语偏好', description: '选择你习惯的术语风格' },
