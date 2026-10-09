@@ -2,7 +2,7 @@
   <div class="wb-nav" :class="{ collapsed: navCollapsed }">
     <div class="wb-nav-header">
       <!-- 2026-10-01：收起后只剩窄条、其他操作够不到 —— 双击图标即恢复展开（用户反馈） -->
-      <!-- 2026-10-09：logo 由硬编码 "HS"（HoloStarmap 残留，title 却是 SKY）换为星形图标 -->
+      <!-- 2026-10-09：logo 由硬编码字母换为星形图标，与窗口标题的品牌名一致 -->
       <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'SKY'">
         <Icon name="star" :size="14" />
       </span>

@@ -50,8 +50,8 @@ If a claim here disagrees with the ledger, the ledger wins — it carries `file:
 ## Quick start
 
 ```bash
-git clone https://github.com/sky-mirrors/HoloStarmap.git
-cd HoloStarmap
+git clone https://github.com/sky-mirrors/SKY.git
+cd SKY
 npm install
 npm run dev
 ```
@@ -162,7 +162,7 @@ That is a low number and it is printed here on purpose: the exam is deliberately
 ## Project structure
 
 ```
-HoloStarmap/
+SKY/
 ├── electron/                 # Main process (33 modules)
 │   ├── main.ts               # Entry: windows, single-instance lock, IPC dispatch
 │   ├── ipc-handlers.ts       # IPC routes (file / shell / doc / image / media / MCP / vault)

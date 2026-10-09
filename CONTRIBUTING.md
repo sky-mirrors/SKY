@@ -16,7 +16,7 @@
 
 ```bash
 git clone https://github.com/sky-mirrors/SKY.git
-cd holostarmap
+cd SKY
 npm install
 npm run dev
 ```
