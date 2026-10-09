@@ -30,7 +30,22 @@ const PINIA = `document.querySelector('#app').__vue_app__.config.globalPropertie
 // 归一状态：reload 让渲染层回到默认（例如「显示系统消息」开关回到默认关）。
 // 否则上一次人工/探针留下的 UI 状态会让冒烟结果不可信——冒烟必须从干净态起跑。
 await send('Page.reload', {})
-await sleep(6000)
+// 2026-10-09：原先此处固定 sleep(6000)。实测在挂有大量历史会话的 userData 上不够——
+// 26 条消息时 6s 后消息区尚未渲染完，第 0 项断言（.messages .message 须 > 0）失败，
+// 并连锁使后续 sendMessage 在应用未就绪时发出，5/5 全红（选择器本身是对的，
+// 事后手工查 DOM 可见 7 个 .message / 0 个 .msg-system）。
+// 改为条件等待：轮询消息区出现，最多 30s；超时也继续跑，让断言如实报告。
+{
+  const readyDeadline = Date.now() + 30000
+  let ready = false
+  while (Date.now() < readyDeadline) {
+    await sleep(500)
+    const n = await ev(`document.querySelectorAll('.messages .message').length`)
+    if (typeof n === 'number' && n > 0) { ready = true; break }
+  }
+  if (!ready) console.log('⚠ 等待 30s 后消息区仍未渲染出 .message（不中止，交给断言如实报告）')
+  else console.log(`· 归一完成：消息区已渲染（耗时 < ${((Date.now() - (readyDeadline - 30000)) / 1000).toFixed(1)}s）`)
+}
 
 /** 发一条用户消息并按需裁决暂停点，返回最后一条 assistant 文本 */
 async function say(text, { maxWaitMs = 90000 } = {}) {
@@ -52,6 +67,17 @@ async function say(text, { maxWaitMs = 90000 } = {}) {
   }
   const last = await ev(`(()=>{const a=(${PINIA}._s.get('dialog').messages||[]).filter(x=>x.role==='assistant'&&x.type==='text');const l=a[a.length-1];return l?String(l.content||''):''})()`)
   return { text: String(last || ''), stalled: '' }
+}
+
+// 2026-10-09：前置条件检查。第 1–4 项都要求真实 LLM 调用（路由层回退也需要模型网关就绪），
+// 未配置时它们必然失败——但输出会和"功能坏了"长得一模一样（实测：4 项全红、
+// 消息里全是「❌ 未配置模型网关」）。此处显式提示，避免把环境问题误读为缺陷。
+const apiReady = await ev(`(()=>{try{const a=${PINIA}._s.get('api');return a?!!a.isReady:null}catch{return null}})()`)
+if (apiReady === false) {
+  console.log('⚠ 模型网关未就绪（api.isReady=false）：第 1–4 项需要真实 LLM 调用，未配置时必然失败。')
+  console.log('  请先在应用里配置模型网关（或本地 Ollama）再重跑；以下结果仅供参照，不代表功能缺陷。')
+} else if (apiReady === null) {
+  console.log('⚠ 无法读取 api store 的就绪状态，前置条件未校验。')
 }
 
 const results = []
