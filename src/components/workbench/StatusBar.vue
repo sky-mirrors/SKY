@@ -4,7 +4,7 @@
       <!-- 2026-10-01 UI 分端：内核名 / 探针 / funnel 状态都属开发者向，已移出用户端状态栏。
            此处只留用户能理解的：已挂载领域包数。内核与 funnel 状态见导航「开发者」区与调试中心。 -->
       <span class="wb-sb-item" title="已挂载 pack">
-        📦 {{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}
+        <Icon name="package" :size="12" /> {{ hotplugStore.mountedPackIds.length }}/{{ hotplugStore.allPackIds.length }}
       </span>
       <!-- 2026-10-01 UI 分端：funnel 主路径是「新六层漏斗 vs 旧内联实现」的灰度回滚开关
            （dialogStore.ts:906），属开发者向——从用户端状态栏移出，开关本身在导航「开发者」区。 -->
@@ -34,6 +34,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import Icon from '@/components/Icon.vue'
 import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
 import { useHotplugStore } from '@/stores/hotplugStore'

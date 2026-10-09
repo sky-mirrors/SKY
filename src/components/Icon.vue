@@ -22,13 +22,14 @@
     <path v-else-if="name === 'sun'" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M12 2v2 M12 20v2 M2 12h2 M20 12h2 M5 5l1.5 1.5 M17.5 17.5L19 19 M19 5l-1.5 1.5 M6.5 17.5L5 19" />
     <path v-else-if="name === 'moon'" d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z" />
     <path v-else-if="name === 'leaf'" d="M20 4C10 4 4 8 4 16c0 2 1 4 2 4 8 0 14-6 14-16z M6.5 17.5C10 14 14 10 18 8" />
+    <path v-else-if="name === 'compass'" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M15.5 8.5l-2 5-5 2 2-5 5-2z" />
   </svg>
 </template>
 
 <script lang="ts">
 export type IconName =
   | 'star' | 'cpu' | 'pipeline' | 'book' | 'package'
-  | 'chat' | 'bell' | 'settings' | 'sun' | 'moon' | 'leaf'
+  | 'chat' | 'bell' | 'settings' | 'sun' | 'moon' | 'leaf' | 'compass'
 </script>
 
 <script setup lang="ts">

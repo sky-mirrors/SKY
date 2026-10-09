@@ -103,13 +103,17 @@
       </div>
       <div class="wb-rt-packlist">
         <div v-for="p in hotplugStore.allPackIds" :key="p" class="wb-rt-packrow">
-          <span class="wb-rt-packname">{{ p }}</span>
-          <span class="wb-rt-tag" :class="hotplugStore.mountedPackIds.includes(p) ? 'ok' : 'off'">
-            {{ hotplugStore.mountedPackIds.includes(p) ? '已挂载' : '未挂载' }}
-          </span>
-          <button class="wb-rt-op" :disabled="hotplugStore.operating || hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.mountPack(p)">挂载</button>
-          <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.unmountPack(p)">卸载</button>
-          <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.reloadPack(p)">重载</button>
+          <div class="wb-rt-packhead">
+            <span class="wb-rt-packname">{{ p }}</span>
+            <span class="wb-rt-tag" :class="hotplugStore.mountedPackIds.includes(p) ? 'ok' : 'off'">
+              {{ hotplugStore.mountedPackIds.includes(p) ? '已挂载' : '未挂载' }}
+            </span>
+          </div>
+          <div class="wb-rt-packops">
+            <button class="wb-rt-op" :disabled="hotplugStore.operating || hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.mountPack(p)">挂载</button>
+            <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.unmountPack(p)">卸载</button>
+            <button class="wb-rt-op" :disabled="hotplugStore.operating || !hotplugStore.mountedPackIds.includes(p)" @click="hotplugStore.reloadPack(p)">重载</button>
+          </div>
         </div>
         <div v-if="hotplugStore.allPackIds.length === 0" class="wb-rt-log-empty">无可用领域包</div>
       </div>
@@ -168,7 +172,7 @@
       </div>
       <div class="wb-rt-log">
         <div v-for="(e, i) in hotplugStore.eventLog" :key="i" class="wb-rt-log-item" :class="e.level">
-          <span class="wb-rt-log-kind">{{ kindIcon(e.kind) }}</span>
+          <span class="wb-rt-log-kind"><Icon :name="kindIcon(e.kind)" :size="12" /></span>
           <span class="wb-rt-log-text">{{ e.text }}</span>
           <span class="wb-rt-time">{{ formatTime(e.ts) }}</span>
         </div>
@@ -213,6 +217,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Icon from '@/components/Icon.vue'
 import { useDialogStore } from '@/domains/dialog'
 import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
@@ -241,10 +246,10 @@ function formatTime(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
 }
 
-function kindIcon(kind: 'kernel' | 'pack' | 'funnel'): string {
-  if (kind === 'kernel') return '🧠'
-  if (kind === 'pack') return '📦'
-  return '🧭'
+function kindIcon(kind: 'kernel' | 'pack' | 'funnel'): 'cpu' | 'package' | 'compass' {
+  if (kind === 'kernel') return 'cpu'
+  if (kind === 'pack') return 'package'
+  return 'compass'
 }
 
 function budgetLabel(period: 'session' | 'daily' | 'monthly'): string {
@@ -430,7 +435,11 @@ function formatExamDuration(ms: number): string {
 .wb-rt-select:disabled { opacity: 0.5; }
 .wb-rt-hint { font-size: var(--font-xs); color: var(--rt-text-dim); }
 .wb-rt-packlist { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.wb-rt-packrow { display: flex; align-items: center; gap: 4px; font-size: var(--font-sm); }
+/* 2026-10-09：状态与动作分离——原先「已挂载」tag 与三个动作按钮挤在同一行、同级同权重，
+   读起来像一排开关。改为两行：上行「名称 + 状态」，下行动作按钮组。 */
+.wb-rt-packrow { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-sm); padding: 4px 0; border-bottom: 1px solid var(--t-line, rgba(100, 180, 255, 0.1)); }
+.wb-rt-packhead { display: flex; align-items: center; gap: 6px; }
+.wb-rt-packops { display: flex; gap: 4px; }
 .wb-rt-packname { flex: 1; color: var(--rt-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-rt-op { font-size: var(--font-xs); padding: 1px 6px; background: color-mix(in srgb, var(--t-accent, #8ab4ff) 10%, transparent); border: 1px solid var(--t-line, rgba(100, 180, 255, 0.18)); border-radius: 3px; color: var(--t-accent, #8ab4d8); cursor: pointer; }
 .wb-rt-op:hover:not(:disabled) { background: color-mix(in srgb, var(--t-accent, #8ab4ff) 22%, transparent); }
