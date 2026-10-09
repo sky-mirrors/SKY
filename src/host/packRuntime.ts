@@ -83,3 +83,28 @@ async function installUserPacks(): Promise<void> {
     console.warn('[pack-runtime] 用户 pack 加载失败（不影响内置 pack）：', err)
   }
 }
+
+/**
+ * 重新读取磁盘上的用户包并挂载（领域包编辑器保存后调用，免去重启应用）。
+ *
+ * 为什么不复用 `initPackRuntime()`：后者用 `initPromise` 做了「一次性初始化」缓存，
+ * 已经有 promise 时直接返回，**不会重跑 installUserPacks**，因此拿不到新写入的包。
+ *
+ * 幂等性：`mountPack` 对已挂载的包会以 already-mounted 告警跳过，重复调用安全。
+ * 返回本次成功挂载的包 id 列表（含既有包——mountPack 对其返回 ok）。
+ */
+export async function reloadUserPacks(): Promise<{ ok: boolean; packs: string[] }> {
+  try {
+    await installUserPacks()
+    const packs: string[] = []
+    for (const packId of packLoader.listPackIds()) {
+      const result = await packLoader.mountPack(packId)
+      if (result.ok) packs.push(packId)
+    }
+    console.info(`[pack-runtime] 用户包已重载，当前挂载：${packs.join('、')}`)
+    return { ok: true, packs }
+  } catch (err) {
+    console.warn('[pack-runtime] 用户包重载失败：', err)
+    return { ok: false, packs: [] }
+  }
+}

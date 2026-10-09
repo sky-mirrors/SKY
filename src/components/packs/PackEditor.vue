@@ -2,7 +2,7 @@
   <div class="pe">
     <header class="pe-head">
       <span class="pe-title">领域包编辑器</span>
-      <span class="pe-hint">为用户包添加知识条目与规则；保存后需重启应用或重载包才能生效</span>
+      <span class="pe-hint">为用户包添加知识条目与规则；保存后自动通知主窗口重载</span>
       <span v-if="toast" class="pe-toast" :class="{ bad: toastBad }">{{ toast }}</span>
     </header>
 
@@ -265,7 +265,9 @@ async function save() {
     if (!w?.success) { say(w?.error || '规则写入失败', true); return }
 
     await refresh()
-    say('已保存。重启应用后生效')
+    // 通知主窗重载用户包（免重启）。主窗未开时静默——下次启动仍会正常加载。
+    try { window.electronAPI?.notifyPacksChanged?.() } catch { /* 通知失败不影响已落盘的内容 */ }
+    say('已保存，并已通知主窗口重载')
   } finally {
     saving.value = false
   }

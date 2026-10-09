@@ -380,5 +380,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   userPackDeleteFile: (packId: string, relPath: string) =>
     ipcRenderer.invoke('pack:user:deleteFile', packId, relPath),
   userPackDeletePack: (packId: string) => ipcRenderer.invoke('pack:user:deletePack', packId),
+  // 用户包变更通知：编辑器窗保存后 → 主进程转发 → 主窗重新加载用户包
+  notifyPacksChanged: () => ipcRenderer.send('pack:user:changed'),
+  onPacksChanged: (cb: () => void) => { ipcRenderer.on('pack:user:changed', () => cb()) },
 
 })

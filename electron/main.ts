@@ -179,6 +179,11 @@ app.whenReady().then(async () => {
   })
   ipcMain.on('packs:window:close', () => { getPackEditorWindow()?.close() })
 
+  // 用户包变更：编辑器窗保存后由此转发给主窗，由主窗重载 packRuntime（免重启）
+  ipcMain.on('pack:user:changed', () => {
+    getMainWindow()?.webContents.send('pack:user:changed')
+  })
+
   let debugWindowReady = false
   let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []
 

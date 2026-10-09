@@ -16,6 +16,8 @@ interface ElectronAPI {
   userPackWrite: (packId: string, relPath: string, content: string) => Promise<{ success: boolean; path?: string; error?: string }>
   userPackDeleteFile: (packId: string, relPath: string) => Promise<{ success: boolean; error?: string }>
   userPackDeletePack: (packId: string) => Promise<{ success: boolean; error?: string }>
+  notifyPacksChanged: () => void
+  onPacksChanged: (cb: () => void) => void
   openFile: (options?: {
     filters?: { name: string; extensions: string[] }[]
     title?: string

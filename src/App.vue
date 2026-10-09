@@ -49,6 +49,7 @@ import WorkbenchShell from './components/workbench/WorkbenchShell.vue'
 import L0Modal from './components/L0Modal.vue'
   import { useNodeStore } from '@/domains/node'
 import { useApiStore } from '@/domains/api'
+import { reloadUserPacks } from '@/host/packRuntime'
 import { useConfigStore } from '@/domains/config'
 import { useMemoryStore } from '@/domains/memory'
 import { useKnowledgeStore } from '@/domains/knowledge'
@@ -311,6 +312,12 @@ onMounted(async () => {
       .catch((err) => {
         window.electronAPI?.pipelineRunProgress?.({ type: 'error', error: String(err) })
       })
+  })
+
+  // 2026-10：领域包编辑器保存后通知本窗重载用户包（免重启）。
+  // 编辑器是**独立渲染进程**，那边的 packLoader 与主窗不是同一实例，因此必须由主窗执行重载。
+  window.electronAPI?.onPacksChanged?.(() => {
+    void reloadUserPacks()
   })
 
   nodeStore.loadHistory()
