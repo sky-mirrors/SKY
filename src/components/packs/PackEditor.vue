@@ -85,7 +85,7 @@
                 <button class="pe-btn small danger" @click="rules.splice(i, 1)">移除</button>
               </div>
             </div>
-            <button class="pe-btn" @click="rules.push({ keywords: '', message: '', ref: '', severity: 'warning' })">
+            <button class="pe-btn" @click="rules.push({ id: '', keywords: '', message: '', ref: '', severity: 'warning' })">
               ＋ 添加规则
             </button>
           </div>
@@ -101,10 +101,10 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { constraintsToDrafts, draftsToConstraints, type RuleDraft } from './packRules'
 
 interface PackInfo { id: string; files: string[] }
 interface KnowledgeDraft { filename: string; text: string }
-interface RuleDraft { keywords: string; message: string; ref: string; severity: string }
 
 const packs = ref<PackInfo[]>([])
 const rootDir = ref('')
@@ -193,20 +193,7 @@ async function select(packId: string) {
   const cFile = await api.userPackRead(packId, 'boundary/constraints.json')
   if (cFile?.success) {
     try {
-      const arr = JSON.parse(cFile.content || '[]')
-      if (Array.isArray(arr)) {
-        for (const c of arr) {
-          const groups = c?.trigger?.keywordGroups
-          rules.value.push({
-            keywords: Array.isArray(groups) ? groups.map((g: string[]) => g.join(',')).join(';') : '',
-            message: c?.action?.messageTemplate || '',
-            ref: c?.reliability?.source
-              ? [c.reliability.source.name, c.reliability.source.article].filter(Boolean).join(' ')
-              : '',
-            severity: c?.action?.severity || 'warning'
-          })
-        }
-      }
+      rules.value = constraintsToDrafts(JSON.parse(cFile.content || '[]'))
     } catch { /* 跳过坏文件 */ }
   }
 }
@@ -214,6 +201,11 @@ async function select(packId: string) {
 function slug(s: string, fallback: string): string {
   const t = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return t || fallback
+}
+
+/** 规则 id 只在「新增且尚未保存」时生成一次；已有 id 由 draftsToConstraints 原样复用。 */
+function newRuleId(packId: string): string {
+  return `${packId}-rule-${Math.random().toString(36).slice(2, 10)}`
 }
 
 async function save() {
@@ -243,24 +235,7 @@ async function save() {
       if (!w?.success) { say(w?.error || '知识条目写入失败', true); return }
     }
 
-    const constraints = rules.value.map((r, i) => {
-      const groups = r.keywords.split(';').map(g => g.split(',').map(s => s.trim()).filter(Boolean)).filter(g => g.length)
-      return {
-        id: `${packId}-rule-${i + 1}`,
-        category: '用户自定义',
-        description: r.message,
-        severity: r.severity,
-        applicability: { jurisdiction: 'PRC' },
-        reliability: {
-          confidence: 'medium',
-          source: { type: 'manual', name: r.ref, article: '见上', effectiveDate: '以现行版本为准' }
-        },
-        automationLevel: 'full',
-        trigger: { keywordGroups: groups },
-        action: { severity: r.severity, messageTemplate: r.message },
-        evaluator: null
-      }
-    })
+    const constraints = draftsToConstraints(rules.value, () => newRuleId(packId))
     const w = await api.userPackWrite(packId, 'boundary/constraints.json', JSON.stringify(constraints, null, 2))
     if (!w?.success) { say(w?.error || '规则写入失败', true); return }
 
