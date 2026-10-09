@@ -25,9 +25,9 @@ export function userPacksRoot(): string {
 /** 解析并校验目标路径；越界一律返回 null（fail-closed）。 */
 function safeResolve(packId: string, relPath: string): string | null {
   if (!PACK_ID_RE.test(packId)) return null
-  const root = resolve(userPacksRoot())
-  const target = resolve(root, packId, relPath)
-  if (!target.startsWith(root + sep)) return null
+  const packDir = resolve(userPacksRoot(), packId)
+  const target = resolve(packDir, relPath)
+  if (!target.startsWith(packDir + sep)) return null
   return target
 }
 
