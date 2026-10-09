@@ -147,7 +147,7 @@ npm run dev
 
 | 检查项 | 结果 |
 |---|---|
-| `npm test` | **2672 个用例** —— **2671 通过 / 1 失败**，211 个 spec 文件，约 8.7 s |
+| `npm test` | **2677 个用例** —— **2676 通过 / 1 失败**，211 个 spec 文件，约 9.9 s |
 | 已知噪声 | `test/unit/apiStore.timerDispose.spec.ts` **仅在本地 Ollama 运行时**失败——环境相关，不是回归 |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` 干净 |
 | `npm run smoke:window-controls` | **35/35** —— 七个副窗全部：按钮渲染出来、`-webkit-app-region: drag` 生效、最小化真的最小化、关闭真的关闭 |

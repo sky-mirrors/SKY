@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseStreamUsage } from '@electron/streamUsage'
+import { parseStreamUsage, mergeStreamUsage } from '@electron/streamUsage'
 
 /**
  * S-3（原机制快照登记项，P1；文档已删）：主进程流式 usage 解析。
@@ -85,5 +85,45 @@ describe('S-3: 主进程流式 usage 解析（parseStreamUsage）', () => {
     expect(parseStreamUsage(null)).toEqual({})
     expect(parseStreamUsage('boom')).toEqual({})
     expect(parseStreamUsage(42)).toEqual({})
+  })
+})
+
+describe('S-3: mergeStreamUsage —— 逐字段并入累加器（不许把已累计值清成 0）', () => {
+  it('只覆盖确实出现的字段，其余保持原值', () => {
+    const acc = { promptTokens: 10, completionTokens: 5, cacheHitTokens: 1, cacheMissTokens: 2 }
+    mergeStreamUsage(acc, { completion_tokens: 7 })
+    expect(acc.promptTokens).toBe(10)
+    expect(acc.completionTokens).toBe(7)
+    expect(acc.cacheHitTokens).toBe(1)
+    expect(acc.cacheMissTokens).toBe(2)
+  })
+
+  it('0 是有效值：命中为 0 时确实覆盖（与 parseStreamUsage 同口径，不得当缺失跳过）', () => {
+    const acc = { promptTokens: 1, completionTokens: 1, cacheHitTokens: 99, cacheMissTokens: 99 }
+    mergeStreamUsage(acc, { prompt_cache_hit_tokens: 0 })
+    expect(acc.cacheHitTokens).toBe(0)
+    expect(acc.cacheMissTokens).toBe(99)
+  })
+
+  it('空载荷 / 非对象 → 累加器原样不动', () => {
+    const acc = { promptTokens: 3, completionTokens: 4, cacheHitTokens: 5, cacheMissTokens: 6 }
+    mergeStreamUsage(acc, {})
+    mergeStreamUsage(acc, null)
+    mergeStreamUsage(acc, 'nope')
+    expect(acc).toEqual({ promptTokens: 3, completionTokens: 4, cacheHitTokens: 5, cacheMissTokens: 6 })
+  })
+
+  it('Anthropic 分段累加：message_start(仅 input) + message_delta(仅 output) 各自并入、互不清零', () => {
+    const acc = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
+    mergeStreamUsage(acc, { input_tokens: 120, cache_read_input_tokens: 100 })
+    mergeStreamUsage(acc, { output_tokens: 45 })
+    expect(acc.promptTokens).toBe(120)
+    expect(acc.completionTokens).toBe(45)
+    expect(acc.cacheHitTokens).toBe(100)
+  })
+
+  it('返回同一引用（就地更新），便于调用方链式使用', () => {
+    const acc = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
+    expect(mergeStreamUsage(acc, { prompt_tokens: 9 })).toBe(acc)
   })
 })

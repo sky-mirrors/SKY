@@ -41,7 +41,7 @@ import { openVault, closeVault, checkpointVault, vaultRead, vaultWrite, vaultDel
 import { planRestoreTargets, applyRestore, validateBackupDir, BACKUP_EXTS } from './backupRestore'
 import { decodeShellOutput } from './shellOutput'
 // S-3：流式 usage 解析（含缓存命中字段）——与渲染层 sseParser 同口径
-import { parseStreamUsage } from './streamUsage'
+import { parseStreamUsage, mergeStreamUsage, type StreamUsageSnapshot } from './streamUsage'
 // E-5/E-6/E-7（主进程有界性）：限量读取与发送存活判定抽到叶子模块，可单测
 import { readBodyCapped, readJsonCapped, safeSendTo, LLM_JSON_MAX_BYTES } from './ipcBounds'
 import { pickApiConfig, type StoredApiConfig } from './apiConfigStore'
@@ -1963,12 +1963,11 @@ ipcMain.on('llm:stream:start', async (event, opts: {
 
     let accumulatedContent = ''
     const toolCallMap = new Map<number, { id: string; name: string; arguments: string }>()
-    let promptTokens = 0
-    let completionTokens = 0
     // S-3：缓存命中/未命中同样要透传——原实现 end payload 硬编码 0，令 G-5「按实际 usage
-    // 计价」在桌面流式主路径整段失效（DeepSeek 等缓存折扣被清零，账本按全价记）
-    let cacheHitTokens = 0
-    let cacheMissTokens = 0
+    // 计价」在桌面流式主路径整段失效（DeepSeek 等缓存折扣被清零，账本按全价记）。
+    // 2026-10-09：四个分散的局部计数器合并为一个快照对象，各处逐字段条件赋值统一改用
+    // `mergeStreamUsage`——该函数此前被抽出却无人采用（见 docs/95 §6「未完成的抽取」）。
+    const usageAcc: StreamUsageSnapshot = { promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 }
 
     const reader = (resp.body as unknown as ReadableStream<Uint8Array>).getReader()
     const decoder = new TextDecoder('utf-8')
@@ -1991,7 +1990,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
           if (chatFormat === 'openai') {
             if (d.trim() === '[DONE]') {
               const toolCalls = Array.from(toolCallMap.values())
-              safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+              safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { ...usageAcc, totalTokens: usageAcc.promptTokens + usageAcc.completionTokens } })
               activeStreamControllers.delete(streamId)
               return
             }
@@ -2022,11 +2021,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
               }
               if (p.usage) {
                 // S-3：四个字段一并解析（含 prompt_cache_hit_tokens / prompt_tokens_details.cached_tokens）
-                const u = parseStreamUsage(p.usage)
-                if (u.promptTokens !== undefined) promptTokens = u.promptTokens
-                if (u.completionTokens !== undefined) completionTokens = u.completionTokens
-                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
-                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
+                mergeStreamUsage(usageAcc, p.usage)
               }
             } catch { /* skip */ }
           } else {
@@ -2052,20 +2047,14 @@ ipcMain.on('llm:stream:start', async (event, opts: {
               }
               if (p.type === 'message_start' && p.message?.usage) {
                 // S-3：Anthropic 的 cache_read_input_tokens 同样计入命中（此前只取 input_tokens）
-                const u = parseStreamUsage(p.message.usage)
-                if (u.promptTokens !== undefined) promptTokens = u.promptTokens
-                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
-                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
+                mergeStreamUsage(usageAcc, p.message.usage)
               }
               if (p.type === 'message_delta' && p.usage) {
-                const u = parseStreamUsage(p.usage)
-                if (u.completionTokens !== undefined) completionTokens = u.completionTokens
-                if (u.cacheHitTokens !== undefined) cacheHitTokens = u.cacheHitTokens
-                if (u.cacheMissTokens !== undefined) cacheMissTokens = u.cacheMissTokens
+                mergeStreamUsage(usageAcc, p.usage)
               }
               if (p.type === 'message_stop') {
                 const toolCalls = Array.from(toolCallMap.values())
-                safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+                safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, usage: { ...usageAcc, totalTokens: usageAcc.promptTokens + usageAcc.completionTokens } })
                 activeStreamControllers.delete(streamId)
                 return
               }
@@ -2079,7 +2068,7 @@ ipcMain.on('llm:stream:start', async (event, opts: {
       // S-4：走到这里说明流已 EOF 但从未见到终止标记（[DONE]/message_stop）——标记 truncated，
       // 交由渲染层判失败/不入缓存，不再当成正常完成
       const toolCalls = Array.from(toolCallMap.values())
-      safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens, cacheHitTokens, cacheMissTokens } })
+      safeSendTo(event.sender, endChannel, { content: accumulatedContent, toolCalls, truncated: true, usage: { ...usageAcc, totalTokens: usageAcc.promptTokens + usageAcc.completionTokens } })
     }
     activeStreamControllers.delete(streamId)
   } catch (err) {

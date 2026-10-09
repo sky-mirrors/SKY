@@ -6,7 +6,7 @@
  * 而 `test/e2e/*.spec.ts`（playwright 真启动 Electron）**没有任何 runner 脚本** ⇒ 长期休眠。
  * （3 个遗留 spec `launch`/`l0Skill`/`stress` 已于 2026-10 删除；现 `test/e2e/` 只剩 3 个由
  *  `npm run verify:*` 驱动的 `.e2e.ts` 独立脚本，同样不在 vitest 收集范围内。）
- * 结果：2672 个用例全绿也说明不了"用户真能用"——unit 里 30 个 spec 还把 electronAPI 打了桩。
+ * 结果：2677 个用例全绿也说明不了"用户真能用"——unit 里 30 个 spec 还把 electronAPI 打了桩。
  *
  * 本脚本对**正在运行的应用**（CDP :9222）跑真实用户旅程，断言**可观察结果**，失败即非零退出。
  *

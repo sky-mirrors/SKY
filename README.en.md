@@ -147,7 +147,7 @@ Measured on 2026-10-09, on this repository, with the commands below — not carr
 
 | Check | Result |
 |---|---|
-| `npm test` | **2672 cases** — **2671 passed / 1 failed**, 211 spec files, ~8.7 s |
+| `npm test` | **2677 cases** — **2676 passed / 1 failed**, 211 spec files, ~9.9 s |
 | Known noise | `test/unit/apiStore.timerDispose.spec.ts` fails **only while a local Ollama is running** — environment-specific, not a regression |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` clean |
 | `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
