@@ -50,7 +50,7 @@ npm run dev
 - Composable：`use` 前缀（`useDagEngine.ts`）—— `src/composables/` 目前只有这一个
 - Store：`use` 前缀 + `Store` 后缀（`useApiStore`）—— 定义在 `src/stores/*.ts`
 - Service / 工具模块：**camelCase**（`l0SkillRouter.ts`、`pipelineExecutor.ts`、`convMemory.ts`）—— 实际风格，非 kebab-case
-- 测试：`.spec.ts` 后缀（**不是 `.test.ts`**）—— `test/unit` 下现有 171 个 `.spec.ts`、0 个 `.test.ts`
+- 测试：`.spec.ts` 后缀（**不是 `.test.ts`**）—— `test/unit` 下现有 185 个 `.spec.ts`、0 个 `.test.ts`
 
 ### Vue 组件
 

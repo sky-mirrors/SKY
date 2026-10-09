@@ -1,53 +1,55 @@
 # SKY
 
-**An experimental technical preview of a local-first AI tool console** — route, validate, and execute LLM-assisted tasks from a desktop app, with the routing decisions and their costs visible instead of hidden.
+**本地优先的 AI 工具控制台 · 实验性技术预览** —— 在桌面应用里路由、校验并执行 LLM 辅助任务，把路由决策及其开销**摊开给人看**，而不是藏起来。
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-210%20spec%20files-blue.svg)](docs/60-测试与验收.md)
 
-> ## ⚠️ Read this first
+> 🌐 **语言**：本文件为中文版（主）。英文原文见 README.en.md。
+
+> ## ⚠️ 先读这一段
 >
-> This is a **technical preview, not a product**. It is published so the ideas can be read, run, and argued with — not because it is finished.
+> 这是一个**技术预览，不是产品**。公开出来是为了让这些想法可以被阅读、被运行、被质疑——**不是因为它已经完成**。
 >
-> - **No stability promise.** Interfaces, data formats, and the routing pipeline change between commits. There is no migration path for user data.
-> - **No support promise.** Issues are read, but there is no SLA, no roadmap commitment, and no maintainer on call.
-> - **Windows is the only tested target.** Development mode works cross-platform; packaging is Windows-only and has not been validated on macOS or Linux.
-> - **You need your own LLM API key.** Without one the app falls back to its deterministic rule layer only.
-> - **It can write files and run shell commands on your machine** — that is the point of the thing. The guard rails are described in [Security model](#security-model) and are deliberately conservative, but you should read them before pointing it at anything you care about.
-> - **Authoritative documentation is in Chinese**, under `docs/`. This README is the English entry point.
+> - **不承诺稳定性**。接口、数据格式、路由管线都会在提交之间变化，用户数据没有迁移路径。
+> - **不承诺支持**。Issue 会看，但没有 SLA、没有路线图承诺、没有值守的维护者。
+> - **只有 Windows 是测过的目标平台**。开发模式跨平台可用；打包仅限 Windows，未在 macOS / Linux 上验证过。
+> - **你需要自备 LLM API 密钥**。没有密钥时，应用只回退到确定性的规则层。
+> - **它能在你的机器上写文件、执行 shell 命令**——这正是它存在的意义。护栏写在[安全模型](#安全模型)里，且刻意保守；但在把它指向你在乎的东西之前，请先读完。
+> - **权威文档在 `docs/`**（中文分册）。本 README 是中文入口；英文版见 README.en.md。
 
 ---
 
-## What it is
+## 它是什么
 
-A single desktop app (Electron + Vue 3) that takes a natural-language request and decides **how cheaply it can be answered** — before spending tokens:
+一个桌面应用（Electron + Vue 3），接收自然语言请求，并在**花掉 token 之前**就决定**能多便宜地把它答完**：
 
-1. Does a built-in rule already handle this? → deterministic plan, **0 tokens**
-2. Have we seen this exact request before? → fingerprint / semantic cache hit
-3. Can a keyword match a known macro with high confidence? → one-step execution
-4. Otherwise → LLM-assisted matching, planning, and execution
+1. 内置规则就能处理？→ 确定性计划，**0 token**
+2. 这个请求以前见过？→ 执行指纹 / 语义缓存命中
+3. 关键词能以高置信度命中某个已知宏？→ 单步执行
+4. 以上都不行 → LLM 辅助的匹配、规划与执行
 
-Every routing decision is recorded and visible in the UI (which layer took the request, what it cost, what it produced). That visibility is the actual thesis of the project: most AI tooling hides the routing decision, and hidden routing is where tokens and trust both leak.
+每一次路由决策都会被记录下来并在 UI 中可见（哪一层接下了请求、花了多少、产出了什么）。**这种可见性才是这个项目真正的论点**：大多数 AI 工具把路由决策藏起来，而隐藏的路由正是 token 与信任同时泄漏的地方。
 
-## Status — read this before evaluating
+## 状态——评估前先读
 
-Status is tracked per mechanism in [`docs/30-机制台账与边界.md`](docs/30-机制台账与边界.md) ("mechanism ledger"), with the rule that a mechanism counts as **live** only if a production call path reaches it.
+状态按机制逐条记录在 [`docs/30-机制台账与边界.md`](docs/30-机制台账与边界.md)（「机制台账」），判定规则是：**只有生产调用路径能走到，才算「活」**。
 
-| Area | State |
+| 区域 | 状态 |
 |---|---|
-| L0 / L0.5 / L1 rule routing | **Live** — see [Routing layers](#routing-layers) |
-| L2 retrieval + macro execution | **Live** |
-| L3 LLM arbitration | **Live**, but only invoked when ≥2 candidates survive filtering |
-| L4 exploratory planning | **Live** |
-| Dual-engine security audit, FactGuard, write gate | **Live** — fail-closed |
-| Execution fingerprint cache, semantic cache | **Live** |
-| Competitive EMA (M16) | **Half-live** — implemented, but off by default, so the branch does not fire in production |
-| Consumer-context truncation | **Half-live** — the `standard` tier still only passes ~800 characters |
-| **Skill catalogue DAG execution** | **Not wired** — see [Capability layers](#capability-layers-packs--skills--mcp) |
-| **MCP store coverage for skills** | **Incomplete** — 16 of 21 declared servers are not in the store |
+| L0 / L0.5 / L1 规则路由 | **活** —— 见[路由层](#路由层) |
+| L2 检索 + 宏执行 | **活** |
+| L3 LLM 仲裁 | **活**，但仅当 ≥2 个候选通过筛选时才调用 |
+| L4 探索式规划 | **活** |
+| 双引擎安全审计、FactGuard、写门 | **活** —— fail-closed |
+| 执行指纹缓存、语义缓存 | **活** |
+| 竞争 EMA（M16） | **半活** —— 已实现，但默认关闭，生产环境该分支不触发 |
+| 消费者上下文截断 | **半活** —— `standard` 档仍只传约 800 字 |
+| **技能目录的 DAG 执行** | **未接线** —— 见[能力层](#能力层领域包--技能--mcp-服务) |
+| **技能对 MCP store 的覆盖** | **不完整** —— 21 个声明的 server 里有 16 个不在 store 中 |
 
-If a claim here disagrees with the ledger, the ledger wins — it carries `file:line` anchors.
+如果本表的说法与台账冲突，**以台账为准**——它带 `file:line` 锚点。
 
-## Quick start
+## 快速开始
 
 ```bash
 git clone https://github.com/sky-mirrors/SKY.git
@@ -56,177 +58,177 @@ npm install
 npm run dev
 ```
 
-Requirements: **Node.js ≥ 18**, **npm ≥ 9**.
+环境要求：**Node.js ≥ 18**、**npm ≥ 9**。
 
-### Commands
+### 命令
 
-| Command | What it does |
+| 命令 | 作用 |
 |---|---|
-| `npm run dev` | electron-vite dev mode with HMR |
-| `npm run build` | Build main / preload / renderer into `out/` |
-| `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` — **must be green** |
-| `npm test` | Vitest, 210 spec files (excludes `test/e2e/**`) |
-| `npm run smoke` | Real-machine journey smoke — needs the app running with CDP open |
-| `npm run smoke:window-controls` | Real-machine check that every sub-window's minimize/close actually works |
-| `npm run package:win` | Windows portable build → `dist/SKY <version>.exe` |
-| `npm run verify:pdf` / `:image` / `:media` | Standalone Electron e2e scripts for the document / image / media pipelines |
+| `npm run dev` | electron-vite 开发模式（带 HMR） |
+| `npm run build` | 构建主进程 / preload / 渲染层到 `out/` |
+| `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` —— **必须绿** |
+| `npm test` | Vitest，210 个 spec 文件（不含 `test/e2e/**`） |
+| `npm run smoke` | 真机旅程冒烟 —— 需要应用已启动并开放 CDP |
+| `npm run smoke:window-controls` | 真机检查每个副窗的最小化 / 关闭是否真的生效 |
+| `npm run package:win` | Windows 便携版构建 → `dist/SKY <version>.exe` |
+| `npm run verify:pdf` / `:image` / `:media` | 文档 / 图像 / 媒体管线的独立 Electron e2e 脚本 |
 
-> **`npm test` green does not mean the app works.** 30 specs stub out `electronAPI`, so the real filesystem and IPC boundaries are simulated. For evidence about the real thing, use `npm run smoke` or `npm run smoke:window-controls` — both drive a running instance over CDP. See [`docs/60-测试与验收.md`](docs/60-测试与验收.md).
+> **`npm test` 全绿 ≠ 应用可用。** 有 30 个 spec 把 `electronAPI` 打了桩，真实文件系统与 IPC 边界在单测里是模拟的。要关于「真东西」的证据，请用 `npm run smoke` 或 `npm run smoke:window-controls`——两者都通过 CDP 驱动一个正在运行的实例。详见 [`docs/60-测试与验收.md`](docs/60-测试与验收.md)。
 
-### Prebuilt builds
+### 预构建产物
 
-Tagging `vX.Y.Z` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): tests → build → portable EXE → attached to a **draft** release for review before publishing.
+打 `vX.Y.Z` 标签会触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：测试 → 构建 → 便携 EXE → **挂到 draft release** 供发布前审阅。
 
-> Packaging downloads helper binaries (winCodeSign / NSIS) from GitHub. On a restricted network set
-> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`.
+> 打包会从 GitHub 下载辅助二进制（winCodeSign / NSIS）。受限网络下设置
+> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`。
 
-## Architecture
+## 架构
 
 ```
-input → [L0 rule] → [L0.5 keyword] → [L2 manifest/cache] → [L3 LLM] → [L4 explore]
-           ↓ hit         ↓ hit              ↓ hit             ↓ miss
-      deterministic   1-step plan      cached result    full LLM planning
-                                                                  ↓
-                                                    [dual-engine security audit]
-                                                                  ↓
-                                                         [DAG execution]
-                                                                  ↓
-                                                         [FactGuard check]
-                                                                  ↓
-                                                               result
+输入 → [L0 规则] → [L0.5 关键词] → [L2 清单/缓存] → [L3 LLM] → [L4 探索]
+         ↓ 命中        ↓ 命中            ↓ 命中          ↓ 未命中
+      确定性计划     单步计划         缓存结果    完整 LLM 规划
+                                                          ↓
+                                                [双引擎安全审计]
+                                                          ↓
+                                                    [DAG 执行]
+                                                          ↓
+                                                   [FactGuard 核验]
+                                                          ↓
+                                                        结果
 ```
 
-### Routing layers
+### 路由层
 
-| Layer | Size | What it is |
+| 层 | 规模 | 是什么 |
 |---|---|---|
-| L0 | **12 rules** | Built-in rule table, first match wins (`src/services/l0SkillRouter.ts`) |
-| L0.5 | — | Keyword quick-match for single-step manifests (gate 0.6) |
-| L1 | **6** | Single-node capability direct call |
-| L2 | **20 manifests** | Scenario macros (`config/l2_manifests/`), matched by `src/services/toolRetrieval.ts` |
-| L3 | **98 placeholders** | Author-reserved community slots — **kept on purpose**, see the ledger |
-| L4 | — | Exploratory planning (auto-executes when the plan needs no shell) |
+| L0 | **12 条规则** | 内置规则表，首中即出（`src/services/l0SkillRouter.ts`） |
+| L0.5 | — | 单步清单的关键词快配（门 0.6） |
+| L1 | **6** | 单节点能力直调 |
+| L2 | **20 个清单** | 场景宏（`config/l2_manifests/`），由 `src/services/toolRetrieval.ts` 匹配 |
+| L3 | **98 个占位** | 作者预留的社区槽位——**有意保留**，见台账 |
+| L4 | — | 探索式规划（计划不需要 shell 时自动执行） |
 
-Gates and confidence formulas live in [`docs/20-请求生命周期与路由.md`](docs/20-请求生命周期与路由.md); they are quoted with code anchors rather than duplicated here.
+门值与置信度公式在 [`docs/20-请求生命周期与路由.md`](docs/20-请求生命周期与路由.md)，那里带代码锚点引用，本文不重复。
 
-## Capability layers: packs / skills / MCP
+## 能力层：领域包 / 技能 / MCP 服务
 
-Three different things that are easy to confuse, at three different depths:
+三个容易混淆、深度也不同的东西：
 
-| | Domain packs | Skills | MCP servers |
+| | 领域包 | 技能 | MCP 服务 |
 |---|---|---|---|
-| **What it is** | Domain knowledge + constraints + execution, hooked into every routing layer | A pre-arranged DAG template + a declaration of which MCP server it needs | External tool servers, spawned as subprocesses |
-| **Reaches routing?** | **Yes** — hooks at L0/L0.5/L1/L2/L3/L4 plus veto gates | **No** — no execution consumer today | **Yes** — L2 hit produces a `mcp-direct` call |
-| **Who executes it** | pack runtime + constraint engine | nothing yet | main-process manager → `mcpStore.callTool` |
-| **Stored in** | `{userData}/holostarmap-packs` (built-in packs ship separately) | vault key `holo-skills` | vault key `holo-mcp-connections` |
+| **是什么** | 领域知识 + 约束 + 执行，挂进每一层路由 | 一份预编排的 DAG 模板 + 声明它需要哪个 MCP server | 外部工具服务，以子进程方式拉起 |
+| **能走到路由吗** | **能** —— 在 L0/L0.5/L1/L2/L3/L4 挂载，另有一票否决门 | **不能** —— 目前没有执行侧消费者 | **能** —— L2 命中会产出 `mcp-direct` 调用 |
+| **谁执行它** | 领域包运行时 + 约束引擎 | 目前无人 | 主进程管理器 → `mcpStore.callTool` |
+| **存放位置** | `{userData}/holostarmap-packs`（内置包单独分发） | vault 键 `holo-skills` | vault 键 `holo-mcp-connections` |
 
-**Two honest caveats, because they are the kind of thing a README usually hides:**
+**两条诚实的说明——因为这类东西通常是 README 会藏起来的：**
 
-1. **Installing a skill does not execute anything.** The catalogue entries carry `nodes`/`edges`, but nothing feeds them to the DAG engine (`useDagEngine` serves the pipeline canvas only), and `createSkillFromWorkflow` has no caller. Today skills are a discovery and one-click-install surface; the execution path is MCP.
-2. **16 of the 21 skills declare an MCP server that the MCP store does not offer** (the store has 5). The install handler looks the declared id up in the store and, on miss, **silently does nothing** — no install, no message. The skill data already carries a full `mcpCommand`/`mcpArgs`, so the fallback exists in the data; the lookup path just does not use it.
+1. **安装技能不会执行任何东西。** 目录条目带着 `nodes`/`edges`，但没有任何东西把它们喂给 DAG 引擎（`useDagEngine` 只服务管线画布），而 `createSkillFromWorkflow` 没有调用方。今天技能只是一个「发现 + 一键安装」的面板；真正的执行路径是 MCP。
+2. **21 个技能里有 16 个声明的 MCP server 是 store 不提供的**（store 只有 5 个）。安装处理器拿声明的 id 去 store 里查，查不到时**静默什么都不做**——不安装、不提示。技能数据本身已经带了完整的 `mcpCommand`/`mcpArgs`，也就是说兜底方案在数据里是现成的，只是查找路径没有用它。
 
-## Security model
+## 安全模型
 
-Fail-closed: if a check cannot conclude "safe", the action is blocked.
+**fail-closed**：如果某项检查无法得出「安全」的结论，就阻断该动作。
 
-- **Shell allow-list**: **12** safe command prefixes (`electron/shell-security.ts` → `SHELL_ALLOWED_COMMANDS`)
-- **Dangerous-pattern deny-list**: **77** regexes (`NODE_E_DANGEROUS_PATTERNS`), plus vetted `node -e` signatures
-- **MCP interpreters**: 5 allowed (`npx` / `node` / `python3` / `python` / `uvx`)
-- **Write-path guard**: writes are restricted to Desktop / Documents / Downloads; `node -e` write targets are resolved to absolute paths and checked, blocking `..` traversal and executable extensions
-- **Dual-engine audit**: rule engine + LLM engine; either one failing blocks the command, with a 24h cache so repeats do not re-pay
-- **Write approval**: write-class tools go through three-state approval (deny / once / always). **Missing grant = denied.**
-- **FactGuard**: numbers, dates, percentages, contract IDs, and names in output are checked against the source; minor drift is corrected in place, hallucinated entities are blocked
+- **shell 白名单**：**12** 个安全命令前缀（`electron/shell-security.ts` → `SHELL_ALLOWED_COMMANDS`）
+- **危险模式黑名单**：**77** 条正则（`NODE_E_DANGEROUS_PATTERNS`），外加经审核的 `node -e` 签名
+- **MCP 解释器**：允许 5 个（`npx` / `node` / `python3` / `python` / `uvx`）
+- **写路径守卫**：写入限制在桌面 / 文档 / 下载目录；`node -e` 的写目标会被解析成绝对路径再检查，阻断 `..` 穿越与可执行扩展名
+- **双引擎审计**：规则引擎 + LLM 引擎；任一判定失败即阻断命令，并带 24 小时缓存，重复命令不重复付费
+- **写操作审批**：写类工具走三态审批（拒绝 / 一次 / 总是）。**没有授权 = 拒绝。**
+- **FactGuard**：输出中的数字、日期、百分比、合同编号与名称会与来源比对；轻微漂移就地修正，凭空编造的实体直接阻断
 
-Details and threat caveats: [`docs/40-安全模型.md`](docs/40-安全模型.md) and SECURITY.md.
+细节与威胁边界：[`docs/40-安全模型.md`](docs/40-安全模型.md) 与 SECURITY.md。
 
-## Verification
+## 验证
 
-Measured on 2026-10-09, on this repository, with the commands below — not carried over from an older README.
+以下数据于 **2026-10-09** 在本仓库实测，命令见下表——**不是从旧 README 抄来的**。
 
-| Check | Result |
+| 检查项 | 结果 |
 |---|---|
-| `npm test` | **2667 cases** — **2666 passed / 1 failed**, 210 spec files, ~8.4 s |
-| Known noise | `test/unit/apiStore.timerDispose.spec.ts` fails **only while a local Ollama is running** — environment-specific, not a regression |
-| `npm run typecheck` | `tsc -b` + `vue-tsc` clean |
-| `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
-| `node scripts/oss-audit.mjs` | Secret / local-path / credential scan over every tracked file; `--fix` redacts machine-specific paths |
+| `npm test` | **2667 个用例** —— **2666 通过 / 1 失败**，210 个 spec 文件，约 8.4 s |
+| 已知噪声 | `test/unit/apiStore.timerDispose.spec.ts` **仅在本地 Ollama 运行时**失败——环境相关，不是回归 |
+| `npm run typecheck` | `tsc -b` + `vue-tsc` 干净 |
+| `npm run smoke:window-controls` | **35/35** —— 七个副窗全部：按钮渲染出来、`-webkit-app-region: drag` 生效、最小化真的最小化、关闭真的关闭 |
+| `node scripts/oss-audit.mjs` | 对每个被跟踪文件做密钥 / 本机路径 / 凭据扫描；`--fix` 会脱敏本机特有路径 |
 
-Coverage gate: 40% lines/functions/statements, 30% branches — **`src/services` + `src/stores` only**, so the number does not describe the whole codebase.
+覆盖率门槛：lines/functions/statements 40%、branches 30%——**只统计 `src/services` + `src/stores`**，所以这个数字不能描述整个代码库。实测总覆盖率 72.74%（详见 [`docs/60-测试与验收.md`](docs/60-测试与验收.md)）。
 
-### Acceptance exam (self-assessment, warts included)
+### 验收考试（自评，缺陷一并列）
 
-The repo ships an acceptance exam (V1 18 cases, V2 50 cases). The historical score reports have been moved out of the repository — recover them from git history if needed. The most recent V2 run: **deliverable rate 0.28**, zero-intervention rate 0.64, mean 15.0 s per case.
+仓库自带一套验收考试（V1 18 题、V2 50 题）。历史成绩单已移出仓库——需要时从 git 历史取回。最近一次 V2 运行：**可交付率 0.28**，零干预率 0.64，平均每题 15.0 s。
 
-That is a low number and it is printed here on purpose: the exam is deliberately harsher than "does it answer" — it requires a real artifact on disk and checks the artifact, not the reply text. Do not read the routing-layer tables above as an accuracy claim.
+这个数字很低，而**故意印在这里**：考试刻意的比「答没答上来」更严——它要求在磁盘上产出真实产物，并检查那个产物，而不是回复文本。**不要把上面的路由层表格当成准确率声明。**
 
-## Project structure
+## 项目结构
 
 ```
 SKY/
-├── electron/                 # Main process (33 modules)
-│   ├── main.ts               # Entry: windows, single-instance lock, IPC dispatch
-│   ├── ipc-handlers.ts       # IPC routes (file / shell / doc / image / media / MCP / vault)
-│   ├── shell-security.ts     # Shell engine (12 allow-listed prefixes, 77 dangerous patterns)
-│   ├── pathValidator.ts      # Read/write path validation
-│   ├── mcp-manager.ts        # MCP subprocess lifecycle
-│   ├── window-manager.ts     # Seven sub-windows, all frameless
-│   └── preload.ts            # contextBridge surface (121 keys)
-├── src/                      # Renderer (Vue 3)
-│   ├── kernel/               # Funnel orchestration, hooks, clusters, bus
-│   ├── kernels/              # Kernel plugins (default / lite)
-│   ├── host/                 # Hot-plug host (plugins / packs)
-│   ├── domains/              # Bus channel registration points
-│   ├── packs/                # Built-in domain packs (finance / geotech / legal)
-│   ├── services/             # Core logic (72 modules)
-│   ├── stores/               # Pinia stores (18)
-│   ├── components/           # Vue components (32)
-│   ├── exam/                 # Acceptance exam (V1 18 + V2 50 cases)
-│   └── data/                 # Static data (manifests, skill/MCP catalogues, legacy topology)
-├── test/                     # 210 spec files + 3 standalone e2e scripts
-├── config/l2_manifests/      # 20 L2 manifest JSONs
-├── scripts/                  # smoke / audit / report generators
-└── docs/                     # Authoritative docs (Chinese)
+├── electron/                 # 主进程（33 个模块）
+│   ├── main.ts               # 入口：窗口、单实例锁、IPC 分发
+│   ├── ipc-handlers.ts       # IPC 路由（文件 / shell / 文档 / 图像 / 媒体 / MCP / vault）
+│   ├── shell-security.ts     # shell 引擎（12 条白名单前缀、77 条危险模式）
+│   ├── pathValidator.ts      # 读写路径校验
+│   ├── mcp-manager.ts        # MCP 子进程生命周期
+│   ├── window-manager.ts     # 七个副窗，全部无边框
+│   └── preload.ts            # contextBridge 暴露面（121 个键）
+├── src/                      # 渲染层（Vue 3）
+│   ├── kernel/               # 漏斗编排、钩子、簇、总线
+│   ├── kernels/              # 内核插件（default / lite）
+│   ├── host/                 # 热插拔宿主（插件 / 领域包）
+│   ├── domains/              # 总线通道注册点
+│   ├── packs/                # 内置领域包（finance / geotech / legal）
+│   ├── services/             # 核心逻辑（72 个模块）
+│   ├── stores/               # Pinia store（18 个）
+│   ├── components/           # Vue 组件（32 个）
+│   ├── exam/                 # 验收考试（V1 18 + V2 50 题）
+│   └── data/                 # 静态数据（清单、技能/MCP 目录、遗留拓扑）
+├── test/                     # 210 个 spec 文件 + 3 个独立 e2e 脚本
+├── config/l2_manifests/      # 20 个 L2 清单 JSON
+├── scripts/                  # 冒烟 / 审计 / 报告生成器
+└── docs/                     # 权威文档（中文分册）
 ```
 
-## Known limitations
+## 已知限制
 
-Ordered roughly by how likely they are to bite you:
+大致按「咬到你的可能性」排序：
 
-1. **Packaging is Windows-only** and untested elsewhere.
-2. **Skill DAGs do not execute** — installing a skill is a catalogue action today.
-3. **16/21 skill→MCP dependencies resolve to nothing, silently** (see above).
-4. **Four preload APIs have no UI entry point** (`backupList`, `appHealth`, `knowledgeListEntries`, `mcpGetStatus`) — capabilities without a door.
-5. **Custom frameless windows need drag regions and controls per window**; they are hand-maintained, and one window shipped without them until a real-machine check caught it. That check is now `npm run smoke:window-controls`, but it only asserts button behaviour — **window dragging itself is verified by hand, not by automation** (synthesised mouse events do not drive native window movement).
-6. **The exam scores are low** (0.28 deliverable rate on the last V2 run).
-7. **The legacy `src/data/topology.ts`** (125 nodes) is data left over from a removed 3D star-map UI. It is not a description of the interface; an older README implied otherwise.
-8. **Half-live mechanisms** exist (competitive EMA, consumer-context truncation) — implemented but not firing by default. The ledger marks them.
+1. **打包仅限 Windows**，其他平台未测。
+2. **技能 DAG 不执行**——今天安装技能只是一个目录操作。
+3. **16/21 的技能→MCP 依赖静默解析为空**（见上文）。
+4. **四个 preload API 没有 UI 入口**（`backupList`、`appHealth`、`knowledgeListEntries`、`mcpGetStatus`）——有能力，没有门。
+5. **自定义无边框窗口需要逐窗维护拖拽区与控制按钮**；它们是手工维护的，曾有一个窗口漏掉这些直到真机检查才发现。那个检查现在是 `npm run smoke:window-controls`，但它只断言按钮行为——**窗口拖拽本身靠手工验证，没有自动化**（合成鼠标事件驱动不了原生窗口移动）。
+6. **考试成绩偏低**（最近一次 V2 可交付率 0.28）。
+7. **遗留的 `src/data/topology.ts`**（125 个节点）是已移除的 3D 星图 UI 留下的数据。它不是对界面的描述；旧版 README 曾暗示相反。
+8. **存在半活机制**（竞争 EMA、消费者上下文截断）——已实现但默认不触发。台账里有标记。
 
-## Documentation
+## 文档
 
-`docs/` is the authoritative set, in Chinese, one volume per topic, with every claim carrying a `file:line` anchor checked against the code.
+`docs/` 是权威文档集，中文，一册一主题，每条现状断言都带 `file:line` 锚点并对照代码核过。
 
-| Volume | Covers |
+| 分册 | 内容 |
 |---|---|
-| [00-总览与口径](docs/00-总览与口径.md) | What this is, plus the claims that are **no longer true** |
-| [10-架构与分层](docs/10-架构与分层.md) | Process model, funnel assembly, hot-plug, domain packs |
-| [20-请求生命周期与路由](docs/20-请求生命周期与路由.md) | Request lifecycle, gates, confidence formulas |
-| [30-机制台账与边界](docs/30-机制台账与边界.md) | Status of every mechanism, gap list, boundaries |
-| [40-安全模型](docs/40-安全模型.md) | Shell engine, path validation, write approval, FactGuard |
-| [50-记忆与上下文](docs/50-记忆与上下文.md) | What is remembered, what gets injected per request |
-| [60-测试与验收](docs/60-测试与验收.md) | Test boundaries, real-machine smoke, exam system |
-| [90-术语表与索引](docs/90-术语表与索引.md) | Glossary and file index |
-| [95-技术债与路线图](docs/95-技术债与路线图.md) | Technical debt and roadmap |
+| [00-总览与口径](docs/00-总览与口径.md) | 这是什么，以及那些**已不再成立**的说法 |
+| [10-架构与分层](docs/10-架构与分层.md) | 进程模型、漏斗装配、热插拔、领域包 |
+| [20-请求生命周期与路由](docs/20-请求生命周期与路由.md) | 请求生命周期、门值、置信度公式 |
+| [30-机制台账与边界](docs/30-机制台账与边界.md) | 每条机制的状态、缺口清单、边界 |
+| [40-安全模型](docs/40-安全模型.md) | shell 引擎、路径校验、写审批、FactGuard |
+| [50-记忆与上下文](docs/50-记忆与上下文.md) | 记住了什么、每个请求注入了什么 |
+| [60-测试与验收](docs/60-测试与验收.md) | 测试边界、真机冒烟、考试系统 |
+| [90-术语表与索引](docs/90-术语表与索引.md) | 术语表与文件索引 |
+| [95-技术债与路线图](docs/95-技术债与路线图.md) | 技术债与路线图 |
 
-**Project rule:** code changes → update the matching volume in the same commit. Historical documents were deleted from the tree; recover them from git history (see [docs/README](docs/README.md)).
+**项目规则**：代码改动 → 同一提交里更新对应的那一册。历史文档已从工作树删除，需要时从 git 历史取回（见 [docs/README](docs/README.md)）。
 
-## Contributing
+## 参与贡献
 
-Issues and PRs are welcome — see CONTRIBUTING.md for setup, code style (`strict` TypeScript, no `any`, no type assertions), the `.spec.ts` convention, and the PR flow.
+欢迎 Issue 与 PR —— 环境搭建、代码规范（`strict` TypeScript、禁 `any`、禁类型断言）、`.spec.ts` 约定与 PR 流程见 CONTRIBUTING.md。
 
-## License
+## 许可
 
-[Apache-2.0](LICENSE). Third-party components are listed in NOTICE.
+[Apache-2.0](LICENSE)。第三方组件列在 NOTICE。
 
-## Disclaimer
+## 免责声明
 
-Provided **as is**, without warranty of any kind. This preview can read, write, move, and delete files and can execute shell commands on the machine it runs on, with all the obvious risk that carries. Run it against data you can afford to lose.
+**按原样**提供，不附带任何形式的担保。这个预览版可以读取、写入、移动、删除文件，也可以在运行它的机器上执行 shell 命令，随之而来的是显而易见的风险。请只拿你可以承受丢失的数据来试。
