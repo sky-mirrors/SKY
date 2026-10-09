@@ -5,6 +5,7 @@ import { setupUserPackIpc } from './userPacks'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
 // 避免 WAL 文件残留与数据未 checkpoint 落盘
 import { closeVault } from './vault'
+import { disposePdfRenderer } from './pdfRenderer'
 import { existsSync, renameSync } from 'fs'
 import { join } from 'path'
 
@@ -277,4 +278,7 @@ app.on('before-quit', () => {
   cleanupMcpProcesses()
   // A-19：退出前关闭 vault SQLite 连接
   closeVault()
+  // 2026-10-09 接线：退出前销毁 PDF 渲染单例窗口。此前 disposePdfRenderer 零调用——
+  // 它的注释承诺「应用退出前调用」却从未接线；这里与上面的 MCP / vault 清理同属退出资源回收。
+  disposePdfRenderer()
 })
