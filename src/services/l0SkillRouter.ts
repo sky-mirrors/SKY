@@ -780,6 +780,7 @@ export function classifyDomain(input: string): string[] {
     finance: ['报销', '预算', 'kpi', '财报', '财务', '发票'],
     sales: ['竞品', '客户', '销售', '方案'],
     hr: ['简历', '入职', '招聘', '面试'],
+    geotech: ['岩土', '地基', '边坡', '基坑', '桩基', '勘察', '承载力', '标贯', '液化'],
     system: ['运行', '执行', '命令', 'shell', 'npm', 'node', 'git', 'ls', 'dir']
   }
   const matched: string[] = []
