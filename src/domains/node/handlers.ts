@@ -18,7 +18,7 @@ export function registerNodeHandlers(bus: HoloEventBus) {
   _disposeL1Status?.()
   _disposeL1Status = bus.on('node:set-l1-status', setL1StatusHandler as (payload: unknown) => unknown)
 
-  // DAG 执行链桥接（★ docs\ARCHITECTURE.md §8.6 断裂①修复）：驱动 nodeStore.dagChainState，
+  // DAG 执行链桥接（★ 原 ARCHITECTURE §8.6 断裂①修复（见 docs/10-架构与分层.md））：驱动 nodeStore.dagChainState，
   // 供工作台 RuntimePanel（执行链卡片）/StatusBar（执行中计数）与 DialogPanel P1-24 暂停入口消费。
   _disposeDagChannels.forEach(d => d())
   _disposeDagChannels = [

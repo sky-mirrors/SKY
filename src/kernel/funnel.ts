@@ -20,7 +20,7 @@ import {
  */
 
 export interface FunnelGates {
-  /** L0.5 快配过门置信（现状 0.8） */
+  /** L0.5 快配过门置信（现状 0.6） */
   l05Pass: number
   /** L0.5 高置信自动执行（现状 0.9，另需计划无 shell） */
   l05Auto: number

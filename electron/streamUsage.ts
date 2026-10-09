@@ -1,5 +1,5 @@
 /**
- * S-3（快照 `docs\2026.9.24最新快照.md` §S-3）：主进程流式 usage 解析。
+ * S-3（原机制快照登记项，文档已删）：主进程流式 usage 解析。
  *
  * 与渲染层 `src\services\sseParser.ts` 同口径——原实现只取 `prompt_tokens` /
  * `completion_tokens`，缓存命中字段从未解析，end payload 三处硬编码

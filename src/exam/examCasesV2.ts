@@ -28,7 +28,7 @@ export type ExamCategoryV2 = Extract<ExamCategory, 'routing' | 'media' | 'edge' 
 /** V2 题目即 `ExamCase` —— 不另立结构，`runExam({ cases: EXAM_CASES_V2 })` 直接可用。 */
 export type ExamCaseV2 = ExamCase
 
-/** 桌面素材子目录（各题按需引用；EXAM-RUNBOOK.md 有准备清单） */
+/** 桌面素材子目录（各题按需引用；准备清单见 docs/60-测试与验收.md） */
 export const V2_FIXTURES = {
   /** 一个含若干 .md / .txt 的源文件目录 */
   docs: `${EXAM_FIXTURE_DIR}\\docs`,

@@ -9,7 +9,7 @@ import type {
 import type { LayerId, HookTier } from '../types'
 
 /**
- * 规格书 8.2 / 8.3：DomainPack schema 类型（docs/archive/HOTPLUG-ARCHITECTURE.md 第 8 节）。
+ * 规格书 8.2 / 8.3：DomainPack schema 类型（见 docs/10-架构与分层.md 领域包）。
  * 修订记录（实施期）：trigger 增设 keywordGroups（各组任一命中、组间 AND），
  * 用于表达 #1 这类"两组任一关键词 AND"的触发语义。
  */

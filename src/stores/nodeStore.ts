@@ -21,7 +21,7 @@ export interface DagChainState { active: boolean; steps: DagStep[]; dependsOnMap
  * `node:set-dag-chain` 等 6 条频道桥接过来。此前这 6 条 emit 全仓库无 `bus.on` 监听、
  * 且 `setDAGChain` 等写函数在 `cbb66b5` 随星图清扫被删——致工作台 DAG 卡片、状态栏计数
  * 与 DialogPanel 的 P1-24 人工暂停入口**自提交起静默失效**。本次接通（对应
- * `docs\ARCHITECTURE.md` §8.6「执行可视化链路三重断裂」；因星图已移除，断裂③的
+ * 原 ARCHITECTURE §8.6「执行可视化链路三重断裂」（已删文档，追溯见 docs/README.md）；因星图已移除，断裂③的
  * StarMap 载荷转发不再需要）。
  */
 export const useNodeStore = defineStore('nodes', () => {

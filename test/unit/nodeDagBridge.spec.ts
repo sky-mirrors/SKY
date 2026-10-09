@@ -26,7 +26,7 @@ vi.mock('@/data/topology', () => ({
 }))
 
 /**
- * DAG 执行链总线桥接（★ 修复 docs\ARCHITECTURE.md §8.6「执行可视化链路三重断裂」）。
+ * DAG 执行链总线桥接（★ 修复原 ARCHITECTURE §8.6「执行可视化链路三重断裂」（见 docs/10-架构与分层.md））。
  *
  * 断裂①：dialogStore 用 `emit` 发这 6 条频道，而全仓库无 `bus.on` 订阅——事件发进虚空。
  * 本 spec 走**真实注册路径**（`registerNodeHandlers`），不在此手搓 `bus.on`——否则测试

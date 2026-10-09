@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { parseStreamUsage } from '@electron/streamUsage'
 
 /**
- * S-3（快照 `docs\2026.9.24最新快照.md` §S-3，P1）：主进程流式 usage 解析。
+ * S-3（原机制快照登记项，P1；文档已删）：主进程流式 usage 解析。
  *
  * 原实现（`electron\ipc-handlers.ts`）流式分支只取 `prompt_tokens` / `completion_tokens`，
  * `prompt_cache_hit_tokens` 与 `prompt_tokens_details.cached_tokens` 从未解析 ⇒ end payload

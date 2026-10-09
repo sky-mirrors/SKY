@@ -1,4 +1,4 @@
-// EXAM-4：验收考试器（ACCEPTANCE-SPEC.md「考试器实现约束」）。
+// EXAM-4：验收考试器（原 ACCEPTANCE-SPEC「考试器实现约束」（见 docs/60-测试与验收.md））。
 // 走真实主路径：发题经 dialogStore.sendMessage（opts.taskType='exam' 注册 traceId），
 // 监考靠 bus 事件聚合（dialog:pause-acquired 干预计数 / funnel:routed 路径 /
 // debug:record-cost token 归因），判卷结合制：逐题硬断言 + EXAM_JUDGE_PROMPT_V1 模型判卷。
@@ -23,7 +23,7 @@ export const EXAM_JUDGE_PROMPT_V1 = `你是验收考试的判卷员。下面给�
 【助手回答】
 {REPLY}`
 
-// ACCEPTANCE-SPEC 及格线 v1（2026-09-19 定死）
+// 原 ACCEPTANCE-SPEC 及格线 v1（2026-09-19 定死）
 export const EXAM_PASS_LINES = {
   deliverableRate: 0.8,
   zeroInterventionRate: 0.6,
@@ -475,7 +475,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
           results.push({
             id: c.id, title: c.title, category: c.category, status: 'skipped-fixture',
             durationMs: 0, interventions: 0, routeKind: '', routeLayer: '', hardAssertPassed: null, hardAssertNote: '',
-            judgeVerdict: 'skipped', judgeNote: '桌面考试素材未就位，跳过（EXAM-RUNBOOK.md 素材清单）',
+            judgeVerdict: 'skipped', judgeNote: '桌面考试素材未就位，跳过',
             failureStage: null, traceId: '', replyExcerpt: '', totalTokens: 0
           })
           continue
@@ -512,7 +512,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
     const skippedFixture = results.filter(r => r.status === 'skipped-fixture')
 
     if (skippedFixture.length > 0) {
-      notes.push(`素材依赖题跳过：${skippedFixture.map(r => r.id).join('、')}（不计入分母，见 EXAM-RUNBOOK.md）`)
+      notes.push(`素材依赖题跳过：${skippedFixture.map(r => r.id).join('、')}（不计入分母）`)
     }
     if (judgeErrors.length > 0) {
       notes.push(`判卷失败题单列：${judgeErrors.map(r => r.id).join('、')}（共 ${judgeErrors.length} 题，属判卷基建失败而非能力失败）——已从可交付率分母剔除，本轮可交付率以 ${judgeable.length} 道可判题为分母`)
@@ -520,7 +520,7 @@ export function createExamRunner(deps: ExamRunnerDeps, options?: CreateExamRunne
     notes.push('exam 流量隔离学习回路（语义缓存/预算/ZOL 不污染），record-cost 照常记账（EXAM-1）')
     notes.push('指纹缓存未隔离：考试=真实使用形态，每题单次执行，指纹参与为真实行为（EXAM 决策记录）')
     notes.push('失败幕为启发式归因（路由→计划→执行→输出 顺序判定），人工复核时修正')
-    notes.push('活儿集与手术题不在本 runner 内，按 EXAM-RUNBOOK.md 手工执行、单独报告')
+    notes.push('活儿集与手术题不在本 runner 内，需手工执行、单独报告')
 
     for (const r of results) {
       if (r.status === 'done') r.failureStage = inferFailureStage(r)

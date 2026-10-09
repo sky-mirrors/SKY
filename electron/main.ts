@@ -21,7 +21,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('[Unhandled Rejection]', reason)
 })
 
-// E-8：单实例锁。docs\ARCHITECTURE.md:133 承诺「启动序列: requestSingleInstanceLock(单实例)…
+// E-8：单实例锁。原架构文档承诺「启动序列: requestSingleInstanceLock(单实例)…
 // 第二个实例启动时聚焦已有主窗口」，但此前从未实现——双实例会并行写 vaults\default.db
 // （应用层 last-write-wins，无行级锁）与非原子的 store JSON。必须在 app.whenReady() 之前请求。
 const gotTheLock = app.requestSingleInstanceLock()

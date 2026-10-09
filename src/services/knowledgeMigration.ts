@@ -6,7 +6,7 @@ import { withEntriesLock } from './knowledgeBase'
 /**
  * 规格 M12：存量知识条目 partition 迁移。
  *
- * 步骤（docs/archive/HOTPLUG-ARCHITECTURE.md 7.4）：
+ * 步骤（见 docs/10-架构与分层.md）：
  * 1. 备份：vault 导出涉及 namespace（knowledge / conv / skill）到带时间戳备份；备份失败 → 中止；
  * 2. 记录迁移前条目计数；
  * 3. 逐条处理：entry.partition === undefined → 写入 partition='user'（存量无主条目一律归用户）；

@@ -6,7 +6,7 @@ import { clearProbeCache } from '@/services/providerChain'
 import { setBudget, resetBudget, recordCost, resetSessionSpent, clearCostRecords } from '@/services/tokenBudget'
 
 /**
- * 流式路径口径对齐（快照 `docs\2026.9.24最新快照.md` §S-1 同型 / §S-5）
+ * 流式路径口径对齐（原机制快照登记项 S-1 同型 / S-5；文档已删）
  *
  * 背景：非流式路径的 S-1（角色绑定 + 大模型兜底对 Ollama 目标失效）已由 `8dea4e4`
  * 用 `resolveDirectTarget` 修复，但同一片代码的**流式**分支仍一律用

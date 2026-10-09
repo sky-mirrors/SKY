@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// V2 题库（50 题）桌面素材生成脚本 —— 见 docs/EXAM-RUNBOOK.md §八。
+// V2 题库（50 题）桌面素材生成脚本 —— 见 docs/60-测试与验收.md。
 // 用法：在仓库根 `node docs/exam-fixtures/make-fixtures.cjs`
 // 只新增（docs/ media/ out/ 与 photos/sample.jpg），不动既有 V1 素材。
 const fs = require('fs')

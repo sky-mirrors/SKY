@@ -1,4 +1,4 @@
-// EXAM-3：验收考试固定回归集 18 题（ACCEPTANCE-SPEC.md 命题表，版本 v1）。
+// EXAM-3：验收考试固定回归集 18 题（原 ACCEPTANCE-SPEC 命题表，版本 v1；见 docs/60-测试与验收.md）。
 // 命题原则：目标用户语言、材料内嵌（文档/数据/信息类）、文件操作类依赖桌面
 // HoloExam 素材目录（requiresFixture，未就位时跳过并从分母剔除，见 examRunner）。
 // 每题断言与判卷提示逐题预置（判卷结合制：硬断言 + 模型判卷 EXAM_JUDGE_PROMPT_V1）。
@@ -56,7 +56,7 @@ export interface ExamCase {
   expectedLayer?: 'L0' | 'L0.5' | 'L1' | 'L2' | 'L3' | 'L4'
 }
 
-// 桌面考试素材目录（EXAM-RUNBOOK.md 有素材准备清单）
+// 桌面考试素材目录（准备清单见 docs/60-测试与验收.md）
 export const EXAM_FIXTURE_DIR = 'C:\\Users\\Administrator\\Desktop\\HoloExam'
 
 const CONTRACT_TEXT = `采购合同（编号：CG-2026-0417）
