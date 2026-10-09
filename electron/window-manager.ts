@@ -314,6 +314,57 @@ export function getKnowledgeWindow(): BrowserWindow | null {
   return knowledgeWindow && !knowledgeWindow.isDestroyed() ? knowledgeWindow : null
 }
 
+// 领域包编辑器窗口（2026-10）：让领域专家不改代码就能给用户包添加知识与规则。
+let packEditorWindow: BrowserWindow | null = null
+
+export function createPackEditorWindow(): BrowserWindow {
+  if (packEditorWindow && !packEditorWindow.isDestroyed()) {
+    packEditorWindow.focus()
+    return packEditorWindow
+  }
+
+  packEditorWindow = new BrowserWindow({
+    width: 1100,
+    height: 780,
+    minWidth: 720,
+    minHeight: 480,
+    show: true,
+    frame: false,
+    backgroundColor: '#050510',
+    title: 'SKY - 领域包编辑器',
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  packEditorWindow.webContents.setWindowOpenHandler((details) => {
+    if (details.url.startsWith('http://') || details.url.startsWith('https://')) {
+      shell.openExternal(details.url)
+    }
+    return { action: 'deny' }
+  })
+
+  guardWindow(packEditorWindow)
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    packEditorWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/packs.html`)
+  } else {
+    packEditorWindow.loadFile(join(__dirname, '../renderer/packs.html'))
+  }
+
+  packEditorWindow.on('closed', () => {
+    packEditorWindow = null
+  })
+  return packEditorWindow
+}
+
+export function getPackEditorWindow(): BrowserWindow | null {
+  return packEditorWindow && !packEditorWindow.isDestroyed() ? packEditorWindow : null
+}
+
 export function getBenchmarkWindow(): BrowserWindow | null {
   return benchmarkWindow && !benchmarkWindow.isDestroyed() ? benchmarkWindow : null
 }

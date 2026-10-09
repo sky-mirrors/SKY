@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow, createKnowledgeWindow, getKnowledgeWindow } from './window-manager'
+import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow, createKnowledgeWindow, getKnowledgeWindow, createPackEditorWindow, getPackEditorWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
 import { setupUserPackIpc } from './userPacks'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
@@ -167,6 +167,17 @@ app.whenReady().then(async () => {
     if (kw) { kw.isMaximized() ? kw.unmaximize() : kw.maximize() }
   })
   ipcMain.on('knowledge:window:close', () => { getKnowledgeWindow()?.close() })
+
+  // 2026-10 领域包编辑器窗口：领域专家自助扩包入口
+  ipcMain.on('open:packs-window', () => {
+    createPackEditorWindow()
+  })
+  ipcMain.on('packs:window:minimize', () => { getPackEditorWindow()?.minimize() })
+  ipcMain.on('packs:window:maximize', () => {
+    const pw = getPackEditorWindow()
+    if (pw) { pw.isMaximized() ? pw.unmaximize() : pw.maximize() }
+  })
+  ipcMain.on('packs:window:close', () => { getPackEditorWindow()?.close() })
 
   let debugWindowReady = false
   let pendingDebugSyncs: { storeId: string; state: Record<string, unknown> }[] = []

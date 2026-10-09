@@ -360,6 +360,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   benchmarkWindowMaximize: () => ipcRenderer.send('benchmark:window:maximize'),
   benchmarkWindowClose: () => ipcRenderer.send('benchmark:window:close'),
 
+  // 领域包编辑器窗口
+  openPackEditorWindow: () => ipcRenderer.send('open:packs-window'),
+
   openRuleReviewWindow: () => ipcRenderer.send('open:rule-review-window'),
   ruleReviewWindowMinimize: () => ipcRenderer.send('rule-review:window:minimize'),
   ruleReviewWindowMaximize: () => ipcRenderer.send('rule-review:window:maximize'),

@@ -8,6 +8,14 @@ declare module '*.vue' {
 
 interface ElectronAPI {
   platform: string
+  // 领域包编辑器：用户包读写（根目录固定 {userData}/holostarmap-packs，越界一律拒绝）
+  openPackEditorWindow: () => void
+  userPackRoot: () => Promise<{ success: boolean; root?: string; error?: string }>
+  userPackList: () => Promise<{ success: boolean; packs?: Array<{ id: string; files: string[] }>; error?: string }>
+  userPackRead: (packId: string, relPath: string) => Promise<{ success: boolean; content?: string; error?: string }>
+  userPackWrite: (packId: string, relPath: string, content: string) => Promise<{ success: boolean; path?: string; error?: string }>
+  userPackDeleteFile: (packId: string, relPath: string) => Promise<{ success: boolean; error?: string }>
+  userPackDeletePack: (packId: string) => Promise<{ success: boolean; error?: string }>
   openFile: (options?: {
     filters?: { name: string; extensions: string[] }[]
     title?: string

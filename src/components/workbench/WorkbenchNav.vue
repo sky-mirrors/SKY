@@ -28,6 +28,11 @@
         <span class="wb-nav-icon">📚</span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">知识库</span>
       </button>
+      <!-- 2026-10：领域包编辑器——领域专家不改代码即可添加知识与规则 -->
+      <button class="wb-nav-item" title="领域包编辑器（独立窗口）" @click="openWindow('openPackEditorWindow')">
+        <span class="wb-nav-icon">🧱</span>
+        <span v-if="!navCollapsed" class="wb-nav-item-text">领域包</span>
+      </button>
     </div>
 
     <div class="wb-nav-section wb-nav-sessions">
@@ -149,7 +154,7 @@ function onSessionAction(sessionId: string, panel: 'attach' | 'kb'): void {
 
 const emit = defineEmits<{ openApiSettings: [] }>()
 
-function openWindow(fn: 'openPipelineWindow' | 'openKnowledgeWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow' | 'openDevWindow') {
+function openWindow(fn: 'openPipelineWindow' | 'openKnowledgeWindow' | 'openPackEditorWindow' | 'openDebugWindow' | 'openBenchmarkWindow' | 'openRuleReviewWindow' | 'openDevWindow') {
   const api = (window as unknown as Record<string, undefined | (() => void)>).electronAPI as Record<string, undefined | (() => void)> | undefined
   api?.[fn]?.()
 }
