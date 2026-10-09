@@ -1795,7 +1795,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       // ===== L0.5 Quick Match: 关键词快照直通单步manifest =====
       const allL2 = globalBus.request('node:get-all-l2-manifests', {})
       const l05Result = tryL05QuickMatch(content, allL2)
-      if (l05Result && l05Result.confidence >= 0.8) {
+      // 门值单一来源：此前硬编码 0.8，与漏斗 gate 的 l05Pass（0.6）漂移——
+      // 同一条输入走兜底路径比走主路径更严，判定结果不一致。改读 G-15 的配置通道。
+      const fallbackGates = await loadFunnelGates()
+      if (l05Result && l05Result.confidence >= fallbackGates.l05Pass) {
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-pipeline-builder', status: 'success' })
         const m = l05Result.manifest
@@ -1839,7 +1842,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         pendingContent.value = content
         pendingMacroManifestId.value = macroManifestId
 
-        if (l05Result.confidence >= 0.9 && !planContainsShellExec(plan)) {
+        if (l05Result.confidence >= fallbackGates.l05Auto && !planContainsShellExec(plan)) {
           addSystemNotice(`⚡ L0.5高置信自动执行（${(l05Result.confidence * 100).toFixed(0)}%，无shell操作）`)
           isProcessing.value = false
           await confirmPlan(true)
@@ -1855,7 +1858,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
       // ===== L1 Check: 单步管道直通 =====
       const l1Check = checkL1Capability(content)
-      if (l1Check.canHandle && l1Check.plan && l1Check.confidence >= 0.6) {
+      if (l1Check.canHandle && l1Check.plan && l1Check.confidence >= fallbackGates.l1Pass) {
         globalBus.emit('node:set-l1-status', { nodeId: 'l1-task-translator', status: 'success' })
         addSystemNotice(`🔧 L1管道直通：${l1Check.nodeName}（置信${(l1Check.confidence * 100).toFixed(0)}%）`)
 
