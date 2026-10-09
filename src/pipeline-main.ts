@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import './styles/tokens.css'
 import { createPinia } from 'pinia'
 import PipelinePage from './components/PipelinePage.vue'
 import { serializeStoreState, filterPatchForStore } from './services/storeSync'

@@ -23,6 +23,13 @@
     <path v-else-if="name === 'moon'" d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z" />
     <path v-else-if="name === 'leaf'" d="M20 4C10 4 4 8 4 16c0 2 1 4 2 4 8 0 14-6 14-16z M6.5 17.5C10 14 14 10 18 8" />
     <path v-else-if="name === 'compass'" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M15.5 8.5l-2 5-5 2 2-5 5-2z" />
+    <path v-else-if="name === 'palette'" d="M12 3a9 9 0 0 0 0 18h1.5a2 2 0 0 0 0-4H13a2 2 0 0 1 0-4h5a3 3 0 0 0 3-3c0-4-4-7-9-7z M8 9h.01 M12 7h.01 M16 9h.01" />
+    <path v-else-if="name === 'zap'" d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" />
+    <path v-else-if="name === 'dollar'" d="M12 2v20 M16.5 7H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7" />
+    <path v-else-if="name === 'database'" d="M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6 M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    <path v-else-if="name === 'keyboard'" d="M3 7h18v10H3z M7 11h.01 M11 11h.01 M15 11h.01 M7 14h10" />
+    <path v-else-if="name === 'wrench'" d="M15 3a5 5 0 0 0-4.6 7L4 16.4V20h3.6l6.4-6.4A5 5 0 1 0 15 3z" />
+    <path v-else-if="name === 'info'" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8h.01" />
   </svg>
 </template>
 
@@ -30,6 +37,7 @@
 export type IconName =
   | 'star' | 'cpu' | 'pipeline' | 'book' | 'package'
   | 'chat' | 'bell' | 'settings' | 'sun' | 'moon' | 'leaf' | 'compass'
+  | 'palette' | 'zap' | 'dollar' | 'database' | 'keyboard' | 'wrench' | 'info'
 </script>
 
 <script setup lang="ts">

@@ -13,7 +13,7 @@
             class="sp-nav-btn"
             :class="{ active: activeTab === tab.id }"
             @click="activeTab = tab.id"
-          >{{ tab.icon }} {{ tab.label }}</button>
+          ><Icon :name="tab.icon" :size="13" /> {{ tab.label }}</button>
         </div>
         <div class="sp-body">
           <div v-if="activeTab === 'appearance'" class="sp-section">
@@ -178,6 +178,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import Icon from '@/components/Icon.vue'
 import { useConfigStore } from '@/domains/config'
 import { useNotificationStore } from '@/domains/app'
 import { useNodeStore } from '@/domains/node'
@@ -202,17 +203,19 @@ const dataMgmtRef = ref()
 const pricing = ref({ ...getUserPricing() })
 const estimateCny = computed(() => Number(pricing.value.inputPricePer1k || 0) + Number(pricing.value.outputPricePer1k || 0))
 
-const tabs = [
-  { id: 'appearance', icon: '🎨', label: '外观' },
-  { id: 'perf', icon: '⚡', label: '性能' },
-  { id: 'pricing', icon: '💰', label: '计价' },
-  { id: 'memory', icon: '🧠', label: '记忆' },
-  { id: 'notifications', icon: '🔔', label: '通知' },
-  { id: 'data', icon: '💾', label: '数据' },
-  { id: 'shortcuts', icon: '⌨', label: '快捷键' },
+type TabIcon = 'palette' | 'zap' | 'dollar' | 'cpu' | 'bell' | 'database' | 'keyboard' | 'wrench' | 'info'
+
+const tabs: { id: string; icon: TabIcon; label: string }[] = [
+  { id: 'appearance', icon: 'palette', label: '外观' },
+  { id: 'perf', icon: 'zap', label: '性能' },
+  { id: 'pricing', icon: 'dollar', label: '计价' },
+  { id: 'memory', icon: 'cpu', label: '记忆' },
+  { id: 'notifications', icon: 'bell', label: '通知' },
+  { id: 'data', icon: 'database', label: '数据' },
+  { id: 'shortcuts', icon: 'keyboard', label: '快捷键' },
   // 2026-10-01：开发者向入口从左侧导航移到这里（左导航只留用户日常用的东西）
-  { id: 'developer', icon: '🛠', label: '开发者' },
-  { id: 'about', icon: 'ℹ', label: '关于' }
+  { id: 'developer', icon: 'wrench', label: '开发者' },
+  { id: 'about', icon: 'info', label: '关于' }
 ]
 
 const SETTING_LABELS: Record<string, string> = {

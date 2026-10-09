@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import './styles/tokens.css'
 import { createPinia } from 'pinia'
 import RuleReviewPage from './components/RuleReview/RuleReviewPage.vue'
 import { serializeStoreState, filterPatchForStore } from './services/storeSync'

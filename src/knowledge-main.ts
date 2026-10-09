@@ -1,4 +1,5 @@
 import { createApp } from 'vue'
+import './styles/tokens.css'
 import { createPinia } from 'pinia'
 import KnowledgeManager from './components/knowledge/KnowledgeManager.vue'
 import { serializeStoreState, filterPatchForStore } from './services/storeSync'
