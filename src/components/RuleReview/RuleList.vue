@@ -5,7 +5,6 @@
         <option value="all">All Domains</option>
         <option value="finance">Finance</option>
         <option value="legal">Legal</option>
-        <option value="hr">HR</option>
         <option value="geotech">岩土</option>
       </select>
       <select class="filter-select" :value="ruleStore.filterStatus" @change="onStatusChange">
@@ -65,7 +64,7 @@ function truncate(text: string, max: number): string {
 }
 
 function onDomainChange(e: Event) {
-  ruleStore.setFilterDomain((e.target as HTMLSelectElement).value as 'all' | 'finance' | 'legal' | 'hr' | 'geotech')
+  ruleStore.setFilterDomain((e.target as HTMLSelectElement).value as 'all' | 'finance' | 'legal' | 'geotech')
 }
 
 function onStatusChange(e: Event) {

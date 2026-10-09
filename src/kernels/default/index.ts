@@ -68,7 +68,6 @@ function detectedDomainOf(input: string): DetectedDomain {
   const domains = classifyDomain(input)
   if (domains.includes('legal')) return 'legal'
   if (domains.includes('finance')) return 'finance'
-  if (domains.includes('hr')) return 'hr'
   if (domains.includes('geotech')) return 'geotech'
   return 'general'
 }

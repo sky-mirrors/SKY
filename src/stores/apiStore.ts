@@ -404,7 +404,7 @@ export const useApiStore = defineStore('api', () => {
   }
 
   function toDetectedDomain(d: string): DetectedDomain {
-    return d === 'legal' || d === 'finance' || d === 'hr' ? d : 'general'
+    return d === 'legal' || d === 'finance' || d === 'geotech' ? d : 'general'
   }
 
   // G-5：actualCost 按实际 usage 计价——原实现 7 处全传 budgetResult.estimatedCost，

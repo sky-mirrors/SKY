@@ -17,7 +17,7 @@ import {
 export const useRuleStore = defineStore('rule', () => {
   const rules = ref<DomainConstraint[]>([])
   const selectedRuleId = ref<string | null>(null)
-  const filterDomain = ref<'all' | 'finance' | 'legal' | 'hr' | 'geotech'>('all')
+  const filterDomain = ref<'all' | 'finance' | 'legal' | 'geotech'>('all')
   const filterStatus = ref<'all' | RuleStatus>('all')
   const filterConfidence = ref<'all' | 'high' | 'medium' | 'low'>('all')
 
@@ -55,7 +55,7 @@ export const useRuleStore = defineStore('rule', () => {
     selectedRuleId.value = ruleId
   }
 
-  function setFilterDomain(domain: 'all' | 'finance' | 'legal' | 'hr' | 'geotech'): void {
+  function setFilterDomain(domain: 'all' | 'finance' | 'legal' | 'geotech'): void {
     filterDomain.value = domain
   }
 

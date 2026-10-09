@@ -1,7 +1,0 @@
-[
-  { "identity": { "id": "l2-resume-screening-v1", "name": "简历初筛助手", "version": "1.0.0" } },
-  { "identity": { "id": "l2-onboarding-guide-gen-v1", "name": "入职引导生成器", "version": "1.0.0" } },
-  { "identity": { "id": "l2-announcement-draft-v1", "name": "公告通知草稿", "version": "1.0.0" } },
-  { "identity": { "id": "l2-attendance-exception-note-v1", "name": "考勤异常说明生成", "version": "1.0.0" } },
-  { "identity": { "id": "l2-offboarding-checklist-v1", "name": "离职交接清单生成", "version": "1.0.0" } }
-]

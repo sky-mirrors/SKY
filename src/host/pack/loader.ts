@@ -32,7 +32,7 @@ import type {
  */
 
 const VETO_GATES = ['pre-execute', 'pre-output'] as const
-const CONSTRAINT_DOMAINS: ReadonlyArray<DomainConstraint['domain']> = ['finance', 'legal', 'hr', 'geotech']
+const CONSTRAINT_DOMAINS: ReadonlyArray<DomainConstraint['domain']> = ['finance', 'legal', 'geotech']
 
 interface Disposer {
   run(): Promise<void>

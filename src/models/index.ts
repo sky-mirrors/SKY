@@ -877,7 +877,7 @@ export interface DagCheckpoint {
 
 export type FeedbackAction = 'thumbs_up' | 'thumbs_down' | 'undo'
 
-export type DetectedDomain = 'legal' | 'finance' | 'hr' | 'geotech' | 'general'
+export type DetectedDomain = 'legal' | 'finance' | 'geotech' | 'general'
 
 export type RewriteStrategy = 'none' | 'keyword_extract'
 export type DisambigStrategy = 'auto_pick' | 'show_candidates' | 'ask_clarify' | 'fallback_l1'
@@ -1059,7 +1059,7 @@ export interface ConstraintResult {
 
 export interface DomainConstraint {
   id: string
-  domain: 'finance' | 'legal' | 'hr' | 'geotech'
+  domain: 'finance' | 'legal' | 'geotech'
   category: string
   description: string
   severity: 'info' | 'warning' | 'error'
