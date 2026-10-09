@@ -126,12 +126,12 @@ describe('P3.6 验收一：换内核切换（M4 状态机）', () => {
 })
 
 describe('P3.6 验收二：pack 热重载（M19）与卸载即收缩', () => {
-  it('启动挂载 55 条 → reloadPack(legal) 完整卸载-重挂 → 行为保持', async () => {
+  it('启动挂载 58 条 → reloadPack(legal) 完整卸载-重挂 → 行为保持', async () => {
     await initPackRuntime()
     // 2026-10-01：原为 toEqual(['finance','hr','legal']) —— 但本用例的意图是验证 legal 的
     // 卸载-重挂，不该顺带锁死"内置 pack 全集"（包会随扩展增加，demopack 即为一例）。
     expect(packLoader.listMounted().map(m => m.id).sort()).toEqual(expect.arrayContaining(['finance', 'hr', 'legal']))
-    expect(getExternalConstraintIds()).toHaveLength(55)
+    expect(getExternalConstraintIds()).toHaveLength(58)
 
     const fires = () => runConstraints({
       entities: [],
@@ -151,22 +151,22 @@ describe('P3.6 验收二：pack 热重载（M19）与卸载即收缩', () => {
     expect(typeof reload.durationMs).toBe('number')
     expect(lifecycle).toEqual(['pack:unmounted:legal', 'pack:mounted:legal', 'pack:reloaded:legal'])
 
-    // 重载后行为保持：仍 55 条、原约束仍触发
-    expect(getExternalConstraintIds()).toHaveLength(55)
+    // 重载后行为保持：仍 58 条、原约束仍触发
+    expect(getExternalConstraintIds()).toHaveLength(58)
     expect(fires().some(r => r.constraintId === 'legal-labor-contract-written')).toBe(true)
     offs.forEach(off => off())
   })
 
-  it('卸载即收缩：unmountPack(legal) → 约束摘至 5 条；重新挂载恢复 55 条', async () => {
+  it('卸载即收缩：unmountPack(legal) → 约束摘至 8 条；重新挂载恢复 58 条', async () => {
     await initPackRuntime()
     const unmount = await packLoader.unmountPack('legal')
     expect(unmount.ok).toBe(true)
     expect(unmount.removedConstraints).toBe(50)
-    expect(getExternalConstraintIds()).toHaveLength(5)
+    expect(getExternalConstraintIds()).toHaveLength(8)
 
     const remount = await packLoader.mountPack('legal')
     expect(remount.ok).toBe(true)
-    expect(getExternalConstraintIds()).toHaveLength(55)
+    expect(getExternalConstraintIds()).toHaveLength(58)
   })
 })
 

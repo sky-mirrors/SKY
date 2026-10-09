@@ -43,9 +43,15 @@ describe('A5 hr pack 供给扩充', () => {
     expect(loader.getPackIdForManifest('l2-not-exist-v9')).toBeUndefined()
   })
 
-  it('hr pack 权重 1.0，无约束贡献（55 条约束计数不受影响）', () => {
+  it('hr pack 权重 1.0，并已补齐 3 条 HR 视角声明式约束', () => {
     expect(loader.getWeight('hr')).toBe(1.0)
-    expect(loader.getMountedConstraintIds('hr')).toEqual([])
+    // 2026-10：hr 包此前零约束。该例原先断言 `getMountedConstraintIds('hr')` 为空数组——
+    // 锁的是「缺口」本身而不是期望行为，故随补齐一并更新为断言新契约。
+    expect(loader.getMountedConstraintIds('hr').sort()).toEqual([
+      'hr-non-compete-compensation',
+      'hr-overtime-pay-ratio',
+      'hr-probation-limit'
+    ])
   })
 
   it('术语知识层：非空且符合 {filename, text} 契约', () => {
