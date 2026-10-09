@@ -548,7 +548,7 @@ export async function callToolDirectWithTier(
         // 2) HOME_DIR 伪造为 'C:\Users\Default'（不存在的兜底目录）恒 FILE_MISSING；
         // 3) shellExec 子进程 env 已合并主进程 process.env（见 ipc-handlers A-03），
         //    USERPROFILE/HOME 天然是真实用户目录，无需任何 HOME_DIR
-        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');let sz=-1;try{sz=fs.statSync(fp).size}catch(e){}console.log(sz<0?'FILE_MISSING:'+fp:(sz>0?'FILE_EXISTS:':'FILE_EMPTY:')+fp)"`
+        const checkCmd = `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Public';const fp=p.join(home,'Desktop',process.env.EXPECTED_FILE||'');let sz=-1;try{sz=fs.statSync(fp).size}catch(e){}console.log(sz<0?'FILE_MISSING:'+fp:(sz>0?'FILE_EXISTS:':'FILE_EMPTY:')+fp)"`
         try {
           const checkResult = await window.electronAPI.shellExec({
             command: checkCmd,

@@ -42,8 +42,8 @@ The following are out of scope:
 
 SKY implements multiple security layers:
 
-- **Shell Security Engine**: 77 dangerous pattern blacklist + 6 trusted signature whitelist
+- **Shell Security Engine**: 82 dangerous pattern blacklist + 6 trusted signature whitelist
 - **Dual Engine Validator**: Rule-based + LLM-based validation for write operations
 - **Safe Storage**: Electron safeStorage API for API key encryption
-- **Write Path Whitelist**: Only Desktop/Documents directories allowed for file writes
+- **Write Path Whitelist**: Only Desktop/Documents/Downloads directories allowed for file writes
 - **HTTP Safety**: Method whitelist + 1MB body size limit + timeout tiers

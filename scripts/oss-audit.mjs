@@ -55,15 +55,15 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** 只针对「当前机器的用户名」做脱敏——占位符（Default / user / Test / x）一律不碰 */
 const PATH_REDACTIONS = MACHINE_USER
   ? [
-      [new RegExp(`([A-Za-z]:[\\\\/]{1,2}Users[\\\\/]{1,2})${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`, 'g'), '$1<user>'],
+      [new RegExp(`([A-Za-z]:[\\\\/]+Users[\\\\/]+)${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`, 'g'), '$1<user>'],
       [new RegExp(`(\\/Users\\/)${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`, 'g'), '$1<user>'],
       [new RegExp(`(\\/home\\/)${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`, 'g'), '$1<user>']
     ]
   : []
 
-const ANY_USER_PATH = /[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[A-Za-z0-9._-]+|\/home\/[a-z][a-z0-9_-]*\/|\/Users\/[A-Za-z][A-Za-z0-9._-]*\//
+const ANY_USER_PATH = /[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+|\/home\/[a-z][a-z0-9_-]*\/|\/Users\/[A-Za-z][A-Za-z0-9._-]*\//
 const MACHINE_PATH = MACHINE_USER
-  ? new RegExp(`[A-Za-z]:[\\\\/]{1,2}Users[\\\\/]{1,2}${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])|\\/home\\/${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])|\\/Users\\/${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`)
+  ? new RegExp(`[A-Za-z]:[\\\\/]+Users[\\\\/]+${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])|\\/home\\/${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])|\\/Users\\/${escapeRe(MACHINE_USER)}(?![A-Za-z0-9._-])`)
   : /$^/
 
 const RULES = [

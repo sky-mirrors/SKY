@@ -177,7 +177,7 @@ export const useFeedbackStore = defineStore('feedback', () => {
         try {
           if (window.electronAPI?.shellExec) {
             const result = await window.electronAPI.shellExec({
-              command: `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Administrator';const trash=p.join(home,'Desktop','holo-trash');if(!fs.existsSync(trash))fs.mkdirSync(trash,{recursive:true});const src=process.env.SRC_PATH;if(!fs.existsSync(src)){debugLog('SKIP');process.exit(0)}const dest=p.join(trash,'_cancelled_'+Date.now()+'_'+p.basename(src));fs.renameSync(src,dest);debugLog('MOVED:'+dest)"`,
+              command: `node -e "const fs=require('fs');const p=require('path');const home=process.env.USERPROFILE||process.env.HOME||'C:\\\\Users\\\\Public';const trash=p.join(home,'Desktop','holo-trash');if(!fs.existsSync(trash))fs.mkdirSync(trash,{recursive:true});const src=process.env.SRC_PATH;if(!fs.existsSync(src)){debugLog('SKIP');process.exit(0)}const dest=p.join(trash,'_cancelled_'+Date.now()+'_'+p.basename(src));fs.renameSync(src,dest);debugLog('MOVED:'+dest)"`,
               timeout: 5000,
               env: { SRC_PATH: op.filePath }
             })
