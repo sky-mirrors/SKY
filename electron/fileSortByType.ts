@@ -83,6 +83,6 @@ export function planSortByType(names: string[]): SortGroup[] {
 }
 
 /** 全部类别目录名（供 UI/文档展示；顺序 = 表声明顺序） */
-export function knownSortFolders(): string[] {
-  return [...Object.keys(CATEGORY_BY_EXT), NO_EXT_FOLDER]
-}
+// 2026-10-09 删除：`knownSortFolders()` 零引用——注释自称"供 UI/文档展示"，
+// 但全仓（含 .vue 与 docs）从未使用；真要展示可从同文件 CATEGORY_BY_EXT 直接派生。
+// 见 docs/95 §6「真正零凭证的 4 个」。

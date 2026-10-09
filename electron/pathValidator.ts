@@ -88,11 +88,10 @@ const DANGEROUS_EXTENSIONS = [
   '.shb', '.shs', '.jnlp', '.jar', '.website', '.library-ms', '.search-ms',
 ]
 
+// 2026-10-09 删除：`initAllowedDirs(dirs)` 零引用（生产与测试都没人调）——它是"允许目录
+// 可注入"的预留口，但没有任何调用方在为它举证。`_allowedBaseDirs` 本身保留：getAllowedBaseDirs
+// 首次调用时会自行填充它作缓存（见下），注入路径只是多余的旁路。见 docs/95 §6。
 let _allowedBaseDirs: string[] | null = null
-
-export function initAllowedDirs(dirs: string[]): void {
-  _allowedBaseDirs = dirs
-}
 
 export function getAllowedBaseDirs(): string[] {
   if (_allowedBaseDirs) return _allowedBaseDirs
