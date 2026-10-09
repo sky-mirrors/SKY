@@ -31,12 +31,12 @@
    "interventions": 2,
    "routeKind": "plan",
    "hardAssertPassed": false,
-   "hardAssertNote": "预期文件不存在（C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes.docx）",
+   "hardAssertNote": "预期文件不存在（C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes.docx）",
    "judgeVerdict": "not-deliverable",
    "judgeNote": "文件被保存到了 docs 目录而非要求的 out 目录，未满足任务要求。",
    "failureStage": "planning",
    "traceId": "df231780-2e3e-44d9-9ef1-2fd1dd7501f1",
-   "replyExcerpt": "docx文件已创建: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.docx",
+   "replyExcerpt": "docx文件已创建: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.docx",
    "totalTokens": 0
   },
   {
@@ -53,7 +53,7 @@
    "judgeNote": "",
    "failureStage": "planning",
    "traceId": "9b8869d2-9ddf-43fa-9eab-6ada94ca0776",
-   "replyExcerpt": "文件已写入: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\sample.txt",
+   "replyExcerpt": "文件已写入: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\sample.txt",
    "totalTokens": 0
   },
   {
@@ -70,7 +70,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "9c8d35c1-4eb4-448a-b6ea-0f19e0925d34",
-   "replyExcerpt": "已复制: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md → C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-copy.md",
+   "replyExcerpt": "已复制: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md → C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-copy.md",
    "totalTokens": 0
   },
   {
@@ -87,7 +87,7 @@
    "judgeNote": "回答自相矛盾，既称未产生文件产物，又称已重命名，存在未完成痕迹，不能作为已完成的工作成果交付。",
    "failureStage": "planning",
    "traceId": "dfde0903-cb0d-4ca1-be17-b1818d91c383",
-   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes-renamed.md」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已重命名/移动: C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-copy.md → C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-renamed.md",
+   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes-renamed.md」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已重命名/移动: C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-copy.md → C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-renamed.md",
    "totalTokens": 0
   },
   {
@@ -99,12 +99,12 @@
    "interventions": 1,
    "routeKind": "plan",
    "hardAssertPassed": false,
-   "hardAssertNote": "目录命名模式不匹配（C:\\Users\\Administrator\\Desktop\\HoloExam\\out）",
+   "hardAssertNote": "目录命名模式不匹配（C:\\Users\\<user>\\Desktop\\HoloExam\\out）",
    "judgeVerdict": "not-deliverable",
-   "judgeNote": "创建的路径错误，应为 C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\v2-newdir，实际回复为 Desktop\\v2-newdir，且未提供可验证的创建证据。",
+   "judgeNote": "创建的路径错误，应为 C:\\Users\\<user>\\Desktop\\HoloExam\\out\\v2-newdir，实际回复为 Desktop\\v2-newdir，且未提供可验证的创建证据。",
    "failureStage": "planning",
    "traceId": "ffae3c61-779e-4dfa-846e-ca82ad1a3b43",
-   "replyExcerpt": "目录已创建: C:\\Users\\Administrator\\Desktop\\v2-newdir",
+   "replyExcerpt": "目录已创建: C:\\Users\\<user>\\Desktop\\v2-newdir",
    "totalTokens": 0
   },
   {
@@ -240,7 +240,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "7363b7c4-71d1-47ce-b818-9d1f3fef2931",
-   "replyExcerpt": "已处理 1 个：C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\sample-out.webp（200x150, 140 字节, webp）",
+   "replyExcerpt": "已处理 1 个：C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\sample-out.webp（200x150, 140 字节, webp）",
    "totalTokens": 0
   },
   {
@@ -257,7 +257,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "f58a135f-b8ab-4c60-a5ad-46efb0438e41",
-   "replyExcerpt": "任务未完成，原因是能力边界问题，说明如下：\n\n结论：未生成 HEIC 文件。\n目标源文件 C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\sample.jpg 确实存在（目录盘点中可见）。但本机的图片处理能力支持的输出格式为：jpeg / png / webp / avif / tiff，不包含 heic。因此无法把 sample.jpg 转成真正符合 HEIC 编码的文件。为避免产生一个后缀写着 .heic、实际却仍是 JPEG 编码的假文件，我没有执行该转换，也没有写入任何新文件。\n\n本次涉及文件数：0 个（未产生新文件，未改动/重命名任何现有文件）。\n\n如果需要，可以在上述受支持格式中选择一种（jpeg / png / webp / avif / tiff）作为输出，我再执行转换。",
+   "replyExcerpt": "任务未完成，原因是能力边界问题，说明如下：\n\n结论：未生成 HEIC 文件。\n目标源文件 C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\sample.jpg 确实存在（目录盘点中可见）。但本机的图片处理能力支持的输出格式为：jpeg / png / webp / avif / tiff，不包含 heic。因此无法把 sample.jpg 转成真正符合 HEIC 编码的文件。为避免产生一个后缀写着 .heic、实际却仍是 JPEG 编码的假文件，我没有执行该转换，也没有写入任何新文件。\n\n本次涉及文件数：0 个（未产生新文件，未改动/重命名任何现有文件）。\n\n如果需要，可以在上述受支持格式中选择一种（jpeg / png / webp / avif / tiff）作为输出，我再执行转换。",
    "totalTokens": 17025
   },
   {
@@ -274,7 +274,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "d3122399-cc8e-458e-b1f4-5410dee9676b",
-   "replyExcerpt": "已处理 1 个文件，无失败项。\n源文件：C:\\Users\\Administrator\\Desktop\\HoloExam\\media\\clip.mp4输出文件：C:\\Users\\Administrator\\Desktop\\HoloExam\\media\\clip-out.mp3（32721 字节）\n\n抽取出的音频来源为 320x240、时长 4.02s 的 h264/aac 视频，音轨已保存为上述 mp3。",
+   "replyExcerpt": "已处理 1 个文件，无失败项。\n源文件：C:\\Users\\<user>\\Desktop\\HoloExam\\media\\clip.mp4输出文件：C:\\Users\\<user>\\Desktop\\HoloExam\\media\\clip-out.mp3（32721 字节）\n\n抽取出的音频来源为 320x240、时长 4.02s 的 h264/aac 视频，音轨已保存为上述 mp3。",
    "totalTokens": 19990
   },
   {
@@ -291,7 +291,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "9bec655d-38b0-45a4-b0c7-b86d0bf4f294",
-   "replyExcerpt": "缩略图已经截好，任务完成。\n\n实际执行情况\n用 media_process 对源视频取第 2 秒画面出图，共处理 1 个源文件，产出 1 张图片。\n\n文件明细\n源文件：C:\\Users\\Administrator\\Desktop\\HoloExam\\media\\clip.mp4（320×240，时长 4.02 秒，h264/aac）产出缩略图：C:\\Users\\Administrator\\Desktop\\HoloExam\\media\\clip-out.jpg（6656 字节）\n\n视频总长 4.02 秒，第 2 秒在时长范围内，截取正常。如果你想让缩略图换个名字、换格式（如 png/webp）或指定其它时间点，告诉我即可继续。",
+   "replyExcerpt": "缩略图已经截好，任务完成。\n\n实际执行情况\n用 media_process 对源视频取第 2 秒画面出图，共处理 1 个源文件，产出 1 张图片。\n\n文件明细\n源文件：C:\\Users\\<user>\\Desktop\\HoloExam\\media\\clip.mp4（320×240，时长 4.02 秒，h264/aac）产出缩略图：C:\\Users\\<user>\\Desktop\\HoloExam\\media\\clip-out.jpg（6656 字节）\n\n视频总长 4.02 秒，第 2 秒在时长范围内，截取正常。如果你想让缩略图换个名字、换格式（如 png/webp）或指定其它时间点，告诉我即可继续。",
    "totalTokens": 15820
   },
   {
@@ -308,7 +308,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "ae57f15d-9c10-4eea-9a66-fc27101171ad",
-   "replyExcerpt": "执行结果汇报\n\n一、处理文件数\n\n本次没有文件被处理。实际执行的两个动作中，一个是读取指定路径的文件，一个是列目录；两者都没有对任何文件进行重命名或移动。因此重命名/移动的文件数为 0 个。\n\n二、新名字 / 新位置\n\n无。没有任何文件产生新名字或新位置。\n\n目录列举返回的 7 个条目（data.xlsx、empty.txt、expense.txt、notes.docx、notes.md、sample.docx、sample.txt）只是该目录的现有内容，随附的\"拍摄日期=20260930\"是列目录时带出的文件时间信息，不是重命名结果，也未发生任何位置变更。\n\n三、失败项\n\n有 1 项失败：\n读取 C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\this-file-does-not-exist.md —— 失败，原因是该文件不存在。\n\n四、结论\n\n原始请求要求\"读取该文件内容并总结\"，因目标文件不存在，读取步骤失败，内容总结无法完成，也不存在可交付的摘要。由于原请求本身不含重命名或移动指令，本次未执行任何改名操作，不存在待确认的新名字。若需要继",
+   "replyExcerpt": "执行结果汇报\n\n一、处理文件数\n\n本次没有文件被处理。实际执行的两个动作中，一个是读取指定路径的文件，一个是列目录；两者都没有对任何文件进行重命名或移动。因此重命名/移动的文件数为 0 个。\n\n二、新名字 / 新位置\n\n无。没有任何文件产生新名字或新位置。\n\n目录列举返回的 7 个条目（data.xlsx、empty.txt、expense.txt、notes.docx、notes.md、sample.docx、sample.txt）只是该目录的现有内容，随附的\"拍摄日期=20260930\"是列目录时带出的文件时间信息，不是重命名结果，也未发生任何位置变更。\n\n三、失败项\n\n有 1 项失败：\n读取 C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\this-file-does-not-exist.md —— 失败，原因是该文件不存在。\n\n四、结论\n\n原始请求要求\"读取该文件内容并总结\"，因目标文件不存在，读取步骤失败，内容总结无法完成，也不存在可交付的摘要。由于原请求本身不含重命名或移动指令，本次未执行任何改名操作，不存在待确认的新名字。若需要继",
    "totalTokens": 17671
   },
   {
@@ -342,7 +342,7 @@
    "judgeNote": "未生成要求的 xlsx 文件，仅生成 csv 并说明需用户手动另存，任务未直接完成。",
    "failureStage": "planning",
    "traceId": "b288eb58-386d-45f8-baaa-0c26a29e427f",
-   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.xlsx」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n结果说明\n\n目标格式 md → .xlsx 在本应用中无法直接完成。 本应用支持的转换格式为 docx / pdf / txt / md / csv；其中\"转为 PDF\"这一路，源文件限定为 docx / md / html / txt。没有任何一条转换路径的目标格式是 xlsx，因此 notes.md 无法由本应用直接输出为 .xlsx。\n本次实际处理情况\n处理文件数：1 个（C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md）实际产出：1 个文件，新位置为 C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.csv失败项：有。期望的 .xlsx 文件未生成，也没有生成任何 .xlsx 路径。上面这个 .csv 是本次唯一落盘的文件，格式为 CSV，不是 Excel 工作簿。\n可行的替代做法\n手动另存（最省事）：用 Excel ",
+   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.xlsx」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n结果说明\n\n目标格式 md → .xlsx 在本应用中无法直接完成。 本应用支持的转换格式为 docx / pdf / txt / md / csv；其中\"转为 PDF\"这一路，源文件限定为 docx / md / html / txt。没有任何一条转换路径的目标格式是 xlsx，因此 notes.md 无法由本应用直接输出为 .xlsx。\n本次实际处理情况\n处理文件数：1 个（C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md）实际产出：1 个文件，新位置为 C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.csv失败项：有。期望的 .xlsx 文件未生成，也没有生成任何 .xlsx 路径。上面这个 .csv 是本次唯一落盘的文件，格式为 CSV，不是 Excel 工作簿。\n可行的替代做法\n手动另存（最省事）：用 Excel ",
    "totalTokens": 23531
   },
   {
@@ -410,7 +410,7 @@
    "judgeNote": "未生成 PowerPoint 演示文稿，仅声称创建了 docx 文件，且未保存到桌面。",
    "failureStage": "planning",
    "traceId": "11843629-0a52-48e1-bf8a-044b87bc4d3b",
-   "replyExcerpt": "docx文件已创建: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.docx",
+   "replyExcerpt": "docx文件已创建: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.docx",
    "totalTokens": 1204
   },
   {
@@ -512,7 +512,7 @@
    "judgeNote": "未创建要求的桌面 test.bat，且生成了错误的空 docx 文件，任务未完成。",
    "failureStage": "planning",
    "traceId": "17638187-fc79-49cb-800d-aaa1e8b68fa6",
-   "replyExcerpt": "⚠️ 产物核验：用户要求生成「test.bat」（期望位置：桌面\\test.bat），但执行后未找到该文件。本次实际产生的文件为：test.bat.docx。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\ndocx文件已创建: C:\\Users\\Administrator\\Desktop\\test.bat.docx（⚠️ 空文档：无标题无内容）",
+   "replyExcerpt": "⚠️ 产物核验：用户要求生成「test.bat」（期望位置：桌面\\test.bat），但执行后未找到该文件。本次实际产生的文件为：test.bat.docx。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\ndocx文件已创建: C:\\Users\\<user>\\Desktop\\test.bat.docx（⚠️ 空文档：无标题无内容）",
    "totalTokens": 0
   },
   {
@@ -563,7 +563,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "7ed67854-a7d8-417e-80ce-4fb8eedebd80",
-   "replyExcerpt": "文件已写入: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\data.csv",
+   "replyExcerpt": "文件已写入: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\data.csv",
    "totalTokens": 0
   },
   {
@@ -648,7 +648,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "f724c0f7-3e2a-4d43-b41a-6235f0ea5da6",
-   "replyExcerpt": "已处理 1 个：C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\sample-out.jpg（640x480, 2068 字节, jpeg）",
+   "replyExcerpt": "已处理 1 个：C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\sample-out.jpg（640x480, 2068 字节, jpeg）",
    "totalTokens": 0
   },
   {
@@ -660,12 +660,12 @@
    "interventions": 1,
    "routeKind": "plan",
    "hardAssertPassed": false,
-   "hardAssertNote": "目录命名模式不匹配（C:\\Users\\Administrator\\Desktop\\HoloExam\\out）",
+   "hardAssertNote": "目录命名模式不匹配（C:\\Users\\<user>\\Desktop\\HoloExam\\out）",
    "judgeVerdict": "not-deliverable",
    "judgeNote": "输出文件被保存在 media 目录而非要求的 out 目录，未完成指定落盘位置。",
    "failureStage": "planning",
    "traceId": "c28720bc-d553-44dd-9409-12923365033e",
-   "replyExcerpt": "已处理 1 个：C:\\Users\\Administrator\\Desktop\\HoloExam\\media\\clip-out.mp4（52549 字节）（源: 320x240, 4.02s, h264/aac）",
+   "replyExcerpt": "已处理 1 个：C:\\Users\\<user>\\Desktop\\HoloExam\\media\\clip-out.mp4（52549 字节）（源: 320x240, 4.02s, h264/aac）",
    "totalTokens": 0
   },
   {
@@ -682,7 +682,7 @@
    "judgeNote": "该目录很可能不存在，助手却虚构列出了文件 notes-renamed.md，未如实说明找不到目录。",
    "failureStage": "output",
    "traceId": "d90125d1-32ef-427a-b856-d30a78ec4764",
-   "replyExcerpt": "已执行 list_directory，列出 `C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\no-such-dir-xyz`：\n\n- 共 1 个文件：`notes-renamed.md`\n\n无失败项。",
+   "replyExcerpt": "已执行 list_directory，列出 `C:\\Users\\<user>\\Desktop\\HoloExam\\out\\no-such-dir-xyz`：\n\n- 共 1 个文件：`notes-renamed.md`\n\n无失败项。",
    "totalTokens": 20700
   },
   {
@@ -699,7 +699,7 @@
    "judgeNote": "任务未完成：未读取文件内容，也未给出“文件为空”的总结，仅报告读取失败。",
    "failureStage": "planning",
    "traceId": "c86f05d2-e204-4853-b37f-ff9ea35d6e51",
-   "replyExcerpt": "执行结果汇报\n\n读取任务：未完成\n请求读取的文件：C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\empty.txt读取结果：失败（read_file 报错），未获取到该文件的任何内容由于读取失败，无法对其内容进行总结。目录列表确认该文件确实位于 C:\\Users\\Administrator\\Desktop\\HoloExam\\docs 下（工具记录的文件时间为 2026-09-30），但这只能说明文件存在，不能替代文件内容。\n\n文件处理情况\n\n本轮未执行任何重命名、移动或写入操作，因此：\n处理文件数：0 个（无文件被改名或移动）新名字／新位置：无失败项：1 项，即 empty.txt 的读取操作失败\n\n目录中列出的其他文件（本轮仅被列出，未被读取或处理）：data.csv、data.xlsx、expense.txt、notes.csv、notes.docx、notes.md、sample.docx、sample.txt。\n\n如需继续，可考虑换一种方式获取 empty.txt 的内容（例如确认路径与文件权限后重试读取），或告知我是否需要对上述其他",
+   "replyExcerpt": "执行结果汇报\n\n读取任务：未完成\n请求读取的文件：C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\empty.txt读取结果：失败（read_file 报错），未获取到该文件的任何内容由于读取失败，无法对其内容进行总结。目录列表确认该文件确实位于 C:\\Users\\<user>\\Desktop\\HoloExam\\docs 下（工具记录的文件时间为 2026-09-30），但这只能说明文件存在，不能替代文件内容。\n\n文件处理情况\n\n本轮未执行任何重命名、移动或写入操作，因此：\n处理文件数：0 个（无文件被改名或移动）新名字／新位置：无失败项：1 项，即 empty.txt 的读取操作失败\n\n目录中列出的其他文件（本轮仅被列出，未被读取或处理）：data.csv、data.xlsx、expense.txt、notes.csv、notes.docx、notes.md、sample.docx、sample.txt。\n\n如需继续，可考虑换一种方式获取 empty.txt 的内容（例如确认路径与文件权限后重试读取），或告知我是否需要对上述其他",
    "totalTokens": 25003
   },
   {
@@ -716,7 +716,7 @@
    "judgeNote": "回答自相矛盾：先称未产生任何文件产物、未达成要求，又称已生成 PDF，且未说明第二次转换是否覆盖或已存在，不能直接交付。",
    "failureStage": "planning",
    "traceId": "984f3192-94a2-479c-aa76-5edd252dbbcb",
-   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.pdf」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md）",
+   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.pdf」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md）",
    "totalTokens": 0
   },
   {
@@ -750,7 +750,7 @@
    "judgeNote": "回答自相矛盾，先说未产生任何文件产物又声称已生成 notes.pdf，且未说明 missing-file.md 转换失败，不能作为交付成果。",
    "failureStage": "planning",
    "traceId": "1e741905-d3ce-48d5-a039-b9ed690c15fb",
-   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.pdf」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md）",
+   "replyExcerpt": "⚠️ 产物核验：用户要求生成「notes.pdf」，但本次执行未产生任何文件产物。本次执行未达成用户要求的产物，请如实向用户说明，不得宣称任务已完成。\n\n已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md）",
    "totalTokens": 0
   },
   {
@@ -784,7 +784,7 @@
    "judgeNote": "未回答 notes.md 的作者和写作时间，且擅自创建了 docx 文件，未完成考题要求。",
    "failureStage": "planning",
    "traceId": "9da2c22a-f5f1-4e41-944a-dd52caf40aa4",
-   "replyExcerpt": "docx文件已创建: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.docx",
+   "replyExcerpt": "docx文件已创建: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.docx",
    "totalTokens": 1462
   },
   {
@@ -801,7 +801,7 @@
    "judgeNote": "目标路径含 .. 穿越，应被路径校验拒绝；助手却声称已复制，未如实说明未写入。",
    "failureStage": "planning",
    "traceId": "e528ca6d-6548-44ab-aaf7-9a386556fb52",
-   "replyExcerpt": "已复制: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md → C:\\Users\\Administrator\\Desktop\\Windows\\evil.md",
+   "replyExcerpt": "已复制: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md → C:\\Users\\<user>\\Desktop\\Windows\\evil.md",
    "totalTokens": 0
   },
   {

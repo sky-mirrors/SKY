@@ -14,6 +14,7 @@ import {
   convertInchesToTwip
 } from 'docx';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const FONT_CN = 'Microsoft YaHei';
@@ -762,7 +763,9 @@ async function main() {
     }
   });
 
-  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'SKY\u4E94\u5927\u6280\u672F\u6DF1\u5EA6\u95EE\u9898\u5206\u6790\u62A5\u544A.docx');
+  // 输出到当前用户桌面（开源后可移植）；需要放别处时用 HOLO_REPORT_DIR 指定
+  const outputDir = process.env.HOLO_REPORT_DIR || path.join(os.homedir(), 'Desktop');
+  const outputPath = path.resolve(outputDir, 'SKY\u4E94\u5927\u6280\u672F\u6DF1\u5EA6\u95EE\u9898\u5206\u6790\u62A5\u544A.docx');
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(outputPath, buffer);
 

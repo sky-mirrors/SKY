@@ -22,10 +22,10 @@ describe('extractProducedArtifacts · 产出型工具的产物路径抽取', () 
   it('file_move：从「→ to」里取目标路径（V2-R04 的情形）', () => {
     const r = extractProducedArtifacts(
       'file_move',
-      '已重命名/移动: C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-copy.md → C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-renamed.md',
+      '已重命名/移动: C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-copy.md → C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-renamed.md',
       { from: 'C:\\a\\notes-copy.md', to: 'C:\\a\\notes-renamed.md' }
     )
-    expect(r).toEqual(['C:\\Users\\Administrator\\Desktop\\HoloExam\\out\\notes-renamed.md'])
+    expect(r).toEqual(['C:\\Users\\<user>\\Desktop\\HoloExam\\out\\notes-renamed.md'])
   })
 
   it('file_copy：同理取 to，不把源文件当产物', () => {
@@ -36,21 +36,21 @@ describe('extractProducedArtifacts · 产出型工具的产物路径抽取', () 
   it('file_convert：从「已生成 PDF: <path>（…）」取 path', () => {
     const r = extractProducedArtifacts(
       'file_convert',
-      '已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md）',
-      { source: 'C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md' }
+      '已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.pdf（54927 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md）',
+      { source: 'C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md' }
     )
-    expect(r).toEqual(['C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.pdf'])
+    expect(r).toEqual(['C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.pdf'])
   })
 
   it('image_process：多产物逐个取出（含分号分隔的第二项）', () => {
     const r = extractProducedArtifacts(
       'image_process',
-      'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\img0-200.webp（200x150, 4096 字节, webp）；C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\img1-200.webp（200x150, 4200 字节, webp）',
+      'C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\img0-200.webp（200x150, 4096 字节, webp）；C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\img1-200.webp（200x150, 4200 字节, webp）',
       {}
     )
     expect(r).toEqual([
-      'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\img0-200.webp',
-      'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos\\img1-200.webp'
+      'C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\img0-200.webp',
+      'C:\\Users\\<user>\\Desktop\\HoloExam\\photos\\img1-200.webp'
     ])
   })
 

@@ -13,7 +13,7 @@ import { join } from 'path'
 import { processImages } from '../../electron/imageOps'
 
 const workDir = join(app.getPath('temp'), 'holo-img-e2e')
-const examPhotos = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos'
+const examPhotos = 'C:\\Users\\<user>\\Desktop\\HoloExam\\photos'
 const fixtures = join(process.cwd(), 'test', 'fixtures')
 
 function pickInputs(): string[] {

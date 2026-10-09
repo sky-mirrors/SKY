@@ -67,7 +67,7 @@ describe('filterByExt：按扩展名过滤目录项', () => {
 
 describe('formatExtListing：渲染确定性清单（纯文本换行，不用 markdown 列表）', () => {
   it('非空：头部给出目录与数量，正文每行一个文件名', () => {
-    const out = formatExtListing('C:\\Users\\Administrator\\Desktop', 'docx', ['a.docx', 'b.docx'])
+    const out = formatExtListing('C:\\Users\\<user>\\Desktop', 'docx', ['a.docx', 'b.docx'])
     expect(out).toContain('共 2 个')
     const bodyLines = out.split('\n').slice(1)
     expect(bodyLines).toEqual(['a.docx', 'b.docx'])

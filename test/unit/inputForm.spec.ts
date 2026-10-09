@@ -70,9 +70,9 @@ describe('P0-A inputForm：附件与路径检测', () => {
   })
 
   it('识别盘符路径与 ~/ 路径', () => {
-    const info = detectInputForm('请读取 C:\\Users\\Administrator\\Desktop\\HoloExam\\会议记录.docx 整理成纪要')
+    const info = detectInputForm('请读取 C:\\Users\\<user>\\Desktop\\HoloExam\\会议记录.docx 整理成纪要')
     expect(info.hasFilePath).toBe(true)
-    expect(info.filePaths[0]).toBe('C:\\Users\\Administrator\\Desktop\\HoloExam\\会议记录.docx')
+    expect(info.filePaths[0]).toBe('C:\\Users\\<user>\\Desktop\\HoloExam\\会议记录.docx')
 
     const info2 = detectInputForm('看看 ~/notes/会议记录.md')
     expect(info2.hasFilePath).toBe(true)

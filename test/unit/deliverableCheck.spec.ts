@@ -42,11 +42,11 @@ describe('extractRequestedArtifact', () => {
   })
 
   it('复考Q3/Q18句式：转格式+同文件夹+指定文件名 → 完整目标路径', () => {
-    const r = extractRequestedArtifact('把 C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 项目周报.pdf')
+    const r = extractRequestedArtifact('把 C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 项目周报.pdf')
     expect(r).not.toBeNull()
     expect(r!.fileName).toBe('项目周报.pdf')
-    expect(r!.dir).toBe('C:\\Users\\Administrator\\Desktop\\HoloExam')
-    expect(r!.path).toBe('C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.pdf')
+    expect(r!.dir).toBe('C:\\Users\\<user>\\Desktop\\HoloExam')
+    expect(r!.path).toBe('C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.pdf')
   })
 
   it('转格式无显式文件名 → 由源文件名+新扩展名推断', () => {
@@ -154,7 +154,7 @@ describe('conformanceCheck', () => {
 
   it('产物名称与要求不符 → no-artifact 列出实际产物（Q14病理）', async () => {
     mockShellExec('STATDONE')
-    const r = await conformanceCheck('把 C:\\src\\采购合同.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 采购合同.pdf', ['C:\\Users\\Administrator\\Desktop\\新建文档.docx'])
+    const r = await conformanceCheck('把 C:\\src\\采购合同.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 采购合同.pdf', ['C:\\Users\\<user>\\Desktop\\新建文档.docx'])
     expect(r.status).toBe('no-artifact')
     expect(r.detail).toContain('新建文档.docx')
     expect(r.detail).toContain('采购合同.pdf')

@@ -70,7 +70,7 @@
       "judgeNote": "",
       "failureStage": null,
       "traceId": "9151e840-b2cb-4c36-87ef-b7b8490eaeca",
-      "replyExcerpt": "已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.pdf（51045 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.docx）",
+      "replyExcerpt": "已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.pdf（51045 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.docx）",
       "totalTokens": 0
     },
     {
@@ -257,7 +257,7 @@
       "judgeNote": "",
       "failureStage": null,
       "traceId": "1c95765f-e71a-4b0c-84bd-dfb639f3fd54",
-      "replyExcerpt": "C:\\Users\\Administrator\\Desktop 目录下的 .docx 文件共 7 个：\n\n快照-九批.docx\n\n新建文档.docx\n\nholo-result-2026-09-23T14-13-46.docx\n\nholo-result-2026-09-23T18-11-58.docx\n\nholo-result-2026-09-24T03-33-10.docx\n\nholo-result-2026-09-24T14-28-06.docx\n\nholo-result-2026-09-25T17-25-26.docx",
+      "replyExcerpt": "C:\\Users\\<user>\\Desktop 目录下的 .docx 文件共 7 个：\n\n快照-九批.docx\n\n新建文档.docx\n\nholo-result-2026-09-23T14-13-46.docx\n\nholo-result-2026-09-23T18-11-58.docx\n\nholo-result-2026-09-24T03-33-10.docx\n\nholo-result-2026-09-24T14-28-06.docx\n\nholo-result-2026-09-25T17-25-26.docx",
       "totalTokens": 1577
     },
     {
@@ -274,7 +274,7 @@
       "judgeNote": "",
       "failureStage": null,
       "traceId": "c7cf8eaf-44be-4ef6-9c86-b097ebeb49f3",
-      "replyExcerpt": "已按拍摄日期重命名 16 张图片（C:\\Users\\Administrator\\Desktop\\HoloExam\\photos，日期来源：文件系统时间）：\n\n20191207-01.jpg → 20191207-01.jpg\n\n20191207-02.jpg → 20191207-02.jpg\n\n20191207-03.jpg → 20191207-03.jpg\n\n20191207-04.jpg → 20191207-04.jpg\n\n20191207-05.jpg → 20191207-05.jpg\n\n20191207-06.jpg → 20191207-06.jpg\n\n20191207-07.jpg → 20191207-07.jpg\n\n20191207-08.jpg → 20191207-08.jpg\n\n20191207-09.jpg → 20191207-09.jpg\n\nimg1.jpg → 20191207-10.jpg\n\nimg2.jpg → 20191207-11.jpg\n\nimg3.jpg → 20191207-12.jpg\n\n20260919-01.jpg → 2026",
+      "replyExcerpt": "已按拍摄日期重命名 16 张图片（C:\\Users\\<user>\\Desktop\\HoloExam\\photos，日期来源：文件系统时间）：\n\n20191207-01.jpg → 20191207-01.jpg\n\n20191207-02.jpg → 20191207-02.jpg\n\n20191207-03.jpg → 20191207-03.jpg\n\n20191207-04.jpg → 20191207-04.jpg\n\n20191207-05.jpg → 20191207-05.jpg\n\n20191207-06.jpg → 20191207-06.jpg\n\n20191207-07.jpg → 20191207-07.jpg\n\n20191207-08.jpg → 20191207-08.jpg\n\n20191207-09.jpg → 20191207-09.jpg\n\nimg1.jpg → 20191207-10.jpg\n\nimg2.jpg → 20191207-11.jpg\n\nimg3.jpg → 20191207-12.jpg\n\n20260919-01.jpg → 2026",
       "totalTokens": 0
     },
     {
@@ -325,7 +325,7 @@
       "judgeNote": "",
       "failureStage": null,
       "traceId": "615f5747-aea4-4d59-aa5d-b23d16b43ae8",
-      "replyExcerpt": "已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.pdf（46436 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.docx）",
+      "replyExcerpt": "已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.pdf（46436 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.docx）",
       "totalTokens": 0
     }
   ],

@@ -3,13 +3,15 @@
 // 用法：在仓库根 `node docs/exam-fixtures/make-fixtures.cjs`
 // 只新增（docs/ media/ out/ 与 photos/sample.jpg），不动既有 V1 素材。
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const sharp = require('sharp')
 const XLSX = require('xlsx')
 const { Document, Packer, Paragraph, HeadingLevel } = require('docx')
 
-const ROOT = 'C:\\Users\\Administrator\\Desktop\\HoloExam'
+// 夹具落在当前用户桌面（开源后可移植，不再绑死某一台机器）；需要放别处时用 HOLO_EXAM_DIR 指定
+const ROOT = process.env.HOLO_EXAM_DIR || path.join(os.homedir(), 'Desktop', 'HoloExam')
 const DOCS = path.join(ROOT, 'docs')
 const MEDIA = path.join(ROOT, 'media')
 const OUT = path.join(ROOT, 'out')

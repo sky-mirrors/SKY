@@ -265,7 +265,7 @@ const doc = new Document({
 })
 
 Packer.toBuffer(doc).then(buf => {
-  const outPath = 'C:\\Users\\Administrator\\Desktop\\SKY行业对比报告.docx'
+  const outPath = 'C:\\Users\\<user>\\Desktop\\SKY行业对比报告.docx'
   fs.writeFileSync(outPath, buf)
   console.log('Report saved:', outPath)
 }).catch(err => {

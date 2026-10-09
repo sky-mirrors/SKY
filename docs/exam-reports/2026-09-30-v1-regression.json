@@ -70,7 +70,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "7f68bc6f-b1fc-48fa-97e3-b42dd2cf79b7",
-   "replyExcerpt": "已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.pdf（51045 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.docx）",
+   "replyExcerpt": "已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.pdf（51045 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.docx）",
    "totalTokens": 0
   },
   {
@@ -274,7 +274,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "66934312-bede-4ae5-96a2-6328c715ec03",
-   "replyExcerpt": "已按拍摄日期重命名 4 张图片（C:\\Users\\Administrator\\Desktop\\HoloExam\\photos，日期来源：文件系统时间）：\n\nimg1.jpg → 20191207-01.jpg\n\nimg2.jpg → 20191207-02.jpg\n\nimg3.jpg → 20191207-03.jpg\n\nimg0.jpg → 20260919-01.jpg",
+   "replyExcerpt": "已按拍摄日期重命名 4 张图片（C:\\Users\\<user>\\Desktop\\HoloExam\\photos，日期来源：文件系统时间）：\n\nimg1.jpg → 20191207-01.jpg\n\nimg2.jpg → 20191207-02.jpg\n\nimg3.jpg → 20191207-03.jpg\n\nimg0.jpg → 20260919-01.jpg",
    "totalTokens": 0
   },
   {
@@ -325,7 +325,7 @@
    "judgeNote": "",
    "failureStage": null,
    "traceId": "604bc668-4138-4764-83eb-6cc8e0039738",
-   "replyExcerpt": "已生成 PDF: C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.pdf（46436 字节，源文件: C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.docx）",
+   "replyExcerpt": "已生成 PDF: C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.pdf（46436 字节，源文件: C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.docx）",
    "totalTokens": 0
   }
  ],

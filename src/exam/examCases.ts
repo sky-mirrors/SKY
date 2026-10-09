@@ -57,7 +57,7 @@ export interface ExamCase {
 }
 
 // 桌面考试素材目录（准备清单见 docs/60-测试与验收.md）
-export const EXAM_FIXTURE_DIR = 'C:\\Users\\Administrator\\Desktop\\HoloExam'
+export const EXAM_FIXTURE_DIR = 'C:\\Users\\<user>\\Desktop\\HoloExam'
 
 const CONTRACT_TEXT = `采购合同（编号：CG-2026-0417）
 甲方：华东智联科技有限公司
@@ -133,10 +133,10 @@ export const EXAM_CASES: ExamCase[] = [
     id: 'Q3',
     category: 'doc',
     title: '文件转 PDF',
-    prompt: `把 C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 项目周报.pdf。做完告诉我文件在哪里。`,
+    prompt: `把 C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.docx 转成 PDF 格式，输出到同一个文件夹里，文件名叫 项目周报.pdf。做完告诉我文件在哪里。`,
     requiresFixture: true,
     assertions: [
-      { kind: 'fileExists', path: 'C:\\Users\\Administrator\\Desktop\\HoloExam\\项目周报.pdf' }
+      { kind: 'fileExists', path: 'C:\\Users\\<user>\\Desktop\\HoloExam\\项目周报.pdf' }
     ],
     judgeHint: '以 PDF 文件真实生成且路径明确为主要判据；只说"已完成"但无法确认文件存在不算可交付。'
   },
@@ -250,10 +250,10 @@ export const EXAM_CASES: ExamCase[] = [
     id: 'Q15',
     category: 'file',
     title: '图片按日期重命名',
-    prompt: `把 C:\\Users\\Administrator\\Desktop\\HoloExam\\photos 文件夹里的图片按拍摄日期重命名，命名格式是 日期-序号.jpg（例如 20260315-01.jpg），同一天的按序号排。重命名完告诉我一共有几张图片、新文件名分别是什么。`,
+    prompt: `把 C:\\Users\\<user>\\Desktop\\HoloExam\\photos 文件夹里的图片按拍摄日期重命名，命名格式是 日期-序号.jpg（例如 20260315-01.jpg），同一天的按序号排。重命名完告诉我一共有几张图片、新文件名分别是什么。`,
     requiresFixture: true,
     assertions: [
-      { kind: 'dirPattern', dir: 'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos', pattern: '^\\d{8}-\\d{2}\\.(jpg|jpeg|png)$' }
+      { kind: 'dirPattern', dir: 'C:\\Users\\<user>\\Desktop\\HoloExam\\photos', pattern: '^\\d{8}-\\d{2}\\.(jpg|jpeg|png)$' }
     ],
     judgeHint: '文件夹内全部图片完成重命名且符合 YYYYMMDD-序号 格式，报告张数与新文件名。口径（2026-09-25 校准，与素材自洽）：本机这批图片不含 EXIF，用户已裁定「无 EXIF 时以文件系统时间为拍摄日期」，故模型按文件系统时间重命名即属正确完成；如实标注日期来源（EXIF 标签名 / 取自文件系统时间）、附一句说明或询问是否需按 EXIF 重做，均视为完成，不得以「未使用 EXIF 拍摄日期」「需用户再确认」为由判为不可交付。'
   },
@@ -282,10 +282,10 @@ export const EXAM_CASES: ExamCase[] = [
     id: 'Q18',
     category: 'file',
     title: '合同转 PDF（长文本）',
-    prompt: `把 C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.docx 转成 PDF 格式，保存到同一个文件夹，文件名叫 采购合同.pdf。完成后告诉我文件在哪里。`,
+    prompt: `把 C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.docx 转成 PDF 格式，保存到同一个文件夹，文件名叫 采购合同.pdf。完成后告诉我文件在哪里。`,
     requiresFixture: true,
     assertions: [
-      { kind: 'fileExists', path: 'C:\\Users\\Administrator\\Desktop\\HoloExam\\采购合同.pdf' }
+      { kind: 'fileExists', path: 'C:\\Users\\<user>\\Desktop\\HoloExam\\采购合同.pdf' }
     ],
     judgeHint: '以 PDF 文件真实生成且路径明确为主要判据；只说"已完成"但无法确认文件存在不算可交付。'
   }

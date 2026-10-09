@@ -16,6 +16,7 @@ import {
   convertInchesToTwip
 } from 'docx';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const FONT_CN = 'Microsoft YaHei';
@@ -1085,7 +1086,9 @@ async function main() {
     }
   });
 
-  const outputPath = path.resolve('C:\\Users\\Administrator\\Desktop', 'SKY功能全景与业界对比（技术深度版）.docx');
+  // 输出到当前用户桌面（开源后可移植）；需要放别处时用 HOLO_REPORT_DIR 指定
+  const outputDir = process.env.HOLO_REPORT_DIR || path.join(os.homedir(), 'Desktop');
+  const outputPath = path.resolve(outputDir, 'SKY功能全景与业界对比（技术深度版）.docx');
   const buffer = await Packer.toBuffer(doc);
   fs.writeFileSync(outputPath, buffer);
 

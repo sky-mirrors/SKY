@@ -594,7 +594,7 @@ const doc = new Document({
 })
 
 Packer.toBuffer(doc).then(buf => {
-  const outPath = 'C:\\Users\\Administrator\\Desktop\\SKY Benchmark Test Report.docx'
+  const outPath = 'C:\\Users\\<user>\\Desktop\\SKY Benchmark Test Report.docx'
   fs.writeFileSync(outPath, buf)
   console.log('Report saved:', outPath, '(' + Math.round(buf.length / 1024) + ' KB)')
 }).catch(err => {

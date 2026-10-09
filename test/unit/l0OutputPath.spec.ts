@@ -16,8 +16,8 @@ import { extractOutputDir, buildOutputPath } from '@/services/l0SkillRouter'
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('extractOutputDir · 从用户输入解析输出目录', () => {
-  const OUT = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\out'
-  const SRC = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md'
+  const OUT = 'C:\\Users\\<user>\\Desktop\\HoloExam\\out'
+  const SRC = 'C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md'
 
   it('识别「存到 <绝对路径> 下」（V2-R01 的真实形态）', () => {
     expect(extractOutputDir(`把 ${SRC} 转成 docx，存到 ${OUT} 下`)).toBe(OUT)
@@ -43,8 +43,8 @@ describe('extractOutputDir · 从用户输入解析输出目录', () => {
 })
 
 describe('buildOutputPath · 产物绝对路径组装', () => {
-  const SRC = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.md'
-  const OUT = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\out'
+  const SRC = 'C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.md'
+  const OUT = 'C:\\Users\\<user>\\Desktop\\HoloExam\\out'
 
   it('用户指定了目录 → 产物落该目录，文件名沿用源文件主干', () => {
     expect(buildOutputPath(SRC, 'docx', `把 ${SRC} 转成 docx，存到 ${OUT} 下`))
@@ -52,7 +52,7 @@ describe('buildOutputPath · 产物绝对路径组装', () => {
   })
 
   it('未指定目录 → 退回源文件同目录（保持既有行为，不得回归）', () => {
-    expect(buildOutputPath(SRC, 'docx', `把 ${SRC} 转成 docx`)).toBe('C:\\Users\\Administrator\\Desktop\\HoloExam\\docs\\notes.docx')
+    expect(buildOutputPath(SRC, 'docx', `把 ${SRC} 转成 docx`)).toBe('C:\\Users\\<user>\\Desktop\\HoloExam\\docs\\notes.docx')
   })
 
   it('扩展名由调用方决定，不写死', () => {

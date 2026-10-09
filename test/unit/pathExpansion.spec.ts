@@ -35,7 +35,7 @@ describe('expandPathTemplate —— 路径模板展开', () => {
   })
 
   it('不含模板的普通路径原样返回（幂等，绝对路径不受影响）', () => {
-    const abs = 'C:\\Users\\Administrator\\Desktop\\a.txt'
+    const abs = 'C:\\Users\\<user>\\Desktop\\a.txt'
     expect(expandPathTemplate(abs, HOME)).toBe(abs)
     expect(expandPathTemplate('/home/user/a.txt', HOME)).toBe('/home/user/a.txt')
   })

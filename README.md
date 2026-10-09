@@ -1,265 +1,232 @@
-# SKY ⭐
+# SKY
 
-A local-first AI tool console — route, validate, and optimize your LLM calls from one desktop app.
+**An experimental technical preview of a local-first AI tool console** — route, validate, and execute LLM-assisted tasks from a desktop app, with the routing decisions and their costs visible instead of hidden.
 
-Built by a solo developer who got tired of copying prompts between browser tabs.
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-212%20spec%20files-blue.svg)](docs/60-测试与验收.md)
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript Strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-212%20spec%20files-blue.svg)](docs/60-测试与验收.md)
-
-<!-- ![SKY Screenshot](docs/screenshot.png) -->
-
----
-
-## Why This Exists
-
-I wanted one desktop app where I could:
-
-- **Talk to LLMs** without my data leaving my machine
-- **Chain tools together** — read a PDF, analyze it, write a report — in one flow
-- **Pay less** — cache what I can, skip the LLM when rules suffice
-- **Stay safe** — every shell command gets double-checked before execution
-
-No cloud backend. No API keys on someone else's server. Your keys stay on your disk.
+> ## ⚠️ Read this first
+>
+> This is a **technical preview, not a product**. It is published so the ideas can be read, run, and argued with — not because it is finished.
+>
+> - **No stability promise.** Interfaces, data formats, and the routing pipeline change between commits. There is no migration path for user data.
+> - **No support promise.** Issues are read, but there is no SLA, no roadmap commitment, and no maintainer on call.
+> - **Windows is the only tested target.** Development mode works cross-platform; packaging is Windows-only and has not been validated on macOS or Linux.
+> - **You need your own LLM API key.** Without one the app falls back to its deterministic rule layer only.
+> - **It can write files and run shell commands on your machine** — that is the point of the thing. The guard rails are described in [Security model](#security-model) and are deliberately conservative, but you should read them before pointing it at anything you care about.
+> - **Authoritative documentation is in Chinese**, under `docs/`. This README is the English entry point.
 
 ---
 
-## What It Does
+## What it is
 
-**Workbench Interface** — one workspace where you type a request, see which routing layer took it, and get the result back with its artifacts.
+A single desktop app (Electron + Vue 3) that takes a natural-language request and decides **how cheaply it can be answered** — before spending tokens:
 
-> ⚠️ Earlier revisions of this README advertised a "**3D Star Map Interface**" (125 tool nodes arranged as a galaxy, drag between stars to build a pipeline). That UI **was removed in 2026-09**: there is no `three` dependency, no `useThreeScene.ts`, and `src/App.vue` mounts `WorkbenchShell`. See [docs/00-总览与口径](docs/00-总览与口径.md) for the full list of retired claims.
+1. Does a built-in rule already handle this? → deterministic plan, **0 tokens**
+2. Have we seen this exact request before? → fingerprint / semantic cache hit
+3. Can a keyword match a known macro with high confidence? → one-step execution
+4. Otherwise → LLM-assisted matching, planning, and execution
 
-**Smart Routing** — Before sending anything to an LLM, the app checks:
+Every routing decision is recorded and visible in the UI (which layer took the request, what it cost, what it produced). That visibility is the actual thesis of the project: most AI tooling hides the routing decision, and hidden routing is where tokens and trust both leak.
 
-1. Does a built-in rule already handle this? → Deterministic plan (L0)
-2. Have we seen this exact request before? → Return cached result (L2 fingerprint / semantic cache)
-3. Can a keyword match a known manifest with high confidence? → One-step execution (L0.5)
-4. Otherwise → LLM-assisted matching and planning (L2 ambiguity / L3 / L4)
+## Status — read this before evaluating
 
-**Dual-Engine Security** — Every shell write command goes through rule-based checks AND an LLM audit. If either fails, the command is blocked. Fail-closed by design.
+Status is tracked per mechanism in [`docs/30-机制台账与边界.md`](docs/30-机制台账与边界.md) ("mechanism ledger"), with the rule that a mechanism counts as **live** only if a production call path reaches it.
 
-**FactGuard** — When LLM output contains numbers, dates, or contract IDs that contradict the source document, it auto-corrects small errors and blocks big ones.
+| Area | State |
+|---|---|
+| L0 / L0.5 / L1 rule routing | **Live** — see [Routing layers](#routing-layers) |
+| L2 retrieval + macro execution | **Live** |
+| L3 LLM arbitration | **Live**, but only invoked when ≥2 candidates survive filtering |
+| L4 exploratory planning | **Live** |
+| Dual-engine security audit, FactGuard, write gate | **Live** — fail-closed |
+| Execution fingerprint cache, semantic cache | **Live** |
+| Competitive EMA (M16) | **Half-live** — implemented, but off by default, so the branch does not fire in production |
+| Consumer-context truncation | **Half-live** — the `standard` tier still only passes ~800 characters |
+| **Skill catalogue DAG execution** | **Not wired** — see [Capability layers](#capability-layers-packs--skills--mcp) |
+| **MCP store coverage for skills** | **Incomplete** — 16 of 21 declared servers are not in the store |
 
-**Cost Savings** — Measured on this machine (2026-10): requests that hit a compiled **L2 macro** execute with **0 added LLM tokens** (the DAG runs its steps deterministically), and semantic caching / the rule router skip the LLM entirely on repeated or simple inputs. ⚠️ An earlier revision claimed "**39–49% token reduction**"; that figure could **not be reproduced** and has been removed pending a reproducible benchmark. See [docs/20-请求生命周期与路由](docs/20-请求生命周期与路由.md) for the measured breakdown (a plain request carries ~3.5K prompt tokens, ~80% of which is the tool schema).
+If a claim here disagrees with the ledger, the ledger wins — it carries `file:line` anchors.
 
----
-
-## Architecture at a Glance
-
-```
-Your input → [L0 Rule Router] → [L0.5 Keyword Match] → [L2 Manifest/Cache] → [L3 LLM Arbitration] → [L4 Explore]
-                    ↓ hit              ↓ hit                 ↓ hit                  ↓ miss
-               deterministic      1-step plan          cached result          full LLM planning
-                                                                                      ↓
-                                                                          [Dual-Engine Security Audit]
-                                                                                      ↓
-                                                                            [DAG Pipeline Execution]
-                                                                                      ↓
-                                                                              [FactGuard Verification]
-                                                                                      ↓
-                                                                                    Result
-```
-
-### Routing Layers
-
-| Layer | Count | What it is |
-|-------|-------|------------|
-| L0 | **12 rules** | Built-in rule router (`src/services/l0SkillRouter.ts:272`) |
-| L0.5 | — | Keyword quick-match for single-step manifests (gate `l05Pass = 0.6`) |
-| L1 | **6** | Single-node capability direct-call |
-| L2 | **20 manifest files** | Scenario macros (`config/l2_manifests/`), matched by `src/services/toolRetrieval.ts` |
-| L3 | **98 placeholders** | Author-reserved community slots — **kept on purpose, do not clean up** |
-| L4 | — | Exploratory planning (auto-executes when the plan contains no shell) |
-
-> The old "**125 tool nodes**" figure refers to `src/data/topology.ts`, a **legacy data file** left over from the star-map era. It is not a UI description.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js >= 18
-- npm >= 9
-- Windows (packaging currently Windows-only; dev works cross-platform)
-
-### Run in Dev Mode
+## Quick start
 
 ```bash
-git clone https://github.com/sky-mirrors/SKY.git
-cd SKY
+git clone https://github.com/sky-mirrors/HoloStarmap.git
+cd HoloStarmap
 npm install
 npm run dev
 ```
 
-### Download / Release
+Requirements: **Node.js ≥ 18**, **npm ≥ 9**.
 
-Prebuilt **Windows portable** builds are published on the [Releases](../../releases) page — no install needed, just double-click.
+### Commands
 
-Tagging `vX.Y.Z` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): it runs the test suite → builds → packages a portable EXE → attaches it to a **draft** release for you to review before publishing.
+| Command | What it does |
+|---|---|
+| `npm run dev` | electron-vite dev mode with HMR |
+| `npm run build` | Build main / preload / renderer into `out/` |
+| `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` — **must be green** |
+| `npm test` | Vitest, 212 spec files (excludes `test/e2e/**`) |
+| `npm run smoke` | Real-machine journey smoke — needs the app running with CDP open |
+| `npm run smoke:window-controls` | Real-machine check that every sub-window's minimize/close actually works |
+| `npm run package:win` | Windows portable build → `dist/SKY <version>.exe` |
+| `npm run verify:pdf` / `:image` / `:media` | Standalone Electron e2e scripts for the document / image / media pipelines |
 
-To build locally:
+> **`npm test` green does not mean the app works.** 30 specs stub out `electronAPI`, so the real filesystem and IPC boundaries are simulated. For evidence about the real thing, use `npm run smoke` or `npm run smoke:window-controls` — both drive a running instance over CDP. See [`docs/60-测试与验收.md`](docs/60-测试与验收.md).
 
-```bash
-npm install
-npm run package:win        # → dist\SKY <version>.exe
-```
+### Prebuilt builds
 
-> ⚠️ Packaging downloads helper binaries (winCodeSign / NSIS) **from GitHub**. On a restricted network set
-> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`, or let CI do the packaging instead.
+Tagging `vX.Y.Z` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): tests → build → portable EXE → attached to a **draft** release for review before publishing.
 
----
+> Packaging downloads helper binaries (winCodeSign / NSIS) from GitHub. On a restricted network set
+> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`.
 
-## Tech Stack
-
-| Layer | Choice | Why |
-|-------|--------|-----|
-| UI | Vue 3 + Pinia | Reactive state, composables for workflow logic |
-| Desktop | Electron 33 | File system, multi-window, local API calls |
-| Build | electron-vite + electron-builder | Fast HMR, single-exe output |
-| Language | TypeScript strict | No implicit any, no type escapes |
-| Embeddings | @xenova/transformers | Local vector search, no API needed |
-| Documents | docx, xlsx, pdf-parse, mammoth | Read/write Word, Excel, PDF |
-| Security | DOMPurify | HTML sanitization |
-| Testing | Vitest | 212 spec files — see [docs/60-测试与验收](docs/60-测试与验收.md) for the exact coverage boundaries |
-
----
-
-## Token Optimization
-
-| Mechanism | Savings | When It Kicks In |
-|-----------|---------|-----------------|
-| L0 Rule Router | Skips LLM planning | Built-in rule matches |
-| L0.5 Keyword Match | Skips multi-step planning | Keyword hit + confidence >= gate (0.6) |
-| L2 Macro Execution | **0 added tokens** | Compiled manifest matches |
-| Execution Fingerprint Cache | Reuses result | Same input + same manifest |
-| Rule Engine Fallback | Replaces LLM | LLM unavailable + rule hits |
-| Dual-Engine Audit Cache | 500-2000 tokens/audit | Repeat audit within 24h |
-| FactGuard Auto-Correct | Avoids regeneration | Minor fact discrepancy |
-| Disambiguation Cache | Skips LLM disambiguation | Same query within 1h |
-| Model Tiering | Right-size the model | nano(512) / mini(1024) / standard(4096) / pro(8192) maxTokens |
-| Pipeline Checkpoints | Resume from breakpoint | Re-run after failure |
-
----
-
-## Security Model
-
-This project takes a **fail-closed** approach: if the security check can't give a clear "safe", the command is blocked.
-
-### Shell Security Engine
-- **Whitelist**: **12** safe command prefixes (`electron/shell-security.ts:4` → `SHELL_ALLOWED_COMMANDS`)
-- **Blacklist**: **82** dangerous-pattern regexes (`electron/shell-security.ts:38` → `NODE_E_DANGEROUS_PATTERNS`), plus **6** vetted `node -e` trust signatures (`:123`)
-- **MCP executables**: 5 allowed (`npx` / `node` / `python3` / `python` / `uvx`)
-- **Write path guard**: only Desktop / Docs directories writable; `node -e` write targets are resolved to absolute paths and checked (blocks `..` traversal and executable extensions)
-- **Timeout tiers**: Quick 10s / Standard 60s / Heavy 120s / Hard limit 180s
-
-### Dual-Engine Audit
-- **Rule engine**: Detects write ops, high-risk deletions, extracts target file paths
-- **LLM engine**: Judges intent match, parameter sanity, risk level
-- **Cache**: 24h TTL, max 500 entries — cache hit skips LLM audit entirely
-- Read-class actions are only audited when the target path is sensitive
-
-### Write Approval
-- 12 write-class tools go through `src/services/writeGate.ts` three-state approval (deny / once / always). Missing grant = denied (fail-closed).
-
-### FactGuard
-- **5 entity types**: Currency (>10% diff = critical), Dates (>3 days = critical), Percentages, Contract IDs (any mismatch = critical), Names
-- Extraction runs over the **whole document in overlapping chunks** (5000 chars, 500 overlap) — not just the first 5000 chars
-- **Auto-correct**: Minor differences patched in-place, zero tokens
-- **Hallucination detection**: Entities in output that don't exist in source → blocked
-
-Full details: [docs/40-安全模型](docs/40-安全模型.md).
-
----
-
-## Testing
-
-| Metric | Value |
-|--------|-------|
-| Test files | **209** (`.spec.ts`), all collected by the runner |
-| Test cases | **2753** — **2752 passed / 1 failed** (the known Ollama noise below), measured 2026-10-09 |
-| Real-machine e2e | 3 standalone Electron scripts in `test/e2e/` → `npm run verify:pdf\|image\|media` (not vitest cases) |
-| Coverage gate | 40% lines/functions/statements, 30% branches — **only `src/services` + `src/stores`** |
-| Real-machine smoke | `npm run smoke` → drives the running app over CDP and asserts 5 user journeys |
-| Known noise | 1 case (`apiStore.timerDispose.spec.ts`) fails **only while a local Ollama is running** — environment-specific, not a regression |
-
-> ℹ️ **`npm test` all-green does NOT mean the app works.** 30 specs stub out `electronAPI`, so the real file-system and IPC boundaries are simulated. Numbers in earlier revisions (1685 / 2653 / 1129) are stale — re-run `npm test` before quoting any figure. `TEST_REPORT.md` was retired; its content folded into [docs/60-测试与验收](docs/60-测试与验收.md).
-
----
-
-## Project Structure
+## Architecture
 
 ```
-SKY/
-├── electron/                # Main process (32 modules)
-│   ├── main.ts              # Entry: window management + IPC dispatch
-│   ├── ipc-handlers.ts      # IPC routes (file/shell/HTTP/MCP/keys)
-│   ├── shell-security.ts    # Shell security engine (12 whitelist + 82 blacklist patterns)
-│   ├── pathValidator.ts     # Path read/write validation
-│   ├── mcp-manager.ts       # MCP subprocess manager
-│   ├── window-manager.ts    # Multi-window creation + global shortcuts
-│   ├── preload.ts           # contextBridge electronAPI
-│   └── file*.ts             # File operators (pure planning cores: rename / unzip / sort / convert)
-├── src/                     # Renderer process (Vue 3)
-│   ├── main.ts              # Vue app entry + Pinia init
-│   ├── App.vue              # Root: workbench/preview switch + shortcuts
-│   ├── kernel/              # Six-layer funnel orchestration + hooks + clusters
-│   ├── kernels/             # Kernel plugins (default / lite)
-│   ├── host/                # Hot-plug host (plugins / domains / packs)
-│   ├── domains/             # Domain handlers (bus channel registration points)
-│   ├── packs/               # Built-in domain packs (finance / hr / legal)
-│   ├── services/            # Core business logic (72 modules)
-│   │   ├── l0SkillRouter.ts       # L0 rule routing + L0.5 quick match + L1 + L4
-│   │   ├── toolRetrieval.ts       # L2 matching + gates + RRF fusion
-│   │   ├── compositeIntent.ts     # Composite-intent engine (table-driven)
-│   │   ├── macroExecutor.ts       # DAG executor + tool loop + fingerprints
-│   │   ├── dualEngineValidator.ts # Dual-engine security audit
-│   │   ├── factGuard.ts           # Fact consistency check (5 entity types)
-│   │   ├── writeGate.ts           # Write-class tool approval
-│   │   ├── deliverableCheck.ts    # Artifact verification (anti "fake success")
-│   │   ├── knowledgeBase.ts       # Hybrid retrieval
-│   │   └── ...
-│   ├── stores/              # Pinia stores (18)
-│   ├── exam/                # Acceptance exam system (V1 18 + V2 50 cases)
-│   └── data/                # Static data (manifests registry, skill catalog, legacy topology)
-├── test/                    # 212 spec files
-├── config/l2_manifests/     # 20 L2 manifest JSONs
-├── scripts/scenario-smoke.mjs  # Real-machine smoke test
-├── electron.vite.config.ts  # Build config
-├── vitest.config.ts         # Test config
-└── package.json
+input → [L0 rule] → [L0.5 keyword] → [L2 manifest/cache] → [L3 LLM] → [L4 explore]
+           ↓ hit         ↓ hit              ↓ hit             ↓ miss
+      deterministic   1-step plan      cached result    full LLM planning
+                                                                  ↓
+                                                    [dual-engine security audit]
+                                                                  ↓
+                                                         [DAG execution]
+                                                                  ↓
+                                                         [FactGuard check]
+                                                                  ↓
+                                                               result
 ```
 
----
+### Routing layers
 
-## Docs
+| Layer | Size | What it is |
+|---|---|---|
+| L0 | **12 rules** | Built-in rule table, first match wins (`src/services/l0SkillRouter.ts`) |
+| L0.5 | — | Keyword quick-match for single-step manifests (gate 0.6) |
+| L1 | **6** | Single-node capability direct call |
+| L2 | **20 manifests** | Scenario macros (`config/l2_manifests/`), matched by `src/services/toolRetrieval.ts` |
+| L3 | **98 placeholders** | Author-reserved community slots — **kept on purpose**, see the ledger |
+| L4 | — | Exploratory planning (auto-executes when the plan needs no shell) |
 
-The authoritative documentation is a **set of per-topic volumes** under `docs/`. Each claim in them carries a `file:line` anchor checked against the code.
+Gates and confidence formulas live in [`docs/20-请求生命周期与路由.md`](docs/20-请求生命周期与路由.md); they are quoted with code anchors rather than duplicated here.
+
+## Capability layers: packs / skills / MCP
+
+Three different things that are easy to confuse, at three different depths:
+
+| | Domain packs | Skills | MCP servers |
+|---|---|---|---|
+| **What it is** | Domain knowledge + constraints + execution, hooked into every routing layer | A pre-arranged DAG template + a declaration of which MCP server it needs | External tool servers, spawned as subprocesses |
+| **Reaches routing?** | **Yes** — hooks at L0/L0.5/L1/L2/L3/L4 plus veto gates | **No** — no execution consumer today | **Yes** — L2 hit produces a `mcp-direct` call |
+| **Who executes it** | pack runtime + constraint engine | nothing yet | main-process manager → `mcpStore.callTool` |
+| **Stored in** | `src/packs/` and `{userData}/holostarmap-packs` | vault key `holo-skills` | vault key `holo-mcp-connections` |
+
+**Two honest caveats, because they are the kind of thing a README usually hides:**
+
+1. **Installing a skill does not execute anything.** The catalogue entries carry `nodes`/`edges`, but nothing feeds them to the DAG engine (`useDagEngine` serves the pipeline canvas only), and `createSkillFromWorkflow` has no caller. Today skills are a discovery and one-click-install surface; the execution path is MCP.
+2. **16 of the 21 skills declare an MCP server that the MCP store does not offer** (the store has 5). The install handler looks the declared id up in the store and, on miss, **silently does nothing** — no install, no message. The skill data already carries a full `mcpCommand`/`mcpArgs`, so the fallback exists in the data; the lookup path just does not use it.
+
+## Security model
+
+Fail-closed: if a check cannot conclude "safe", the action is blocked.
+
+- **Shell allow-list**: **12** safe command prefixes (`electron/shell-security.ts` → `SHELL_ALLOWED_COMMANDS`)
+- **Dangerous-pattern deny-list**: **82** regexes (`NODE_E_DANGEROUS_PATTERNS`), plus vetted `node -e` signatures
+- **MCP interpreters**: 5 allowed (`npx` / `node` / `python3` / `python` / `uvx`)
+- **Write-path guard**: writes are restricted to Desktop / Documents / Downloads; `node -e` write targets are resolved to absolute paths and checked, blocking `..` traversal and executable extensions
+- **Dual-engine audit**: rule engine + LLM engine; either one failing blocks the command, with a 24h cache so repeats do not re-pay
+- **Write approval**: write-class tools go through three-state approval (deny / once / always). **Missing grant = denied.**
+- **FactGuard**: numbers, dates, percentages, contract IDs, and names in output are checked against the source; minor drift is corrected in place, hallucinated entities are blocked
+
+Details and threat caveats: [`docs/40-安全模型.md`](docs/40-安全模型.md) and SECURITY.md.
+
+## Verification
+
+Measured on 2026-10-09, on this repository, with the commands below — not carried over from an older README.
+
+| Check | Result |
+|---|---|
+| `npm test` | **2816 cases** — **2815 passed / 1 failed**, 212 spec files, ~10 s |
+| Known noise | `test/unit/apiStore.timerDispose.spec.ts` fails **only while a local Ollama is running** — environment-specific, not a regression |
+| `npm run typecheck` | `tsc -b` + `vue-tsc` clean |
+| `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
+| `node scripts/oss-audit.mjs` | Secret / local-path / credential scan over every tracked file; `--fix` redacts machine-specific paths |
+
+Coverage gate: 40% lines/functions/statements, 30% branches — **`src/services` + `src/stores` only**, so the number does not describe the whole codebase.
+
+### Acceptance exam (self-assessment, warts included)
+
+The repo ships an acceptance exam (V1 18 cases, V2 50 cases) whose scores are archived verbatim in [`docs/exam-reports/`](docs/exam-reports/). The most recent V2 run: **deliverable rate 0.28**, zero-intervention rate 0.64, mean 15.0 s per case.
+
+That is a low number and it is printed here on purpose: the exam is deliberately harsher than "does it answer" — it requires a real artifact on disk and checks the artifact, not the reply text. Do not read the routing-layer tables above as an accuracy claim.
+
+## Project structure
+
+```
+HoloStarmap/
+├── electron/                 # Main process (33 modules)
+│   ├── main.ts               # Entry: windows, single-instance lock, IPC dispatch
+│   ├── ipc-handlers.ts       # IPC routes (file / shell / doc / image / media / MCP / vault)
+│   ├── shell-security.ts     # Shell engine (12 allow-listed prefixes, 82 dangerous patterns)
+│   ├── pathValidator.ts      # Read/write path validation
+│   ├── mcp-manager.ts        # MCP subprocess lifecycle
+│   ├── window-manager.ts     # Seven sub-windows, all frameless
+│   └── preload.ts            # contextBridge surface (118 keys)
+├── src/                      # Renderer (Vue 3)
+│   ├── kernel/               # Funnel orchestration, hooks, clusters, bus
+│   ├── kernels/              # Kernel plugins (default / lite)
+│   ├── host/                 # Hot-plug host (plugins / packs)
+│   ├── domains/              # Bus channel registration points
+│   ├── packs/                # Built-in domain packs (finance / geotech / legal)
+│   ├── services/             # Core logic (72 modules)
+│   ├── stores/               # Pinia stores (18)
+│   ├── components/           # Vue components (32)
+│   ├── exam/                 # Acceptance exam (V1 18 + V2 50 cases)
+│   └── data/                 # Static data (manifests, skill/MCP catalogues, legacy topology)
+├── test/                     # 212 spec files + 3 standalone e2e scripts
+├── config/l2_manifests/      # 20 L2 manifest JSONs
+├── scripts/                  # smoke / audit / report generators
+└── docs/                     # Authoritative docs (Chinese)
+```
+
+## Known limitations
+
+Ordered roughly by how likely they are to bite you:
+
+1. **Packaging is Windows-only** and untested elsewhere.
+2. **Skill DAGs do not execute** — installing a skill is a catalogue action today.
+3. **16/21 skill→MCP dependencies resolve to nothing, silently** (see above).
+4. **Four preload APIs have no UI entry point** (`backupList`, `appHealth`, `knowledgeListEntries`, `mcpGetStatus`) — capabilities without a door.
+5. **Custom frameless windows need drag regions and controls per window**; they are hand-maintained, and one window shipped without them until a real-machine check caught it. That check is now `npm run smoke:window-controls`, but it only asserts button behaviour — **window dragging itself is verified by hand, not by automation** (synthesised mouse events do not drive native window movement).
+6. **The exam scores are low** (0.28 deliverable rate on the last V2 run).
+7. **The legacy `src/data/topology.ts`** (125 nodes) is data left over from a removed 3D star-map UI. It is not a description of the interface; an older README implied otherwise.
+8. **Half-live mechanisms** exist (competitive EMA, consumer-context truncation) — implemented but not firing by default. The ledger marks them.
+
+## Documentation
+
+`docs/` is the authoritative set, in Chinese, one volume per topic, with every claim carrying a `file:line` anchor checked against the code.
 
 | Volume | Covers |
-|--------|--------|
-| [docs/00-总览与口径](docs/00-总览与口径.md) | What this is, and the seven claims that are **no longer true** |
-| [docs/10-架构与分层](docs/10-架构与分层.md) | Process model, funnel assembly, hot-plug, domain packs |
-| [docs/20-请求生命周期与路由](docs/20-请求生命周期与路由.md) | Request lifecycle, routing formulas & gates, composite intents |
-| [docs/30-机制台账与边界](docs/30-机制台账与边界.md) | Status of all 20 mechanisms, gap list, known boundaries |
-| [docs/40-安全模型](docs/40-安全模型.md) | Shell engine, path validation, write approval, FactGuard |
-| [docs/50-记忆与上下文](docs/50-记忆与上下文.md) | What the app remembers, and what gets injected per request |
-| [docs/60-测试与验收](docs/60-测试与验收.md) | Test boundaries, smoke test, exam system |
-| [docs/90-术语表与索引](docs/90-术语表与索引.md) | Glossary (internal jargon → plain language) + file index |
-| [集成工具设计.txt](集成工具设计.txt) | Original design doc (historical) |
-| L2工具编译标准V1.0.md | L2 tool compilation spec |
-| SECURITY.md | Known upstream vulnerabilities + remediation plan |
+|---|---|
+| [00-总览与口径](docs/00-总览与口径.md) | What this is, plus the claims that are **no longer true** |
+| [10-架构与分层](docs/10-架构与分层.md) | Process model, funnel assembly, hot-plug, domain packs |
+| [20-请求生命周期与路由](docs/20-请求生命周期与路由.md) | Request lifecycle, gates, confidence formulas |
+| [30-机制台账与边界](docs/30-机制台账与边界.md) | Status of every mechanism, gap list, boundaries |
+| [40-安全模型](docs/40-安全模型.md) | Shell engine, path validation, write approval, FactGuard |
+| [50-记忆与上下文](docs/50-记忆与上下文.md) | What is remembered, what gets injected per request |
+| [60-测试与验收](docs/60-测试与验收.md) | Test boundaries, real-machine smoke, exam system |
+| [90-术语表与索引](docs/90-术语表与索引.md) | Glossary and file index |
+| [95-技术债与路线图](docs/95-技术债与路线图.md) | Technical debt and roadmap |
 
-**Rule:** code changed → update the matching volume in the same commit. No new documents. Historical documents were deleted; recover them from git history (see [docs/README](docs/README.md)).
-
----
+**Project rule:** code changes → update the matching volume in the same commit. Historical documents were deleted from the tree; recover them from git history (see [docs/README](docs/README.md)).
 
 ## Contributing
 
-Issues and PRs welcome! See CONTRIBUTING.md for setup, code style, and PR flow.
-
----
+Issues and PRs are welcome — see CONTRIBUTING.md for setup, code style (`strict` TypeScript, no `any`, no type assertions), the `.spec.ts` convention, and the PR flow.
 
 ## License
 
-[Apache-2.0](LICENSE) — use it, fork it, just keep the attribution.
+[Apache-2.0](LICENSE). Third-party components are listed in NOTICE.
+
+## Disclaimer
+
+Provided **as is**, without warranty of any kind. This preview can read, write, move, and delete files and can execute shell commands on the machine it runs on, with all the obvious risk that carries. Run it against data you can afford to lose.

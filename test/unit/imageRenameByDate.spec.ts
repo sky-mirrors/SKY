@@ -116,16 +116,16 @@ describe('接线：工具已暴露 + L0 规则不经模型直通', () => {
   })
 
   it('Q15 原话命中 L0 规则，产出单步确定性计划（不经模型）', async () => {
-    const prompt = '把 C:\\Users\\Administrator\\Desktop\\HoloExam\\photos 文件夹里的图片按拍摄日期重命名，命名格式是 日期-序号.jpg（例如 20260315-01.jpg），同一天的按序号排。重命名完告诉我一共有几张图片、新文件名分别是什么。'
+    const prompt = '把 C:\\Users\\<user>\\Desktop\\HoloExam\\photos 文件夹里的图片按拍摄日期重命名，命名格式是 日期-序号.jpg（例如 20260315-01.jpg），同一天的按序号排。重命名完告诉我一共有几张图片、新文件名分别是什么。'
     const plan = await tryL0Skill(prompt)
     expect(plan).toBeTruthy()
     expect(plan!.steps).toHaveLength(1)
     expect(plan!.steps[0].tool).toBe('rename_images_by_date')
-    expect(plan!.steps[0].params.dir).toBe('C:\\Users\\Administrator\\Desktop\\HoloExam\\photos')
+    expect(plan!.steps[0].params.dir).toBe('C:\\Users\\<user>\\Desktop\\HoloExam\\photos')
   })
 
   it('不劫持「转 docx」类请求（仍归文件格式转换）', async () => {
-    const plan = await tryL0Skill('把 C:\\Users\\Administrator\\Desktop\\a.md 转换为 docx')
+    const plan = await tryL0Skill('把 C:\\Users\\<user>\\Desktop\\a.md 转换为 docx')
     expect(plan?.intent ?? '').toContain('docx')
   })
 })

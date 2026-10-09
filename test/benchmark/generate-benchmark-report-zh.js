@@ -594,7 +594,7 @@ const doc = new Document({
 })
 
 Packer.toBuffer(doc).then(buf => {
-  const outPath = 'C:\\Users\\Administrator\\Desktop\\SKY \u57FA\u51C6\u6D4B\u8BD5\u62A5\u544A.docx'
+  const outPath = 'C:\\Users\\<user>\\Desktop\\SKY \u57FA\u51C6\u6D4B\u8BD5\u62A5\u544A.docx'
   fs.writeFileSync(outPath, buf)
   console.log('\u62A5\u544A\u5DF2\u4FDD\u5B58:', outPath, '(' + Math.round(buf.length / 1024) + ' KB)')
 }).catch(err => {

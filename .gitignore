@@ -4,6 +4,9 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# 会话 / 审计运行时目录：会话记录、artifact、临时探针、本地搜索结果——不要提交
+.rivet/
+
 .idea/
 .vscode/
 *.swp
@@ -35,6 +38,7 @@ benchmark-result-professional.json
 quality-report.json
 test-edge-results.json
 test-multi-model-results.json
+exam-report.json
 
 # 机制体检扫描产物（scripts/mechanism-scan 生成）
 .rivet-scan-*

@@ -12,8 +12,8 @@ import { buildNativeFileTaskSystemPrompt } from '@/services/fileTaskSystemPrompt
  * （漏掉用户名段）→ 被安全策略拒 → 放弃」（Q14 曾猜成 `C:\Users\Desktop`）。
  */
 describe('文件类任务 system 提示：内容', () => {
-  const PROFILE = 'C:\\Users\\Administrator'
-  const DESKTOP = 'C:\\Users\\Administrator\\Desktop'
+  const PROFILE = 'C:\\Users\\<user>'
+  const DESKTOP = 'C:\\Users\\<user>\\Desktop'
 
   it('把真实用户目录与桌面目录写进提示（这是治"猜路径"的关键）', () => {
     const p = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })
@@ -123,8 +123,8 @@ describe('文件类任务提示：全路径走查（三处 payload 都要带）'
 //   - 输出内部结构：R09 把工具调用链 JSON 直接吐给用户 ⇒ 加【输出形态】
 // ─────────────────────────────────────────────────────────────────────────────
 describe('文件类任务 system 提示：2026-09-30 新增的三段约束', () => {
-  const PROFILE = 'C:\\Users\\Administrator'
-  const DESKTOP = 'C:\\Users\\Administrator\\Desktop'
+  const PROFILE = 'C:\\Users\\<user>'
+  const DESKTOP = 'C:\\Users\\<user>\\Desktop'
 
   it('【输出位置】明确指定位置的产物不得改存默认桌面或源目录', () => {
     const t = buildNativeFileTaskSystemPrompt({ userProfile: PROFILE, desktop: DESKTOP })

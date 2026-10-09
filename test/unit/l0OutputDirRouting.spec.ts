@@ -15,9 +15,9 @@ import { tryL0Skill, checkL1Capability } from '@/services/l0SkillRouter'
 // 这是**路由层参数计算**问题，不是提示词问题——模型不参与决定该路径。
 // ─────────────────────────────────────────────────────────────────────────────
 
-const OUT = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\out'
-const MEDIA = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\media'
-const PHOTOS = 'C:\\Users\\Administrator\\Desktop\\HoloExam\\photos'
+const OUT = 'C:\\Users\\<user>\\Desktop\\HoloExam\\out'
+const MEDIA = 'C:\\Users\\<user>\\Desktop\\HoloExam\\media'
+const PHOTOS = 'C:\\Users\\<user>\\Desktop\\HoloExam\\photos'
 
 describe('L0 · 创建文件夹尊重题干指定目录（V2-R05）', () => {
   it('题干「在 <绝对路径> 下建一个名为 X 的文件夹」→ path 落该目录下', async () => {
