@@ -1,14 +1,14 @@
 /**
  * 规格书第 2 节（M18）内核纯度检查。
  * 扫描 src/kernel/**、src/kernels/**、src/host/** 与 scripts/pure-services.list
- * 登记的框架级纯服务中的域字符串字面量（'legal'/'finance'/'hr'，含双引号形态）；
+ * 登记的框架级纯服务中的域字符串字面量（'legal'/'finance'/'geotech'，含双引号形态）；
  * 命中且未在 scripts/purity-whitelist.json 登记（{file, line, literal, reason, approvedBy}）则退出码 1。
  * 注释（// 与块注释）与测试文件（*.spec.ts / *.test.ts）不违规；脚本自身崩溃按失败处理。
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 
-const DOMAIN_LITERALS: ReadonlySet<string> = new Set(['legal', 'finance', 'hr'])
+const DOMAIN_LITERALS: ReadonlySet<string> = new Set(['legal', 'finance', 'geotech'])
 const SCAN_DIRS: readonly string[] = ['src/kernel', 'src/kernels', 'src/host']
 const PURE_SERVICES_DIR = 'src/services'
 const PURE_SERVICES_LIST = 'scripts/pure-services.list'

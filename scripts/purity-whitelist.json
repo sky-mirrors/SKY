@@ -2,41 +2,41 @@
   {
     "file": "src/services/factGuard.ts",
     "line": 16,
-    "literal": "finance/legal/hr",
+    "literal": "finance/legal",
     "reason": "规格 2.2 泄漏②：TRIGGER_ROLES 触发域硬编码，Phase 1 应迁移未迁移；待改为运行时从已挂载 pack 收集触发域注册表（Phase 4+ 路线图跟踪）",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 67,
+    "line": 69,
     "literal": "legal",
     "reason": "默认内核遗留域优先级检测（detectedDomainOf，自旧 funnel 域检测迁移）；待 pack 驱动的域检测机制收编（Phase 4+ 路线图跟踪）",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 68,
+    "line": 70,
     "literal": "finance",
-    "reason": "同本文件 line 67：默认内核遗留域优先级检测，待 pack 驱动机制收编",
+    "reason": "同本文件 line 69：默认内核遗留域优先级检测，待 pack 驱动机制收编",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/kernels/default/index.ts",
-    "line": 69,
-    "literal": "hr",
-    "reason": "同本文件 line 67：默认内核遗留域优先级检测，待 pack 驱动机制收编",
+    "line": 71,
+    "literal": "geotech",
+    "reason": "同本文件 line 69：默认内核遗留域优先级检测，待 pack 驱动机制收编",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/host/pack/loader.ts",
-    "line": 34,
-    "literal": "finance/legal/hr",
+    "line": 35,
+    "literal": "finance/legal/geotech",
     "reason": "规格 2.2 泄漏④残余：约束域封闭枚举 CONSTRAINT_DOMAINS；待 DomainConstraint['domain'] 泛化为 string 并由 pack manifest 驱动校验",
     "approvedBy": "sky-mirrors"
   },
   {
     "file": "src/host/pack/loader.ts",
-    "line": 366,
+    "line": 385,
     "literal": "legal",
     "reason": "规格 2.2 泄漏④残余：pack manifest 域不在封闭枚举内时约束被兜底编译为 'legal'（未来新 pack 域会被误标）；随类型泛化一并移除",
     "approvedBy": "sky-mirrors"
