@@ -5,9 +5,9 @@
         <span class="titlebar-text">SKY</span>
         <!-- 2026-10-01 UI 分端：探针 / 压测台 / 规则审核属开发者向，已从用户端顶栏移出，
              经导航「开发者」区（调试中心 / 压测台 / 规则审核）进入。用户端只留主题 / 通知 / 设置。 -->
-        <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换到 少女萝莉（浅色）' : configStore.theme === 'light' ? '切换到 生命力（浅绿）' : '切换到 哥特御姐（深色）'">{{ configStore.theme === 'dark' ? '🖤' : configStore.theme === 'light' ? '🌸' : '🌿' }}</span>
-        <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心">🔔<span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
-        <span class="settings-btn" @click="settingsPageRef?.open()" title="设置">⚙️</span>
+        <span class="theme-toggle" @click="configStore.toggleTheme" :title="configStore.theme === 'dark' ? '切换到浅色' : configStore.theme === 'light' ? '切换到护眼绿' : '切换到深色'"><Icon :name="configStore.theme === 'dark' ? 'sun' : configStore.theme === 'light' ? 'leaf' : 'moon'" :size="14" /></span>
+        <span class="notification-bell" @click="notificationCenterRef?.open()" title="通知中心"><Icon name="bell" :size="14" /><span class="bell-badge" v-if="notificationStore.unreadCount > 0">{{ notificationStore.unreadCount }}</span></span>
+        <span class="settings-btn" @click="settingsPageRef?.open()" title="设置"><Icon name="settings" :size="14" /></span>
       </div>
       <div class="titlebar-controls">
         <button class="tb-btn tb-minimize" @click="minimizeWindow">─</button>
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import Icon from './components/Icon.vue'
 import ApiSettings from './components/ApiSettings.vue'
 import Notification from './components/Notification.vue'
 import NotificationCenter from './components/NotificationCenter.vue'

@@ -1,165 +1,193 @@
 /**
- * ===== HoloStarmap 主题层（2026-10-07 第四版：三档二次元少女风）=====
+ * ===== SKY 主题层（v5 · 2026-10-09：专业工具风）=====
  *
- * 需求（用户原话）：只留三档 —— ① 浅色·少女萝莉 ② 深色·哥特御姐 ③ 浅绿·生命力蓬勃；
- * 且**每档的文字颜色与字号都要与底色相匹配**。
+ * 取代 v4「三档二次元少女风」（近黑紫底 / 血红强调 / 动漫立绘 / 衬线标题）。
+ * 定位：SKY 是「本地安全文件工具」，面向法务 / 财务等专业用户——视觉要传达
+ * 「可靠、克制」，不是「角色扮演」。
  *
- * 「相匹配」的判据（**可测，不靠眼估**）：
- *   - 对比度：正文与次要文字均 ≥ 4.5:1，大字号 ≥ 3:1（WCAG AA）。
- *   - 深色底给**略大的字 + 略松的行高**（浅色字在暗底上视觉变细）；浅色底可略小。
- *   - 因此三档各有自己的 --font-* 阶梯，不是一套字号套三种底色。
- *   校验：.rivet/scratch/verify-contrast.mjs —— 切到各档后用活 DOM 的计算样式算 WCAG 比值。
+ * 三档主题 key 仍是 dark / light / green（与 configStore 一致，不改）：
+ *   dark  = 中性深（默认）   · 强调色 蓝
+ *   light = 中性浅           · 强调色 蓝
+ *   green = 中性浅 + 绿强调  · 强调色 绿
+ * 三档共用「中性底 + 一个强调色」的结构，不再各自一套色相。
  *
- * 结构（卡片化 / 留白 / 气泡 / 装饰）三档**共用一份规则**，只换变量，避免三倍重复。
- * 作用域：仅 data-theme 为 dark / light / green 三者。
+ * 作用域：`:root[data-theme="X"]`（**不再绑 `#app`**）——packs / knowledge 等
+ * 独立窗口的挂载点是 `#packs-app` / `#knowledge-app`，绑 #app 会让令牌在那些窗口失效。
+ *
+ * 对比度：正文 / 次要文字对底 ≥ 4.5:1（WCAG AA）。
+ * 校验脚本：.rivet/scratch/verify-contrast.mjs（切档后取活 DOM 计算样式算比值）。
  */
 
-/* 兜底字号阶梯（无主题时） */
+/* ---------- 无主题兜底（data-theme 尚未就绪时也不闪旧色） ---------- */
 :root {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 16px;
+
+  --t-bg: #0d1117;
+  --t-panel: #161b22;
+  --t-panel-2: #1c2128;
+  --t-text: #e6edf3;
+  --t-dim: #8b949e;
+  --t-strong: #ffffff;
+  --t-accent: #388bfd;
+  --t-accent-2: #6e7681;
+  --t-line: #30363d;
+  --t-ok: #3fb950;
+  --t-warn: #d29922;
+  --t-danger: #f85149;
+  --t-glow: rgba(56, 139, 253, 0.16);
+  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: var(--t-font);
+  --t-lh: 1.65;
+  --t-radius-sm: 4px;
+  --t-radius-md: 6px;
+  --t-radius-lg: 8px;
+}
+
+/* ---------- ① dark：中性深（默认档） ---------- */
+:root[data-theme="dark"] {
+  --t-bg: #0d1117;
+  --t-panel: #161b22;
+  --t-panel-2: #1c2128;
+  --t-text: #e6edf3;
+  --t-dim: #8b949e;
+  --t-strong: #ffffff;
+  --t-accent: #388bfd;
+  --t-accent-2: #6e7681;
+  --t-line: #30363d;
+  --t-ok: #3fb950;
+  --t-warn: #d29922;
+  --t-danger: #f85149;
+  --t-glow: rgba(56, 139, 253, 0.16);
+  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: var(--t-font);
+  --t-lh: 1.65;
+  --t-radius-sm: 4px;
+  --t-radius-md: 6px;
+  --t-radius-lg: 8px;
   --font-xs: 11px;
   --font-sm: 12px;
   --font-md: 13px;
   --font-lg: 16px;
 }
 
-/* ---------- 三套变量：配色 + 字号 + 字体 + 圆角 + 光晕 ---------- */
-
-/* ① dark = 深色·哥特御姐：近黑紫底、血红强调、银灰次要、小圆角、衬线标题、字号偏大 */
-:root[data-theme="dark"] {
-  --t-bg: #0d0a12;
-  --t-panel: rgba(26, 18, 32, 0.96);
-  --t-panel-2: rgba(42, 28, 50, 0.55);
-  --t-text: #ece4ee;
-  --t-dim: #a89bb0;
-  --t-strong: #ffffff;
-  --t-accent: #c81e50;
-  --t-accent-2: #cfc6d6;
-  --t-line: rgba(200, 30, 80, 0.3);
-  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-  --t-font-title: 'Songti SC', 'SimSun', 'Georgia', serif;
-  --t-lh: 1.85;
-  --t-radius-sm: 8px;
-  --t-radius-md: 10px;
-  --t-radius-lg: 12px;
-  --t-glow: rgba(200, 30, 80, 0.18);
-
-  --font-xs: 12px;
-  --font-sm: 13px;
-  --font-md: 14px;
-  --font-lg: 18px;
-
-  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/bg-gothic.jpg');
-  --t-veil: rgba(38, 26, 46, 0.68);
-}
-
-/* ② light = 浅色·少女萝莉：奶粉白底、樱粉强调、薰衣草次强调、大圆角、圆体、字号最小档 */
+/* ---------- ② light：中性浅 ---------- */
 :root[data-theme="light"] {
-  --t-bg: #fff6fa;
-  --t-panel: rgba(255, 255, 255, 0.97);
-  --t-panel-2: rgba(255, 228, 240, 0.6);
-  --t-text: #5c3a4c;
-  --t-dim: #856572;
-  --t-strong: #3a2130;
-  --t-accent: #ff77aa;
-  --t-accent-2: #b98cff;
-  --t-line: rgba(255, 119, 170, 0.3);
-  --t-font: 'M PLUS Rounded 1c', 'Yuanti SC', 'YouYuan', '幼圆', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
-  --t-font-title: var(--t-font);
-  --t-lh: 1.75;
-  --t-radius-sm: 16px;
-  --t-radius-md: 20px;
-  --t-radius-lg: 22px;
-  --t-glow: rgba(255, 119, 170, 0.22);
-
-  --font-xs: 11px;
-  --font-sm: 12px;
-  --font-md: 13px;
-  --font-lg: 17px;
-
-  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/bg-loli.jpg');
-  --t-veil: rgba(255, 250, 253, 0.66);
-
-}
-
-/* ③ green = 浅绿·生命力蓬勃：嫩白绿底、嫩绿强调、黄绿次强调、中圆角、字号中档 */
-:root[data-theme="green"] {
-  --t-bg: #f1fbf3;
-  --t-panel: rgba(255, 255, 255, 0.97);
-  --t-panel-2: rgba(216, 245, 224, 0.6);
-  --t-text: #2c4634;
-  --t-dim: #5a7a64;
-  --t-strong: #16301f;
-  --t-accent: #26b268;
-  --t-accent-2: #7ac943;
-  --t-line: rgba(38, 178, 104, 0.28);
+  --t-bg: #ffffff;
+  --t-panel: #f6f8fa;
+  --t-panel-2: #eaeef2;
+  --t-text: #1f2328;
+  --t-dim: #636c76;
+  --t-strong: #000000;
+  --t-accent: #0969da;
+  --t-accent-2: #6e7681;
+  --t-line: #d0d7de;
+  --t-ok: #1a7f37;
+  --t-warn: #9a6700;
+  --t-danger: #cf222e;
+  --t-glow: rgba(9, 105, 218, 0.12);
   --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --t-font-title: var(--t-font);
-  --t-lh: 1.78;
-  --t-radius-sm: 12px;
-  --t-radius-md: 16px;
-  --t-radius-lg: 18px;
-  --t-glow: rgba(38, 178, 104, 0.2);
-
+  --t-lh: 1.6;
+  --t-radius-sm: 4px;
+  --t-radius-md: 6px;
+  --t-radius-lg: 8px;
   --font-xs: 11px;
   --font-sm: 12px;
   --font-md: 13px;
-  --font-lg: 17px;
-
-  /* 背景插画（原创矢量占位，可整文件替换为你的图）与遮罩色 */
-  --t-bg-img: url('../assets/bg/bg-vitality.jpg');
-  --t-veil: rgba(248, 254, 250, 0.66);
-
+  --font-lg: 16px;
 }
 
-/* ---------- 共用结构：三档同规则、只换变量 ---------- */
+/* ---------- ③ green：中性浅 + 绿强调 ---------- */
+:root[data-theme="green"] {
+  --t-bg: #f6f8fa;
+  --t-panel: #ffffff;
+  --t-panel-2: #eaeef2;
+  --t-text: #1f2328;
+  --t-dim: #636c76;
+  --t-strong: #000000;
+  --t-accent: #1a7f37;
+  --t-accent-2: #6e7681;
+  --t-line: #d0d7de;
+  --t-ok: #1a7f37;
+  --t-warn: #9a6700;
+  --t-danger: #cf222e;
+  --t-glow: rgba(26, 127, 55, 0.12);
+  --t-font: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  --t-font-title: var(--t-font);
+  --t-lh: 1.6;
+  --t-radius-sm: 4px;
+  --t-radius-md: 6px;
+  --t-radius-lg: 8px;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 16px;
+}
 
+/* ---------- 共用结构：三档同规则，只换变量 ---------- */
+
+/* 窗口根：body + 各窗挂载点（#app / #packs-app / #knowledge-app …） */
+:root[data-theme="dark"] body,
+:root[data-theme="light"] body,
+:root[data-theme="green"] body {
+  background: var(--t-bg);
+  color: var(--t-text);
+  font-family: var(--t-font);
+  line-height: var(--t-lh);
+  letter-spacing: 0;
+}
 :root[data-theme="dark"] #app,
 :root[data-theme="light"] #app,
-:root[data-theme="green"] #app {
+:root[data-theme="green"] #app,
+:root[data-theme="dark"] [id$="-app"],
+:root[data-theme="light"] [id$="-app"],
+:root[data-theme="green"] [id$="-app"] {
   background: var(--t-bg) !important;
   color: var(--t-text) !important;
   font-family: var(--t-font);
   line-height: var(--t-lh);
-  letter-spacing: 0.2px;
 }
 
-/* 顶栏：渐变 + 圆润 + 主题色标题 */
+/* 顶栏：平直、无渐变装饰 */
 :root[data-theme="dark"] .titlebar,
 :root[data-theme="light"] .titlebar,
 :root[data-theme="green"] .titlebar {
-  background: linear-gradient(90deg, var(--t-panel), var(--t-panel-2)) !important;
-  border-bottom-color: var(--t-line) !important;
-  padding: 0 16px !important;
-  letter-spacing: 0.6px;
+  background: var(--t-panel) !important;
+  border-bottom: 1px solid var(--t-line) !important;
+  padding: 0 14px !important;
+  letter-spacing: 0;
 }
 :root[data-theme="dark"] .titlebar-text,
 :root[data-theme="light"] .titlebar-text,
 :root[data-theme="green"] .titlebar-text {
-  /* 用各档的"高强度文字色"而不是强调色 —— 强调色（粉/绿）在浅底上对比度只有 2.3~2.6:1，
-     实测不达 WCAG AA。可读性优先于"标题带主题色"这个装饰意图。 */
   color: var(--t-strong) !important;
   font-family: var(--t-font-title);
 }
 
-/* 对话面板：卡片化 + 呼吸 */
+/* 对话面板：实底卡片，无插画 */
 :root[data-theme="dark"] .dialog-panel,
 :root[data-theme="light"] .dialog-panel,
 :root[data-theme="green"] .dialog-panel {
-  background-color: var(--t-panel) !important;
-  /* 背景插画 + 同色薄纱（薄纱在上层，保证文字区对比度不被插画破坏；消息气泡另有底色）。
-     用 linear-gradient 作薄纱而不是 ::before 层，避免与组件的 z-index 打架。 */
-  background-image: linear-gradient(var(--t-veil), var(--t-veil)), var(--t-bg-img) !important;
-  background-repeat: no-repeat, no-repeat !important;
-  background-position: 0 0, right 10px bottom 10px !important;
-  background-size: auto, auto 62% !important;
+  background: var(--t-panel) !important;
   color: var(--t-text) !important;
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-lg) !important;
-  padding: 18px !important;
+  padding: 16px !important;
   line-height: var(--t-lh) !important;
-  box-shadow: 0 0 32px var(--t-glow);
+  box-shadow: none;
   font-family: var(--t-font);
 }
 :root[data-theme="dark"] .dialog-panel *,
@@ -168,31 +196,32 @@
   border-color: var(--t-line);
   font-family: var(--t-font);
 }
-/* 消息气泡：真实类名是 .text-msg（见 DialogPanel.vue），此前这里写的是 .msg-content ——
- * 该类在 DOM 中不存在，三条规则一直是死规则、气泡从未被主题化。2026-10-07 修正选择器。 */
+
+/* 消息气泡 */
 :root[data-theme="dark"] .dialog-panel .text-msg,
 :root[data-theme="light"] .dialog-panel .text-msg,
 :root[data-theme="green"] .dialog-panel .text-msg {
   color: var(--t-text) !important;
-  padding: 12px 16px !important;
+  padding: 10px 14px !important;
   line-height: var(--t-lh) !important;
-  margin-bottom: 12px !important;
+  margin-bottom: 10px !important;
 }
 :root[data-theme="dark"] .dialog-panel .msg-user .text-msg,
 :root[data-theme="light"] .dialog-panel .msg-user .text-msg,
 :root[data-theme="green"] .dialog-panel .msg-user .text-msg {
   background: var(--t-panel-2) !important;
   border: 1px solid var(--t-line) !important;
-  border-radius: var(--t-radius-md) var(--t-radius-md) 6px var(--t-radius-md) !important;
+  border-radius: var(--t-radius-md) !important;
 }
 :root[data-theme="dark"] .dialog-panel .msg-assistant .text-msg,
 :root[data-theme="light"] .dialog-panel .msg-assistant .text-msg,
 :root[data-theme="green"] .dialog-panel .msg-assistant .text-msg {
   background: var(--t-panel) !important;
   border: 1px solid var(--t-line) !important;
-  border-radius: var(--t-radius-md) var(--t-radius-md) var(--t-radius-md) 6px !important;
+  border-radius: var(--t-radius-md) !important;
 }
-/* 输入框：模板里没有 .chat-input 容器（该类不存在），原选择器一直未命中 —— 2026-10-07 改指 .dialog-panel textarea。 */
+
+/* 输入框 */
 :root[data-theme="dark"] .dialog-panel textarea,
 :root[data-theme="light"] .dialog-panel textarea,
 :root[data-theme="green"] .dialog-panel textarea {
@@ -201,11 +230,13 @@
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-md) !important;
 }
+
+/* 模式按钮（指令 / Plan / Teach）：小圆角，不再是胶囊 */
 :root[data-theme="dark"] .dialog-panel .mode-btn,
 :root[data-theme="light"] .dialog-panel .mode-btn,
 :root[data-theme="green"] .dialog-panel .mode-btn {
   color: var(--t-dim) !important;
-  border-radius: 999px !important;
+  border-radius: var(--t-radius-sm) !important;
 }
 :root[data-theme="dark"] .dialog-panel .mode-btn.active,
 :root[data-theme="light"] .dialog-panel .mode-btn.active,
@@ -215,24 +246,24 @@
   border-color: var(--t-accent) !important;
 }
 
-/* 左侧导航：松一点、圆一点、主题色悬停 */
-:root[data-theme="dark"] #app .wb-nav,
-:root[data-theme="light"] #app .wb-nav,
-:root[data-theme="green"] #app .wb-nav {
-  padding: 12px 10px !important;
-  gap: 6px !important;
+/* 左侧导航 */
+:root[data-theme="dark"] .wb-nav,
+:root[data-theme="light"] .wb-nav,
+:root[data-theme="green"] .wb-nav {
+  padding: 10px 8px !important;
+  gap: 2px !important;
   color: var(--t-text) !important;
 }
-:root[data-theme="dark"] #app .wb-nav *,
-:root[data-theme="light"] #app .wb-nav *,
-:root[data-theme="green"] #app .wb-nav * {
+:root[data-theme="dark"] .wb-nav *,
+:root[data-theme="light"] .wb-nav *,
+:root[data-theme="green"] .wb-nav * {
   color: var(--t-text) !important;
 }
 :root[data-theme="dark"] .wb-nav > *,
 :root[data-theme="light"] .wb-nav > *,
 :root[data-theme="green"] .wb-nav > * {
   border-radius: var(--t-radius-sm) !important;
-  padding: 7px 10px !important;
+  padding: 6px 9px !important;
 }
 :root[data-theme="dark"] .wb-nav > *:hover,
 :root[data-theme="light"] .wb-nav > *:hover,
@@ -240,31 +271,22 @@
   background: var(--t-panel-2) !important;
 }
 
-/* 右侧「路由与执行」：卡片化 + 装饰前缀 */
-/* 特异性说明：这几条额外带 #app —— 旧主题规则（App.vue / DialogPanel.vue 里按"深绿底"写的
- * :root[data-theme="green"] .dialog-panel 等）在 tokens.css **之后**注入，同特异性 !important 会取胜，
- * 导致新浅绿底上仍用旧浅绿字（实测对比度 1.63:1）。加 id 选择器把特异性抬到必胜。 */
-:root[data-theme="dark"] #app .wb-rt-section,
-:root[data-theme="light"] #app .wb-rt-section,
-:root[data-theme="green"] #app .wb-rt-section {
+/* 右侧「路由与执行」区块：平直卡片，无装饰前缀（原 '✿ ' 已移除） */
+:root[data-theme="dark"] .wb-rt-section,
+:root[data-theme="light"] .wb-rt-section,
+:root[data-theme="green"] .wb-rt-section {
   background: var(--t-panel-2) !important;
   color: var(--t-text) !important;
   border: 1px solid var(--t-line) !important;
   border-radius: var(--t-radius-md) !important;
-  padding: 12px 14px !important;
-  margin-bottom: 10px !important;
-  box-shadow: 0 2px 14px var(--t-glow) !important;
+  padding: 10px 12px !important;
+  margin-bottom: 8px !important;
+  box-shadow: none !important;
 }
-:root[data-theme="dark"] #app .wb-rt-section *,
-:root[data-theme="light"] #app .wb-rt-section *,
-:root[data-theme="green"] #app .wb-rt-section * {
+:root[data-theme="dark"] .wb-rt-section *,
+:root[data-theme="light"] .wb-rt-section *,
+:root[data-theme="green"] .wb-rt-section * {
   color: var(--t-text) !important;
-}
-:root[data-theme="dark"] .wb-rt-section::before,
-:root[data-theme="light"] .wb-rt-section::before,
-:root[data-theme="green"] .wb-rt-section::before {
-  content: '✿ ';
-  color: var(--t-accent);
 }
 :root[data-theme="dark"] .wb-rt-packrow,
 :root[data-theme="light"] .wb-rt-packrow,
@@ -276,13 +298,13 @@
 :root[data-theme="light"] .wb-rt-v,
 :root[data-theme="green"] .wb-rt-v {
   border-radius: var(--t-radius-sm) !important;
-  padding: 6px 8px !important;
+  padding: 5px 7px !important;
 }
 :root[data-theme="dark"] .wb-rt-log-item,
 :root[data-theme="light"] .wb-rt-log-item,
 :root[data-theme="green"] .wb-rt-log-item {
   border-radius: var(--t-radius-sm) !important;
-  padding: 6px 8px !important;
+  padding: 5px 7px !important;
   background: var(--t-panel-2) !important;
   margin-bottom: 4px !important;
 }
@@ -309,27 +331,18 @@
   color: var(--t-bg);
 }
 
-/* 按钮悬停微弹（少女感的小动作，三档一致） */
-:root[data-theme="dark"] button:hover,
-:root[data-theme="light"] button:hover,
-:root[data-theme="green"] button:hover {
-  transform: translateY(-1px) scale(1.02);
-}
+/* 按钮：只做颜色反馈，不做位移 / 缩放（原先的拟物弹跳已移除） */
 :root[data-theme="dark"] button,
 :root[data-theme="light"] button,
 :root[data-theme="green"] button {
-  transition: transform 0.14s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-
-/* ---------- 滚动条与下拉选项（从 App.vue / DialogPanel.vue 旧主题块收编，2026-10-07） ----------
- * 这两处原先分散在 App.vue / DialogPanel.vue 的 :root[data-theme=...] 块里、按旧配色写，
- * 与三档令牌并存会冲突（同类里 tokens 靠 !important 取胜，但滚动条 track / select option 无覆盖、
- * 旧值仍在生效）。此处收编为唯一定义处并对齐令牌，App.vue/DialogPanel.vue 的旧块随之删除。 */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-:root[data-theme="dark"] ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.05); }
-:root[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(92, 58, 76, 0.08); }
-:root[data-theme="green"] ::-webkit-scrollbar-track { background: rgba(44, 70, 52, 0.08); }
+/* 滚动条 track / 下拉选项 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+:root[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme="light"] ::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme="green"] ::-webkit-scrollbar-track { background: transparent; }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover,
 :root[data-theme="light"] ::-webkit-scrollbar-thumb:hover,
 :root[data-theme="green"] ::-webkit-scrollbar-thumb:hover { background: var(--t-accent) !important; }

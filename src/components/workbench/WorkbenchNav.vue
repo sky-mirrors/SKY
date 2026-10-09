@@ -1,8 +1,11 @@
 <template>
   <div class="wb-nav" :class="{ collapsed: navCollapsed }">
     <div class="wb-nav-header">
-      <!-- 2026-10-01：收起后只剩窄条、其他操作够不到 —— 双击 HS 图标即恢复展开（用户反馈） -->
-      <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'SKY'">HS</span>
+      <!-- 2026-10-01：收起后只剩窄条、其他操作够不到 —— 双击图标即恢复展开（用户反馈） -->
+      <!-- 2026-10-09：logo 由硬编码 "HS"（HoloStarmap 残留，title 却是 SKY）换为星形图标 -->
+      <span class="wb-nav-logo" @dblclick="navCollapsed = false" :title="navCollapsed ? '双击展开导航' : 'SKY'">
+        <Icon name="star" :size="14" />
+      </span>
       <span v-if="!navCollapsed" class="wb-nav-title">SKY</span>
       <button v-if="!navCollapsed" class="wb-nav-collapse-btn" @click="navCollapsed = true" title="收起导航">«</button>
     </div>
@@ -11,7 +14,7 @@
     <div class="wb-nav-section">
       <!-- 2026-10-01：配置 / 工具的分组标题文本栏删去（项保留） -->
       <button class="wb-nav-item" title="模型网关配置" @click="emit('openApiSettings')">
-        <span class="wb-nav-icon">🧠</span>
+        <span class="wb-nav-icon"><Icon name="cpu" :size="15" /></span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">模型网关</span>
       </button>
     </div>
@@ -20,17 +23,17 @@
          空 shell 的 L0 自动执行、funnel 主路径开关、四个工具窗口都是开发者向，不进用户视野。 -->
     <div class="wb-nav-section">
       <button class="wb-nav-item" title="管线编辑器（独立窗口）" @click="openWindow('openPipelineWindow')">
-        <span class="wb-nav-icon">🧩</span>
+        <span class="wb-nav-icon"><Icon name="pipeline" :size="15" /></span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">管线编辑器</span>
       </button>
       <!-- 2026-10-01（用户裁定）：知识库入口从指令区迁到这里，与管线编辑器并列 -->
       <button class="wb-nav-item" title="知识库管理（独立窗口）" @click="openWindow('openKnowledgeWindow')">
-        <span class="wb-nav-icon">📚</span>
+        <span class="wb-nav-icon"><Icon name="book" :size="15" /></span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">知识库</span>
       </button>
       <!-- 2026-10：领域包编辑器——领域专家不改代码即可添加知识与规则 -->
       <button class="wb-nav-item" title="领域包编辑器（独立窗口）" @click="openWindow('openPackEditorWindow')">
-        <span class="wb-nav-icon">🧱</span>
+        <span class="wb-nav-icon"><Icon name="package" :size="15" /></span>
         <span v-if="!navCollapsed" class="wb-nav-item-text">领域包</span>
       </button>
     </div>
@@ -103,6 +106,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import Icon from '@/components/Icon.vue'
 import { globalBus } from '@/kernel/bus'
 import { useDialogStore } from '@/domains/dialog'
 import { useSessionStore } from '@/domains/app'
