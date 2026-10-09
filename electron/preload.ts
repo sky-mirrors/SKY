@@ -80,7 +80,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   fileWrite: (opts: { filePath: string; content: string; encoding?: string }) =>
     ipcRenderer.invoke('file:write', opts),
-  fileMove: (opts: { from: string; to: string }) =>
+  fileMove: (opts: { from?: string; to?: string; fromDir?: string; ext?: string; toDir?: string }) =>
     ipcRenderer.invoke('file:move', opts),
   // 2026-09-30：复制文件（与 file:move 同校验口径）
   fileCopy: (opts: { from: string; to: string }) =>
@@ -362,6 +362,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 领域包编辑器窗口
   openPackEditorWindow: () => ipcRenderer.send('open:packs-window'),
+
+  // 领域包编辑器窗口控制（与其余六窗同构）。此前只有 main 侧注册了 packs:window:*，
+  // 本文件未暴露、窗口内也无入口 ⇒ 通道悬空、无边框窗口在 UI 内关不掉。
+  packsWindowMinimize: () => ipcRenderer.send('packs:window:minimize'),
+  packsWindowMaximize: () => ipcRenderer.send('packs:window:maximize'),
+  packsWindowClose: () => ipcRenderer.send('packs:window:close'),
 
   openRuleReviewWindow: () => ipcRenderer.send('open:rule-review-window'),
   ruleReviewWindowMinimize: () => ipcRenderer.send('rule-review:window:minimize'),

@@ -4,6 +4,11 @@
       <span class="pe-title">领域包编辑器</span>
       <span class="pe-hint">为用户包添加知识条目与规则；保存后自动通知主窗口重载</span>
       <span v-if="toast" class="pe-toast" :class="{ bad: toastBad }">{{ toast }}</span>
+      <div class="pe-tb-actions">
+        <button class="pe-tb-btn" @click="onMinimize" title="最小化">─</button>
+        <button class="pe-tb-btn" @click="onMaximize" title="最大化/还原">□</button>
+        <button class="pe-tb-btn pe-tb-close" @click="onClose" title="关闭">✕</button>
+      </div>
     </header>
 
     <div class="pe-body">
@@ -263,15 +268,24 @@ async function removePack() {
   await refresh()
   say('已删除')
 }
+
+// 窗口控制走本窗（packs 窗）的 IPC——与 knowledge / rule-review 等窗同构
+function onMinimize(): void { window.electronAPI?.packsWindowMinimize() }
+function onMaximize(): void { window.electronAPI?.packsWindowMaximize() }
+function onClose(): void { window.electronAPI?.packsWindowClose() }
 </script>
 
 <style scoped>
 .pe { display: flex; flex-direction: column; height: 100%; color: #b0d4f1; font-size: 13px; background: #050510; }
-.pe-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid rgba(100,180,255,0.12); }
+.pe-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid rgba(100,180,255,0.12); -webkit-app-region: drag; user-select: none; }
 .pe-title { font-weight: 600; color: #8ab4ff; }
-.pe-hint { color: #5a7a9a; font-size: 12px; }
-.pe-toast { margin-left: auto; color: #7ee0a8; }
+.pe-hint { color: #5a7a9a; font-size: 12px; flex: 1; }
+.pe-toast { color: #7ee0a8; }
 .pe-toast.bad { color: #ff8a8a; }
+.pe-tb-actions { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.pe-tb-btn { background: none; border: none; color: #b8c6dd; cursor: pointer; font-size: 12px; padding: 2px 8px; border-radius: 3px; }
+.pe-tb-btn:hover { background: rgba(80, 160, 255, 0.12); }
+.pe-tb-close:hover { background: #c0392b; color: #fff; }
 .pe-body { flex: 1; display: flex; min-height: 0; }
 .pe-list { width: 220px; border-right: 1px solid rgba(100,180,255,0.12); padding: 10px; overflow: auto; }
 .pe-list-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: #8ab4ff; }
