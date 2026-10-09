@@ -67,7 +67,7 @@ Requirements: **Node.js ≥ 18**, **npm ≥ 9**.
 | `npm run dev` | electron-vite dev mode with HMR |
 | `npm run build` | Build main / preload / renderer into `out/` |
 | `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` — **must be green** |
-| `npm test` | Vitest, 210 spec files (excludes `test/e2e/**`) |
+| `npm test` | Vitest, 211 spec files (excludes `test/e2e/**`) |
 | `npm run smoke` | Real-machine journey smoke — needs the app running with CDP open |
 | `npm run smoke:window-controls` | Real-machine check that every sub-window's minimize/close actually works |
 | `npm run package:win` | Windows portable build → `dist/SKY <version>.exe` |
@@ -147,7 +147,7 @@ Measured on 2026-10-09, on this repository, with the commands below — not carr
 
 | Check | Result |
 |---|---|
-| `npm test` | **2667 cases** — **2666 passed / 1 failed**, 210 spec files, ~8.4 s |
+| `npm test` | **2671 cases** — **2670 passed / 1 failed**, 211 spec files, ~8.7 s |
 | Known noise | `test/unit/apiStore.timerDispose.spec.ts` fails **only while a local Ollama is running** — environment-specific, not a regression |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` clean |
 | `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
@@ -184,7 +184,7 @@ SKY/
 │   ├── components/           # Vue components (32)
 │   ├── exam/                 # Acceptance exam (V1 18 + V2 50 cases)
 │   └── data/                 # Static data (manifests, skill/MCP catalogues, legacy topology)
-├── test/                     # 210 spec files + 3 standalone e2e scripts
+├── test/                     # 211 spec files + 3 standalone e2e scripts
 ├── config/l2_manifests/      # 20 L2 manifest JSONs
 ├── scripts/                  # smoke / audit / report generators
 └── docs/                     # Authoritative docs (Chinese)

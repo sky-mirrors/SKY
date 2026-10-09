@@ -2,7 +2,7 @@
 
 **本地优先的 AI 工具控制台 · 实验性技术预览** —— 在桌面应用里路由、校验并执行 LLM 辅助任务，把路由决策及其开销**摊开给人看**，而不是藏起来。
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-210%20spec%20files-blue.svg)](docs/60-测试与验收.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-211%20spec%20files-blue.svg)](docs/60-测试与验收.md)
 
 > 🌐 **语言**：本文件为中文版（主）。英文原文见 README.en.md。
 
@@ -67,7 +67,7 @@ npm run dev
 | `npm run dev` | electron-vite 开发模式（带 HMR） |
 | `npm run build` | 构建主进程 / preload / 渲染层到 `out/` |
 | `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` —— **必须绿** |
-| `npm test` | Vitest，210 个 spec 文件（不含 `test/e2e/**`） |
+| `npm test` | Vitest，211 个 spec 文件（不含 `test/e2e/**`） |
 | `npm run smoke` | 真机旅程冒烟 —— 需要应用已启动并开放 CDP |
 | `npm run smoke:window-controls` | 真机检查每个副窗的最小化 / 关闭是否真的生效 |
 | `npm run package:win` | Windows 便携版构建 → `dist/SKY <version>.exe` |
@@ -147,7 +147,7 @@ npm run dev
 
 | 检查项 | 结果 |
 |---|---|
-| `npm test` | **2667 个用例** —— **2666 通过 / 1 失败**，210 个 spec 文件，约 8.4 s |
+| `npm test` | **2671 个用例** —— **2670 通过 / 1 失败**，211 个 spec 文件，约 8.7 s |
 | 已知噪声 | `test/unit/apiStore.timerDispose.spec.ts` **仅在本地 Ollama 运行时**失败——环境相关，不是回归 |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` 干净 |
 | `npm run smoke:window-controls` | **35/35** —— 七个副窗全部：按钮渲染出来、`-webkit-app-region: drag` 生效、最小化真的最小化、关闭真的关闭 |
@@ -184,7 +184,7 @@ SKY/
 │   ├── components/           # Vue 组件（32 个）
 │   ├── exam/                 # 验收考试（V1 18 + V2 50 题）
 │   └── data/                 # 静态数据（清单、技能/MCP 目录、遗留拓扑）
-├── test/                     # 210 个 spec 文件 + 3 个独立 e2e 脚本
+├── test/                     # 211 个 spec 文件 + 3 个独立 e2e 脚本
 ├── config/l2_manifests/      # 20 个 L2 清单 JSON
 ├── scripts/                  # 冒烟 / 审计 / 报告生成器
 └── docs/                     # 权威文档（中文分册）

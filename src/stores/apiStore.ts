@@ -16,7 +16,7 @@ import { parseJsonSafe } from '@/services/jsonSafe'
 import { resolveRole, resolveRoleTarget, resolveDirectTarget } from '@/services/modelRoles'
 // 小模型兜底 + 诚实陈述（2026-09-23 需求）
 import { detectUnsolvable, resolveEscalationTarget, buildHonestNotice, honestNoticeFor } from '@/services/escalationPolicy'
-import { probeOllama, ollamaChat, ollamaChatStream } from '@/services/ollamaProvider'
+import { probeOllama, ollamaChat, ollamaChatStream, OLLAMA_DEFAULT_BASE } from '@/services/ollamaProvider'
 import { tierTimeoutFor, timeoutSignalWithReason, LLM_TIMEOUT_ABSOLUTE_CAP_MS } from '@/services/llmTimeouts'
 // M20：降级链纯服务（规格 10.2/M20）——探测缓存/可降级分类/事件广播
 import {
@@ -1596,6 +1596,50 @@ export const useApiStore = defineStore('api', () => {
     getActiveProvider() { return activeProvider.value }
   }
 
+  /**
+   * 本地 Ollama 自动发现（2026-10-09）
+   *
+   * 解决 docs/95 §8 记录的实现偏差：`dialogStore.ts:1719` 的模型网关门禁位于路由**之前**，
+   * 未配置 provider 时 `sendMessage` 直接返回，连 0-token 的 L0/L0.5/L1/L2 都不可达；
+   * 而 README 承诺「无密钥时只回退到确定性规则层」。本机常驻 Ollama 却未被采用。
+   *
+   * 契约（不可违背）：
+   *   1. **仅在完全未配置 provider 时执行** —— 已有配置一律不探测、不改动，绝不覆盖用户配置
+   *   2. 探测失败或抛异常一律静默返回 false，不打断启动
+   *   3. 成功时只探测一次网络（复用首探结果，不走 pingProvider 的二次探测）
+   *
+   * @returns 是否因此发生了配置变更
+   */
+  async function autoDiscoverLocalOllama(): Promise<boolean> {
+    if (config.value.activeProviderId || config.value.providers.length > 0) return false
+    try {
+      const probe = await probeOllama(OLLAMA_DEFAULT_BASE)
+      if (!probe.ok || probe.models.length === 0) return false
+      const id = addProvider({
+        id: 'auto-local-ollama',
+        name: '本地 Ollama（自动发现）',
+        baseUrl: OLLAMA_DEFAULT_BASE,
+        authType: 'none',
+        apiKey: '',
+        modelsEndpoint: '/api/tags',
+        chatFormat: 'ollama'
+      })
+      const provider = config.value.providers.find(p => p.id === id)
+      if (!provider) return false
+      const models = probe.models.map(m => ({ ...m, providerId: id }))
+      provider.models = models
+      provider.isReachable = true
+      provider.lastCheckedAt = Date.now()
+      config.value.models = models
+      config.value.isReachable = true
+      config.value.lastCheckedAt = Date.now()
+      setActiveModel(models[0].id)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function loadFromStorage() {
     try {
       const stored = await storeGet('api-config') as Partial<ApiConfig> | null
@@ -1738,6 +1782,7 @@ export const useApiStore = defineStore('api', () => {
     pingAllProviders,
     tokenBudgetMonthly,
     loadFromStorage,
+    autoDiscoverLocalOllama,
     saveToStorage,
     detectDomain
   }

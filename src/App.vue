@@ -293,7 +293,11 @@ onMounted(async () => {
   window.addEventListener('holo-open-notifications', onHoloOpenNotifications)
 
   configStore.loadFromStorage()
-  apiStore.loadFromStorage()
+  // 2026-10-09：改为 await —— 紧随其后的自动发现依赖「已存配置是否为空」这一判断，
+  // 而 loadFromStorage 是 async。若不等待读取完成就探测，可能在用户**已配置**的情况下
+  // 误判为空并追加 provider（随后又被读回的 providers 覆盖，留下悬空的 activeProviderId）。
+  await apiStore.loadFromStorage()
+  await apiStore.autoDiscoverLocalOllama()
   pipelineStore.loadFromStorage()
   registerPipelineExecutor(executePipeline)
 
