@@ -176,9 +176,9 @@ Full details: [docs/40-安全模型](docs/40-安全模型.md).
 
 | Metric | Value |
 |--------|-------|
-| Test files | **212** on disk (`.spec.ts`) — **209 collected** by the runner (3 e2e specs excluded) |
+| Test files | **209** (`.spec.ts`), all collected by the runner |
 | Test cases | **2753** — **2752 passed / 1 failed** (the known Ollama noise below), measured 2026-10-09 |
-| E2E specs | 6 in `test/e2e/` — **excluded from `npm test`**, no runner script |
+| Real-machine e2e | 3 standalone Electron scripts in `test/e2e/` → `npm run verify:pdf\|image\|media` (not vitest cases) |
 | Coverage gate | 40% lines/functions/statements, 30% branches — **only `src/services` + `src/stores`** |
 | Real-machine smoke | `npm run smoke` → drives the running app over CDP and asserts 5 user journeys |
 | Known noise | 1 case (`apiStore.timerDispose.spec.ts`) fails **only while a local Ollama is running** — environment-specific, not a regression |
