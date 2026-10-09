@@ -1,6 +1,0 @@
-[
-  { "identity": { "id": "l2-contract-risk-review-v1", "name": "合同风险审查", "version": "1.0.0" } },
-  { "identity": { "id": "l2-legal-clause-compare-v1", "name": "条款对比助手", "version": "1.0.0" } },
-  { "identity": { "id": "l2-nd-review-checklist-v1", "name": "ND审查清单", "version": "1.0.0" } },
-  { "identity": { "id": "l2-policy-doc-qa-v1", "name": "政策文档问答", "version": "1.0.0" } }
-]

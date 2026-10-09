@@ -1,7 +1,0 @@
-[
-  { "identity": { "id": "l2-financial-report-brief-v1", "name": "财报风险一句话解读", "version": "1.0.0" } },
-  { "identity": { "id": "l2-reimbursement-check-v1", "name": "报销单合规检查", "version": "1.0.0" } },
-  { "identity": { "id": "l2-data-excel-summary-v1", "name": "Excel数据摘要", "version": "1.0.0" } },
-  { "identity": { "id": "l2-budget-forecast-v1", "name": "预算预测助手", "version": "1.0.0" } },
-  { "identity": { "id": "l2-weekly-report-draft-v1", "name": "周报自动草稿", "version": "1.0.0" } }
-]

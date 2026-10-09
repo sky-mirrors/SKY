@@ -4,7 +4,7 @@
  *
  * 为什么需要它：把仓库切成 public 是**不可逆**的（即便删库，镜像/缓存/克隆已流出）。
  * 而本仓已经真实踩过一次同类问题：考试成绩单正文里带着作者本机的绝对路径与用户名
- * （`docs\exam-reports\*.json` 的 `replyExcerpt`，形如 `C:\Users\<作者名>\Desktop\...`），
+ * （历史验收成绩单的 `replyExcerpt`，形如 `C:\Users\<作者名>\Desktop\...`），
  * 单测与 typecheck 全绿也照样看不到——没有任何测试会去读报告正文。
  *
  * 用法：

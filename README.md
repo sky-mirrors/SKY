@@ -155,7 +155,7 @@ Coverage gate: 40% lines/functions/statements, 30% branches — **`src/services`
 
 ### Acceptance exam (self-assessment, warts included)
 
-The repo ships an acceptance exam (V1 18 cases, V2 50 cases) whose scores are archived verbatim in [`docs/exam-reports/`](docs/exam-reports/). The most recent V2 run: **deliverable rate 0.28**, zero-intervention rate 0.64, mean 15.0 s per case.
+The repo ships an acceptance exam (V1 18 cases, V2 50 cases). The historical score reports have been moved out of the repository — recover them from git history if needed. The most recent V2 run: **deliverable rate 0.28**, zero-intervention rate 0.64, mean 15.0 s per case.
 
 That is a low number and it is printed here on purpose: the exam is deliberately harsher than "does it answer" — it requires a real artifact on disk and checks the artifact, not the reply text. Do not read the routing-layer tables above as an accuracy claim.
 

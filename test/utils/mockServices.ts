@@ -180,8 +180,6 @@ export function createMockCrossDocValidator() {
 
 export function createMockDomainConstraints() {
   return {
-    LEGAL_CONSTRAINTS: [],
-    FINANCE_CONSTRAINTS: [],
     getAllConstraints: vi.fn().mockReturnValue([]),
     getConstraintsByDomain: vi.fn().mockReturnValue([]),
     getConstraintsByAutomationLevel: vi.fn().mockReturnValue([]),

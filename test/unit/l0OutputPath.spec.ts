@@ -4,7 +4,7 @@ import { extractOutputDir, buildOutputPath } from '@/services/l0SkillRouter'
 // ─────────────────────────────────────────────────────────────────────────────
 // 产物输出位置（2026-09-30）
 //
-// 根因（docs/exam-reports/2026-09-30-v2-failure-attribution.md 的「归因修正」节）：
+// 根因（历史成绩单 2026-09-30-v2-failure-attribution 的「归因修正」节；报告已移出仓库）：
 // `l0SkillRouter.ts` 原实现是
 //     const baseName = src.replace(/\.\w{1,5}$/, '')
 //     const outputPath = `${baseName}.${effectiveTarget}`

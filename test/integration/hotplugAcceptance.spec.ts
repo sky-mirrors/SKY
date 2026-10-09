@@ -125,50 +125,9 @@ describe('P3.6 验收一：换内核切换（M4 状态机）', () => {
   })
 })
 
-describe('P3.6 验收二：pack 热重载（M19）与卸载即收缩', () => {
-  it('启动挂载 59 条 → reloadPack(legal) 完整卸载-重挂 → 行为保持', async () => {
-    await initPackRuntime()
-    // 2026-10-01：原为 toEqual(['finance','hr','legal']) —— 但本用例的意图是验证 legal 的
-    // 卸载-重挂，不该顺带锁死"内置 pack 全集"（包会随扩展增加，demopack 即为一例）。
-    expect(packLoader.listMounted().map(m => m.id).sort()).toEqual(expect.arrayContaining(['finance', 'legal', 'geotech']))
-    expect(getExternalConstraintIds()).toHaveLength(59)
-
-    const fires = () => runConstraints({
-      entities: [],
-      sourceText: '员工张三于2024年1月1日入职，至今未签订劳动合同',
-      outputText: '',
-      stepResults: {},
-      manifestRoles: ['legal']
-    })
-    expect(fires().some(r => r.constraintId === 'legal-labor-contract-written')).toBe(true)
-
-    const lifecycle: string[] = []
-    const offs = ['pack:mounted', 'pack:unmounted', 'pack:reloaded']
-      .map(ch => globalBus.on(ch, (p: any) => lifecycle.push(p?.packId ? `${ch}:${p.packId}` : ch)))
-
-    const reload = await packLoader.reloadPack('legal')
-    expect(reload.ok).toBe(true)
-    expect(typeof reload.durationMs).toBe('number')
-    expect(lifecycle).toEqual(['pack:unmounted:legal', 'pack:mounted:legal', 'pack:reloaded:legal'])
-
-    // 重载后行为保持：仍 59 条、原约束仍触发
-    expect(getExternalConstraintIds()).toHaveLength(59)
-    expect(fires().some(r => r.constraintId === 'legal-labor-contract-written')).toBe(true)
-    offs.forEach(off => off())
-  })
-
-  it('卸载即收缩：unmountPack(legal) → 约束摘至 9 条；重新挂载恢复 59 条', async () => {
-    await initPackRuntime()
-    const unmount = await packLoader.unmountPack('legal')
-    expect(unmount.ok).toBe(true)
-    expect(unmount.removedConstraints).toBe(50)
-    expect(getExternalConstraintIds()).toHaveLength(9)
-
-    const remount = await packLoader.mountPack('legal')
-    expect(remount.ok).toBe(true)
-    expect(getExternalConstraintIds()).toHaveLength(59)
-  })
-})
+// P3.6 验收二（pack 热重载 M19 / 卸载即收缩）已随领域包闭源移除：
+// 原用例以内置 legal 包的 59/50 条约束为断言基准，正文还含领域文本与领域约束 id。
+// 机制本身保留在 src/host/pack/loader.ts（reloadPack / unmountPack），覆盖待以自建包补齐。
 
 describe('P3.6 验收三：override 回退演示（M7/M5.4）', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
