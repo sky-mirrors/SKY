@@ -1560,6 +1560,9 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     // 结束（含异常）一律定向注销，避免注册表滞留僵尸条目。
     const routeCtl = new AbortController()
     globalBus.emit('debug:register-abort', routeCtl)
+    // 2026-10-09（docs/95 §8 方案 A）：未就绪提示的去重标志——一次路由只提示一次，
+    // 避免 L3 未果后 L4 再试时重复刷通知。
+    let llmNotReadyNotified = false
     const abortRouting = (): boolean => {
       globalBus.emit('funnel:routed', { handled: true, kind: 'aborted', ts: Date.now(), traceId: activeTraceId.value || undefined })
       addSystemNotice('⏹ 已终止（路由/规划阶段）')
@@ -1583,6 +1586,20 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
         // M16：竞争模式 flag（默认关）——L2 跨 pack 歧义候选竞标分竞争
         competitiveMode: await isCompetitiveModeEnabled(),
         chatCompletion: async (msgs) => {
+          // 2026-10-09（docs/95 §8 方案 A）：模型网关门禁的**新落点**。只有真正需要 LLM 的层
+          // （L3 仲裁 / L4 规划 / 执行期的 llm_generate 步骤）才会走到这里；放在此处而非
+          // sendMessage 开头，L0–L2 的 0-token 规则路径在无密钥时才能继续可用。
+          // 未就绪时不抛裸错误：提示一次并返回空内容，让漏斗按「未能仲裁」自然降级。
+          if (!globalBus.request('api:is-ready', {})) {
+            if (!llmNotReadyNotified) {
+              llmNotReadyNotified = true
+              const cfg = globalBus.request('api:get-config', {}) as { activeProviderId?: string; activeModel?: string }
+              addSystemNotice(cfg?.activeProviderId && cfg?.activeModel
+                ? '❌ 连接失败，请检查 API 配置（本次仅规则层可用）'
+                : '⚠️ 未配置模型网关：本次仅使用规则层（L0–L2），需要 LLM 的仲裁/规划已跳过')
+            }
+            return { content: '' }
+          }
           // signal 透传：路由/规划期的 LLM 仲裁可被「⏹ 终止」打断（此前不带 ⇒ 该阶段不可中止）
           const r = await globalBus.requestAsync('api:chat-completion', { messages: msgs, stream: false, tools: undefined, maxTokens: 128, signal: routeCtl.signal })
           return { content: (r as { content?: string }).content || '' }
@@ -1717,20 +1734,11 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
     await yieldToUI()
 
-    if (!globalBus.request('api:is-ready', {})) {
-      if ((globalBus.request('api:get-config', {}) as any)?.activeProviderId && (globalBus.request('api:get-config', {}) as any)?.activeModel) {
-        const ok = await globalBus.requestAsync('api:check-connection', {})
-        if (!ok) {
-          addSystemNotice('❌ 连接失败，请检查API配置')
-          isProcessing.value = false
-          return ''
-        }
-      } else {
-        addSystemNotice('❌ 未配置模型网关')
-        isProcessing.value = false
-        return ''
-      }
-    }
+    // 2026-10-09（docs/95 §8 方案 A）：此处原有一段「模型网关」硬门禁——当 api:is-ready
+    // 为 false 且未配置 provider/model 时直接 addSystemNotice('❌ 未配置模型网关') + return ''，
+    // 导致 L0/L0.5/L1/L2 这些 **0-token 的规则层在无密钥时完全不可达**，与 README
+    // 「无密钥时只回退到确定性规则层」的承诺冲突（真机实测：消息区每条回复都是那句通知）。
+    // 门禁已**下移**到真正需要 LLM 的调用点——见 routeViaFunnel 内的 chatCompletion 包装。
 
     try {
       const allMcpTools = buildMcpTools()

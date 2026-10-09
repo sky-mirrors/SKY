@@ -256,6 +256,24 @@ describe('灰度第二步：funnel 主路径适配层（config:holo-funnel-main�
     globalBus.clear()
   })
 
+  it('未配置模型网关时，规则层仍可达 —— 门禁已下移（docs/95 §8 方案 A）', async () => {
+    setupBus()
+    // 覆盖为「没有 API key」的状态：就绪为 false、无 active provider/model。
+    // 旧实现里 sendMessage 开头有一段硬门禁（dialogStore.ts:1719），会在这里直接
+    // addSystemNotice('❌ 未配置模型网关') + return ''，路由根本不会被调用 —— 于是
+    // L0/L0.5/L1/L2 这些 0-token 的规则层全部不可达，与 README「无密钥时只回退到
+    // 确定性规则层」的承诺冲突。门禁下移后，规则命中路径必须照常走通。
+    globalBus.registerHandler('api:is-ready', () => false)
+    globalBus.registerHandler('api:get-config', () => ({ activeModel: '', activeProviderId: '' }))
+    const plan = makePlan({ intent: '规则层任务' })
+    routeMock.mockResolvedValue({ kind: 'plan', plan, macroManifestId: null, autoExecutable: false, source: 'L0' } as FunnelOutcome)
+
+    await store.sendMessage('列出桌面上的文件')
+
+    expect(routeMock).toHaveBeenCalled()
+    expect(noticeTexts(store)).not.toContain('未配置模型网关')
+  })
+
   it('flag 未配置（null，R15 默认）→ 默认走 funnel 主路径', async () => {
     funnelMainFlag = null
     setupBus()
