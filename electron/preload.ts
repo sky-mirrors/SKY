@@ -368,4 +368,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   storeSyncToDebug: (data: { storeId: string; state: Record<string, unknown> }) =>
     ipcRenderer.send('store:syncToDebug', data),
 
+  // 用户领域包（领域包编辑器 UI）：范围限死在 {userData}/holostarmap-packs
+  userPackRoot: () => ipcRenderer.invoke('pack:user:root'),
+  userPackList: () => ipcRenderer.invoke('pack:user:list'),
+  userPackRead: (packId: string, relPath: string) => ipcRenderer.invoke('pack:user:read', packId, relPath),
+  userPackWrite: (packId: string, relPath: string, content: string) =>
+    ipcRenderer.invoke('pack:user:write', packId, relPath, content),
+  userPackDeleteFile: (packId: string, relPath: string) =>
+    ipcRenderer.invoke('pack:user:deleteFile', packId, relPath),
+  userPackDeletePack: (packId: string) => ipcRenderer.invoke('pack:user:deletePack', packId),
+
 })

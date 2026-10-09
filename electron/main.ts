@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createWindow, registerGlobalShortcuts, unregisterGlobalShortcuts, createPipelineWindow, getPipelineWindow, getMainWindow, setOnPipelineWindowReady, createDebugWindow, getDebugWindow, setOnDebugWindowClosed, setOnDebugWindowReady, createBenchmarkWindow, getBenchmarkWindow, createRuleReviewWindow, getRuleReviewWindow, createDevWindow, getDevWindow, createKnowledgeWindow, getKnowledgeWindow } from './window-manager'
 import { setupIpc, cleanupMcpProcesses } from './ipc-handlers'
+import { setupUserPackIpc } from './userPacks'
 // A-19：退出时关闭 SQLite 连接（closeVault 此前被导入但从未调用），
 // 避免 WAL 文件残留与数据未 checkpoint 落盘
 import { closeVault } from './vault'
@@ -65,6 +66,8 @@ app.whenReady().then(async () => {
 
   const win = createWindow()
   setupIpc(win)
+  // 用户领域包的写入通道（领域包编辑器 UI 专用，范围限死在 {userData}/holostarmap-packs）
+  setupUserPackIpc()
 
   setOnPipelineWindowReady(() => {
     const pw = getPipelineWindow()
