@@ -37,7 +37,8 @@ export default defineConfig({
           benchmark: resolve(__dirname, 'benchmark.html'),
           'rule-review': resolve(__dirname, 'rule-review.html'),
           dev: resolve(__dirname, 'dev.html'),
-          knowledge: resolve(__dirname, 'knowledge.html')
+          knowledge: resolve(__dirname, 'knowledge.html'),
+          packs: resolve(__dirname, 'packs.html')
         }
       }
     },
