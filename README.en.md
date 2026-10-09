@@ -153,7 +153,7 @@ Measured on 2026-10-09, on this repository, with the commands below — not carr
 | `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
 | `node scripts/oss-audit.mjs` | Secret / local-path / credential scan over every tracked file; `--fix` redacts machine-specific paths |
 
-Coverage gate: 40% lines/functions/statements, 30% branches — **`src/services` + `src/stores` only**, so the number does not describe the whole codebase.
+Coverage gate: 40% lines/functions/statements, 30% branches — **`src/services` + `src/stores` only**, so the number does not describe the whole codebase. Measured total coverage is **72.74%** (see [`docs/60-测试与验收.md`](docs/60-测试与验收.md)).
 
 ### Acceptance exam (self-assessment, warts included)
 
