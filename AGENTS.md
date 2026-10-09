@@ -52,6 +52,7 @@ npm run build        # 构建
 npm run typecheck    # tsc -b + vue-tsc（提交前必须绿）
 npm test             # vitest 全量（注意：不含 test/e2e）
 npm run smoke        # 真机场景冒烟（需先启动应用 + CDP）
+npm run package:win  # 打 Windows 便携版（→ dist\SKY <version>.exe；需能访问 GitHub 下载打包工具）
 npx vitest run test/unit/xxx.spec.ts   # 单跑一个 spec
 ```
 

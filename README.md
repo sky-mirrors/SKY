@@ -92,13 +92,21 @@ npm install
 npm run dev
 ```
 
-### Build Portable EXE
+### Download / Release
+
+Prebuilt **Windows portable** builds are published on the [Releases](../../releases) page — no install needed, just double-click.
+
+Tagging `vX.Y.Z` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): it runs the test suite → builds → packages a portable EXE → attaches it to a **draft** release for you to review before publishing.
+
+To build locally:
 
 ```bash
-npx electron-vite build
-npx electron-builder --win portable
-# Output: dist/SKY 0.1.0.exe
+npm install
+npm run package:win        # → dist\SKY <version>.exe
 ```
+
+> ⚠️ Packaging downloads helper binaries (winCodeSign / NSIS) **from GitHub**. On a restricted network set
+> `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`, or let CI do the packaging instead.
 
 ---
 

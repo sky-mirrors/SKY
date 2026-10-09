@@ -1,0 +1,67 @@
+name: Release
+
+# 打标签即出包：push 形如 v0.1.0 的 tag 会构建 Windows 便携版并附到 GitHub Release。
+# 也可在 Actions 页面手动触发（workflow_dispatch）做一次「只构建不发布」的演练。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'release 是否创建为草稿'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # 注意：这里**不能**像 ci.yml 那样设 ELECTRON_SKIP_BINARY_DOWNLOAD=1，
+      # electron-builder 打包需要真实的 Electron 二进制。
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build renderer + main
+        run: npm run build
+
+      - name: Package Windows portable EXE
+        run: npx electron-builder --win portable --publish never
+
+      - name: List build output
+        run: Get-ChildItem dist | Select-Object Name, Length
+        shell: pwsh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SKY-windows-portable
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## SKY ${{ github.ref_name }}
+
+            Windows 便携版（免安装，双击即用）。首次启动会在 `%APPDATA%\SKY` 建立数据目录。
+
+            > 上游依赖的已知漏洞与缓解说明见仓库 `SECURITY.md`。
