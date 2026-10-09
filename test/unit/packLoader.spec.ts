@@ -263,7 +263,7 @@ describe('PackLoader M8：加载、校验、事务回滚与适配器注入', () 
   })
 
   it('与已装载约束同 id → 先装载者优先跳过 + warning（避免双重拦截）', async () => {
-    const shared = { ...VALID_CONSTRAINT, id: 'legal-labor-contract-written' }
+    const shared = { ...VALID_CONSTRAINT, id: 'pack-test-duplicate-id' }
     ;({ loader, events } = makeLoader({
       testpack: { manifest: GOOD_MANIFEST, constraints: [shared] },
       testpack2: { manifest: { ...GOOD_MANIFEST, id: 'testpack2' }, constraints: [shared] }
@@ -273,9 +273,9 @@ describe('PackLoader M8：加载、校验、事务回滚与适配器注入', () 
     const second = await loader.mountPack('testpack2')
     expect(second.ok).toBe(true)
     if (second.ok) {
-      expect(second.warnings.some(w => w.includes('constraint-skipped:legal-labor-contract-written') && w.includes('duplicate-id'))).toBe(true)
+      expect(second.warnings.some(w => w.includes('constraint-skipped:pack-test-duplicate-id') && w.includes('duplicate-id'))).toBe(true)
     }
-    expect(getExternalConstraintIds().filter(id => id === 'legal-labor-contract-written')).toHaveLength(1)
+    expect(getExternalConstraintIds().filter(id => id === 'pack-test-duplicate-id')).toHaveLength(1)
   })
 
   it('重复 mount 同一 pack → already-mounted 拒绝', async () => {

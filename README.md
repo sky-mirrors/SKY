@@ -118,7 +118,7 @@ Three different things that are easy to confuse, at three different depths:
 | **What it is** | Domain knowledge + constraints + execution, hooked into every routing layer | A pre-arranged DAG template + a declaration of which MCP server it needs | External tool servers, spawned as subprocesses |
 | **Reaches routing?** | **Yes** — hooks at L0/L0.5/L1/L2/L3/L4 plus veto gates | **No** — no execution consumer today | **Yes** — L2 hit produces a `mcp-direct` call |
 | **Who executes it** | pack runtime + constraint engine | nothing yet | main-process manager → `mcpStore.callTool` |
-| **Stored in** | `src/packs/` and `{userData}/holostarmap-packs` | vault key `holo-skills` | vault key `holo-mcp-connections` |
+| **Stored in** | `{userData}/holostarmap-packs` (built-in packs ship separately) | vault key `holo-skills` | vault key `holo-mcp-connections` |
 
 **Two honest caveats, because they are the kind of thing a README usually hides:**
 

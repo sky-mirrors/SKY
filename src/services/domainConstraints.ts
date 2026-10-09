@@ -138,10 +138,6 @@ function hasKeyword(text: string, keywords: string[]): boolean {
   return keywords.some(kw => text.includes(kw))
 }
 
-/**
- * P3.5（R12）：以下内置约束数组已退出生产注入路径（不再自动装入 ACTIVE_CONSTRAINTS），
- * 仅保留导出供 packEquivalence 等价验收测试作回归基线对照；生产装载一律经 pack 管线。
- */
 // 内置领域约束（法务 / 财务）已移出开源仓库，随闭源领域包分发。
 // 约束仍经 pack 挂载注入（injectExternalConstraints），引擎与下面这组 API 不变。
 export function getAllConstraints(): DomainConstraint[] {
