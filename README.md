@@ -2,7 +2,7 @@
 
 **An experimental technical preview of a local-first AI tool console** — route, validate, and execute LLM-assisted tasks from a desktop app, with the routing decisions and their costs visible instead of hidden.
 
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-212%20spec%20files-blue.svg)](docs/60-测试与验收.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-blue.svg)](tsconfig.json) [![Tests](https://img.shields.io/badge/tests-210%20spec%20files-blue.svg)](docs/60-测试与验收.md)
 
 > ## ⚠️ Read this first
 >
@@ -65,7 +65,7 @@ Requirements: **Node.js ≥ 18**, **npm ≥ 9**.
 | `npm run dev` | electron-vite dev mode with HMR |
 | `npm run build` | Build main / preload / renderer into `out/` |
 | `npm run typecheck` | `tsc -b` + `vue-tsc --noEmit` — **must be green** |
-| `npm test` | Vitest, 212 spec files (excludes `test/e2e/**`) |
+| `npm test` | Vitest, 210 spec files (excludes `test/e2e/**`) |
 | `npm run smoke` | Real-machine journey smoke — needs the app running with CDP open |
 | `npm run smoke:window-controls` | Real-machine check that every sub-window's minimize/close actually works |
 | `npm run package:win` | Windows portable build → `dist/SKY <version>.exe` |
@@ -130,7 +130,7 @@ Three different things that are easy to confuse, at three different depths:
 Fail-closed: if a check cannot conclude "safe", the action is blocked.
 
 - **Shell allow-list**: **12** safe command prefixes (`electron/shell-security.ts` → `SHELL_ALLOWED_COMMANDS`)
-- **Dangerous-pattern deny-list**: **82** regexes (`NODE_E_DANGEROUS_PATTERNS`), plus vetted `node -e` signatures
+- **Dangerous-pattern deny-list**: **77** regexes (`NODE_E_DANGEROUS_PATTERNS`), plus vetted `node -e` signatures
 - **MCP interpreters**: 5 allowed (`npx` / `node` / `python3` / `python` / `uvx`)
 - **Write-path guard**: writes are restricted to Desktop / Documents / Downloads; `node -e` write targets are resolved to absolute paths and checked, blocking `..` traversal and executable extensions
 - **Dual-engine audit**: rule engine + LLM engine; either one failing blocks the command, with a 24h cache so repeats do not re-pay
@@ -145,7 +145,7 @@ Measured on 2026-10-09, on this repository, with the commands below — not carr
 
 | Check | Result |
 |---|---|
-| `npm test` | **2816 cases** — **2815 passed / 1 failed**, 212 spec files, ~10 s |
+| `npm test` | **2667 cases** — **2666 passed / 1 failed**, 210 spec files, ~8.4 s |
 | Known noise | `test/unit/apiStore.timerDispose.spec.ts` fails **only while a local Ollama is running** — environment-specific, not a regression |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` clean |
 | `npm run smoke:window-controls` | **35/35** — all seven sub-windows: buttons render, `-webkit-app-region: drag` active, minimize really minimizes, close really closes |
@@ -166,11 +166,11 @@ SKY/
 ├── electron/                 # Main process (33 modules)
 │   ├── main.ts               # Entry: windows, single-instance lock, IPC dispatch
 │   ├── ipc-handlers.ts       # IPC routes (file / shell / doc / image / media / MCP / vault)
-│   ├── shell-security.ts     # Shell engine (12 allow-listed prefixes, 82 dangerous patterns)
+│   ├── shell-security.ts     # Shell engine (12 allow-listed prefixes, 77 dangerous patterns)
 │   ├── pathValidator.ts      # Read/write path validation
 │   ├── mcp-manager.ts        # MCP subprocess lifecycle
 │   ├── window-manager.ts     # Seven sub-windows, all frameless
-│   └── preload.ts            # contextBridge surface (118 keys)
+│   └── preload.ts            # contextBridge surface (121 keys)
 ├── src/                      # Renderer (Vue 3)
 │   ├── kernel/               # Funnel orchestration, hooks, clusters, bus
 │   ├── kernels/              # Kernel plugins (default / lite)
@@ -182,7 +182,7 @@ SKY/
 │   ├── components/           # Vue components (32)
 │   ├── exam/                 # Acceptance exam (V1 18 + V2 50 cases)
 │   └── data/                 # Static data (manifests, skill/MCP catalogues, legacy topology)
-├── test/                     # 212 spec files + 3 standalone e2e scripts
+├── test/                     # 210 spec files + 3 standalone e2e scripts
 ├── config/l2_manifests/      # 20 L2 manifest JSONs
 ├── scripts/                  # smoke / audit / report generators
 └── docs/                     # Authoritative docs (Chinese)
