@@ -74,5 +74,5 @@ npx vitest run test/unit/xxx.spec.ts   # 单跑一个 spec
 
 - 入口：[docs\README.md](docs/README.md)
 - 分册：`docs\00` 总览 / `10` 架构 / `20` 路由 / `30` 机制台账 / `40` 安全 / `50` 记忆 / `60` 测试与验收 / `90` 术语与索引
-- 规范：L2工具编译标准V1.0.md、SECURITY.md
+- 规范：SECURITY.md、CONTRIBUTING.md
 - 证据：历次验收成绩单（已移出仓库，需要时从 git 历史取回）
