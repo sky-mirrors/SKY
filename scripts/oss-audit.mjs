@@ -84,6 +84,8 @@ const isBinary = (f) => {
 }
 
 for (const f of files) {
+  // 审计脚本自身必然逐字包含全部密钥模式（规则就是那些字面量），扫它只会自我命中——跳过
+  if (f === 'scripts/oss-audit.mjs') continue
   if (!/[\\/]/.test(f) && PRODUCT_ARTIFACT.test(f)) problems.F.push(f)
   if (f.startsWith('.rivet/') || f.startsWith('coverage/') || f.startsWith('dist/') || f.startsWith('.idea/')) {
     problems.E.push(`${f}（运行时目录被跟踪）`)
