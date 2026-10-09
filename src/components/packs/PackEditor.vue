@@ -236,6 +236,9 @@ async function save() {
     }
 
     const constraints = draftsToConstraints(rules.value, () => newRuleId(packId))
+    // 回写生成的 id：否则内存草稿的 id 仍为空，同一会话内再次保存会另生成一个，
+    // 规则 id 依然漂移（只有重新打开、从磁盘读回 id 的那条路径才稳定）。
+    rules.value.forEach((r, i) => { r.id = constraints[i].id })
     const w = await api.userPackWrite(packId, 'boundary/constraints.json', JSON.stringify(constraints, null, 2))
     if (!w?.success) { say(w?.error || '规则写入失败', true); return }
 
