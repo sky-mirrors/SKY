@@ -58,6 +58,15 @@ jobs:
       - name: Install dependencies (with Electron binary)
         run: npm ci
 
+      # better-sqlite3 是原生模块：npm ci 装的是 Node ABI 版（prebuild-install），
+      # 而 Electron 33 内嵌 Node 的 ABI 不同 ⇒ Electron 进程 require 时抛
+      # NODE_MODULE_VERSION 不匹配 ⇒ vault 打不开、应用启动异常。
+      # `@electron/rebuild` 本就在 devDependencies 里，但 package.json 的 postinstall
+      # 是 `electron-vite postinstall`（不 rebuild 原生模块），故 CI 必须显式重建。
+      # 本机之所以能跑：node_modules 里的 .node 是历史某次针对 Electron 编译的产物。
+      - name: Rebuild native modules for Electron
+        run: npx electron-rebuild -f -w better-sqlite3
+
       - name: Build renderer + main
         run: npm run build
 
