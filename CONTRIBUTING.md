@@ -34,7 +34,7 @@ npm run dev
 - **CI**：`.github/workflows/ci.yml` 已接入（`fetch-depth: 0`，否则历史扫描失效）。
 - **手动**：`npm run audit:oss`。
 
-检出命中时的处置：吊销并轮换该凭证（**唯一根治手段**）；确认可接受后登记进 `scripts\oss-audit-history-whitelist.json`（**只存 sha256，绝不存明文**）。删除文件 ≠ 移除历史——public 仓库一旦推送不可逆。
+检出命中时的处置：**先吊销并轮换该凭证**（无论是否清洗历史）；再判断能否清洗——仓库未被 fork/镜像/爬取时，`git filter-repo` 重写 + force push（含 tag）有效，已被外部复制则清洗无意义。确认可接受的历史命中登记进 `scripts\oss-audit-history-whitelist.json`（**只存 sha256，绝不存明文**）。删除文件 ≠ 移除历史——public 仓库一旦推送，只有"是否已被复制"才决定可逆性。
 
 ---
 
