@@ -632,3 +632,83 @@ describe('IPC安全 - git 只读子命令（2026-10-07 Wave 2）', () => {
     expect(isShellCommandAllowed('whoami').allowed).toBe(false)
   })
 })
+
+// ===== 2026-10-10 加固：四处实测可复现的绕过（先 RED 后 GREEN）=====
+// RED 证据：加固前用 tsx 直调真实函数，下列输入全部返回 allowed=true / safe=true。
+describe('IPC安全 - 2026-10-10 加固回归', () => {
+  const home = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\Default'
+  const posixHome = home.replace(/\\/g, '/')
+  const BT = String.fromCharCode(96)
+  const writeCmd = (p: string) =>
+    `node -e "require('docx');require('fs').writeFileSync('${p}','data')"`
+
+  describe('A4 元字符：补 POSIX 分隔符与命令替换', () => {
+    it('分号链式 → 拒绝', () => {
+      expect(isShellCommandAllowed('ls ; whoami').allowed).toBe(false)
+      expect(isShellCommandAllowed('echo ; id').allowed).toBe(false)
+    })
+
+    it('命令替换 $() → 拒绝', () => {
+      expect(isShellCommandAllowed('echo $(whoami)').allowed).toBe(false)
+    })
+
+    it('反引号替换（含双引号内）→ 拒绝', () => {
+      expect(isShellCommandAllowed('echo ' + BT + 'id' + BT).allowed).toBe(false)
+      expect(isShellCommandAllowed('echo "' + BT + 'id' + BT + '"').allowed).toBe(false)
+    })
+
+    it('原有 cmd 元字符与白名单行为不变（回归护栏）', () => {
+      expect(isShellCommandAllowed('ls -la && whoami').allowed).toBe(false)
+      expect(isShellCommandAllowed('ls -la').allowed).toBe(true)
+      expect(isShellCommandAllowed('ls' + String.fromCharCode(10)).allowed).toBe(true)
+    })
+  })
+
+  describe('A3 敏感目录：目录自身也应被拦', () => {
+    it('.ssh / .aws / .gnupg 目录自身 → 拒绝', async () => {
+      const { validateReadPath } = await import('@electron/pathValidator')
+      for (const d of ['.ssh', '.aws', '.gnupg']) {
+        expect(validateReadPath(join(home, d)).safe, d).toBe(false)
+      }
+    })
+
+    it('目录内文件仍拒绝（回归护栏）', async () => {
+      const { validateReadPath } = await import('@electron/pathValidator')
+      expect(validateReadPath(join(home, '.ssh', 'id_rsa')).safe).toBe(false)
+    })
+
+    it('同名前缀的普通目录不受影响（回归护栏）', async () => {
+      const { validateReadPath } = await import('@electron/pathValidator')
+      expect(validateReadPath(join(home, 'Desktop', '.ssh-backup')).safe).toBe(true)
+    })
+
+    it('shell 的 dir 也不能枚举 .ssh 目录', () => {
+      expect(isShellCommandAllowed(`dir ${join(home, '.ssh')}`).allowed).toBe(false)
+    })
+  })
+
+  describe('A8 node -e 写目标：NTFS ADS 冒号绕过', () => {
+    it('x.js::$DATA → 拒绝', () => {
+      expect(isShellCommandAllowed(writeCmd(`${posixHome}/Desktop/x.js::$DATA`)).allowed).toBe(false)
+    })
+
+    it('正常 .docx 仍允许（回归护栏）', () => {
+      expect(isShellCommandAllowed(writeCmd(`${posixHome}/Desktop/x.docx`)).allowed).toBe(true)
+    })
+  })
+
+  describe('A1 node -e require 形态绕过', () => {
+    it('require.call(...) → 拒绝', () => {
+      const cmd = `node -e "require.call(null,['c','h','i','l','d','_','p','r','o','c','e','s','s'].join(''))"`
+      expect(isShellCommandAllowed(cmd).allowed).toBe(false)
+    })
+
+    it('require 方括号形态 → 拒绝', () => {
+      expect(isShellCommandAllowed(`node -e "require['fs'].writeFileSync('x','y')"`).allowed).toBe(false)
+    })
+
+    it('字面量 require 仍允许（回归护栏）', () => {
+      expect(isShellCommandAllowed(writeCmd(`${posixHome}/Desktop/x.docx`)).allowed).toBe(true)
+    })
+  })
+})

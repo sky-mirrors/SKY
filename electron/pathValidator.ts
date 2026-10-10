@@ -4,10 +4,14 @@ import { realpathSync } from 'fs'
 // P0-4 修复：所有敏感路径正则统一匹配"规范化路径"（反斜杠已替换为 /），
 // 使 POSIX 风格模式在 Windows 上同样生效
 const FORBIDDEN_READ_PATHS = [
-  /\/\.ssh\//i,
-  /\/\.gnupg\//i,
-  /\/\.aws\//i,
-  /\/\.config\/chromium/i,
+  // 2026-10-10 加固：目录型模式此前都要求尾随 '/'，于是**目录自身**不匹配——
+  // 实测 validateReadPath('<home>/.ssh') → safe:true，可经 file:list / shell 的 dir 枚举
+  // 密钥目录项（id_rsa / credentials / config 的文件名与 mtime）。改为 (?:/|$) 让
+  // 「目录本身」与「目录内文件」一并覆盖。
+  /\/\.ssh(?:\/|$)/i,
+  /\/\.gnupg(?:\/|$)/i,
+  /\/\.aws(?:\/|$)/i,
+  /\/\.config\/chromium(?:\/|$)/i,
   /\/etc\/shadow/i,
   /\/etc\/passwd/i,
   /\/SAM$/i,
@@ -32,7 +36,7 @@ const FORBIDDEN_WRITE_PATHS = [
   /\/\.bash_profile$/i,
   /\/\.zshrc$/i,
   /\/\.profile$/i,
-  /\/\.ssh\//i,
+  /\/\.ssh(?:\/|$)/i,
   /\/\.gitconfig$/i,
   /\/\.npmrc$/i,
   /\/\.netrc$/i,

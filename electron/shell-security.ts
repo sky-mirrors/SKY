@@ -1,5 +1,5 @@
 import { resolve, join, sep } from 'path'
-import { validateReadPath, validateWritePath, getSafeExtension, DANGEROUS_EXTENSIONS } from './pathValidator'
+import { validateReadPath, validateWritePath, getSafeExtension, hasSuspiciousBasename, DANGEROUS_EXTENSIONS } from './pathValidator'
 
 const SHELL_ALLOWED_COMMANDS = [
   'npm install',
@@ -30,8 +30,15 @@ export function findShellMetacharacter(command: string): string | null {
     if (ch === '\n') return '\\n'
     if (ch === '\r') return '\\r'
     if (!inQuote && (ch === '&' || ch === '|' || ch === '<' || ch === '>' || ch === '^')) return ch
+    // 2026-10-10 加固：以上是 cmd.exe 的字符集。实测 'ls ; whoami'、反引号、命令替换
+    // 三种写法全部 allowed=true——而 ipc-handlers 用 shell:true，在非 Windows 上落到
+    // /bin/sh -c 即链式执行与命令替换。反引号在双引号内仍会展开，故不设 inQuote 门槛。
+    if (ch.charCodeAt(0) === 96) return String.fromCharCode(96)
+    if (!inQuote && ch === ';') return ';'
   }
   if (inQuote) return '"'
+  // 2026-10-10 加固：命令替换 '$(' 在双引号内也会展开，故独立判定、不设引号门槛。
+  if (command.trim().includes('$(')) return '$('
   return null
 }
 
@@ -188,6 +195,11 @@ function isAllowedNodeWriteTarget(rawArg: string): boolean {
   const allowedDirs = ['Desktop', 'Documents', 'Downloads'].map(d => resolve(join(home, d)))
   const normalized = resolve(target)
   if (!allowedDirs.some(d => normalized === d || normalized.startsWith(d + sep))) return false
+  // 2026-10-10 加固：NTFS 备用数据流（ADS）冒号此前未判。实测
+  // writeFileSync('<home>/Desktop/x.js::$DATA') → allowed=true（ext 被 getSafeExtension
+  // 算作 '.js::$data'，不在 DANGEROUS_EXTENSIONS），而落盘实体是 x.js。validateWritePath
+  // 本就拦冒号，此处漏了同一条。
+  if (hasSuspiciousBasename(normalized)) return false
   const { ext } = getSafeExtension(normalized)
   if (ext && DANGEROUS_EXTENSIONS.includes(ext)) return false
   return true
@@ -202,12 +214,19 @@ const NODE_E_ALLOWED_REQUIRE_MODULES: Set<string> = new Set([
 ])
 
 function findIllegalRequire(codeContent: string): string | null {
-  const re = /require\s*\(\s*([^()]*?)\s*\)/g
+  // 2026-10-10 加固：原实现只认 'require(' 一种形态。实测
+  // require.call(null,['c','h','i','l','d','_','p','r','o','c','e','s','s'].join(''))
+  // ['execSync']('calc') 既不进本函数、也不命中任何危险模式 —— isShellCommandAllowed
+  // 返回 allowed=true（任意代码执行）。现改为：每一处 require 记号后面都必须紧跟
+  // 白名单字面量调用；其余形态（.call / 方括号 / 动态表达式）一律拒绝。
+  const re = /require\b/g
   let m: RegExpExecArray | null
   while ((m = re.exec(codeContent)) !== null) {
-    const arg = m[1].trim()
-    const lit = /^(['"])([\s\S]*)\1$/.exec(arg)
-    if (!lit || !NODE_E_ALLOWED_REQUIRE_MODULES.has(lit[2])) return m[0]
+    const rest = codeContent.slice(m.index + m[0].length)
+    const lit = /^\s*\(\s*(['"])([\s\S]*?)\1\s*\)/.exec(rest)
+    if (!lit || !NODE_E_ALLOWED_REQUIRE_MODULES.has(lit[2])) {
+      return (m[0] + rest.slice(0, 60)).replace(/\s+/g, ' ')
+    }
   }
   return null
 }
