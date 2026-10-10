@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { McpConnection, McpTool, McpCatalogItem, McpToolPermission } from '@/models'
+import { McpConnection, McpTool, McpCatalogItem, McpToolPermission, McpToolNode } from '@/models'
 import { globalBus } from '@/kernel/bus'
 import { MCP_CATALOG } from '@/data/mcpCatalog'
 import { vault } from '@/vault'
 
 export const useMcpStore = defineStore('mcp', () => {
   const connections = ref<McpConnection[]>([])
-  const mcpToolsAsNodes = ref<{ id: string; name: string; description: string; mcpId: string }[]>([])
+  const mcpToolsAsNodes = ref<McpToolNode[]>([])
   const catalog = ref<McpCatalogItem[]>(MCP_CATALOG)
   const spawningId = ref<string | null>(null)
   const spawningCatalogId = ref<string | null>(null)

@@ -508,6 +508,17 @@ export interface McpTool {
   permission: McpToolPermission
 }
 
+/**
+ * MCP 工具在「节点视图」中的扁平投影（`bus` 通道 `mcp:get-tools-as-nodes` 的返回元素）。
+ * 由 `mcpStore.mcpToolsAsNodes` 维护，供对话框上下文拼接使用。
+ */
+export interface McpToolNode {
+  id: string
+  name: string
+  description: string
+  mcpId: string
+}
+
 export interface McpRequestLog {
   id: string
   mcpId: string

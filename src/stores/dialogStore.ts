@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { DialogMessage, ThoughtStep, TaskPlan, TaskCase, WorkflowCard, ToolCallLog } from '@/models'
-import type { DecisionContext, RewriteStrategy, DisambigStrategy, DetectedDomain, L2ToolManifest } from '@/models'
+import type { DecisionContext, RewriteStrategy, DisambigStrategy, DetectedDomain, L2ToolManifest, ApiConfig, ToolNode, McpConnection, McpToolNode } from '@/models'
 import { getPackExecutionManifests } from '@/host/packRuntime'
 import { mergePackManifests } from '@/host/pack/merge'
 import { globalBus } from '@/kernel/bus'
@@ -458,10 +458,10 @@ ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
 
   async function buildVariableContext(userContent: string): Promise<string> {    const selectedNode = globalBus.request('node:get-selected-node', {})
     const selectedInfo = selectedNode
-      ? `当前选中节点：${selectedNode.name}(${selectedNode.level})，可用 MCP 工具：${(globalBus.request('mcp:get-tools-as-nodes', {}) as any[]).length} 个`
+      ? `当前选中节点：${selectedNode.name}(${selectedNode.level})，可用 MCP 工具：${(globalBus.request<McpToolNode[]>('mcp:get-tools-as-nodes', {})).length} 个`
       : '未选中任何节点'
 
-    currentEngine.value = (globalBus.request('api:get-config', {}) as any)?.activeModel || '未配置'
+    currentEngine.value = (globalBus.request<ApiConfig>('api:get-config', {}))?.activeModel || '未配置'
 
     const kbContext = await buildKbContext(userContent)
     const sessionStore3 = useSessionStore()
@@ -477,7 +477,7 @@ ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
       ? `\n\n【本会话已挂载的文件】\n${sessionFiles.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}\n用户若问「有哪些文件」，请直接依据此清单回答，不要反问目录；问文件内容时可用文件名作为检索线索。`
       : ''
 
-    const mcpTools = (globalBus.request('mcp:get-tools-as-nodes', {}) as any[]).map(t => ({ name: t.name, description: t.description }))
+    const mcpTools = (globalBus.request<McpToolNode[]>('mcp:get-tools-as-nodes', {})).map(t => ({ name: t.name, description: t.description }))
 
     let toolListStr = ''
     if (mcpTools.length > 0) {
@@ -495,8 +495,8 @@ ${files.map(e => `- ${e.filename}（${e.chunks} 块）`).join('\n')}`
 
 当前状态：
 - ${selectedInfo}
-- 当前引擎：${(globalBus.request('api:get-config', {}) as any)?.activeModel || '未配置'} (${globalBus.request('api:is-ready', {}) ? '已连接' : '离线'})
-- 已连接 MCP：${(globalBus.request('mcp:get-connections', {}) as any[]).filter(c => c.isConnected).length} 个
+- 当前引擎：${(globalBus.request<ApiConfig>('api:get-config', {}))?.activeModel || '未配置'} (${globalBus.request('api:is-ready', {}) ? '已连接' : '离线'})
+- 已连接 MCP：${(globalBus.request<McpConnection[]>('mcp:get-connections', {})).filter(c => c.isConnected).length} 个
 - 知识库：${kbResultCount} 条相关上下文已自动检索
 ${kbContext}${filesContext}
 
@@ -514,7 +514,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
   function buildMcpTools(): ToolDef[] {
     const tools: ToolDef[] = []
-    for (const conn of (globalBus.request('mcp:get-connections', {}) as any[])) {
+    for (const conn of (globalBus.request<McpConnection[]>('mcp:get-connections', {}))) {
       if (!conn.isConnected) continue
       for (const tool of conn.tools) {
         const safeId = conn.id.replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -1010,7 +1010,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
     if (sepIdx < 0) throw new Error(`无效工具名: ${fullName}`)
     const mcpIdRaw = fullName.substring(0, sepIdx)
     const toolName = fullName.substring(sepIdx + 3)
-    const conn = (globalBus.request('mcp:get-connections', {}) as any[]).find(c => {
+    const conn = (globalBus.request<McpConnection[]>('mcp:get-connections', {})).find(c => {
       const safeId = c.id.replace(/[^a-zA-Z0-9_-]/g, '_')
       return safeId === mcpIdRaw
     })
@@ -1646,10 +1646,10 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       } else {
         globalBus.emit('debug:activate', {})
         globalBus.emit('debug:update-environment', { environment: {
-          model: (globalBus.request('api:get-config', {}) as any)?.activeModel || '',
-          provider: (globalBus.request('api:get-config', {}) as any)?.activeProviderId || '',
+          model: (globalBus.request<ApiConfig>('api:get-config', {}))?.activeModel || '',
+          provider: (globalBus.request<ApiConfig>('api:get-config', {}))?.activeProviderId || '',
           apiReachable: globalBus.request('api:is-ready', {}),
-          nodeCount: (globalBus.request('node:get-nodes', {}) as any[]).length,
+          nodeCount: (globalBus.request<ToolNode[]>('node:get-nodes', {})).length,
           manifestCount: Object.keys(globalBus.request('node:get-all-l2-manifests', {}) || {}).length
         } })
         addSystemNotice('🔍 调试模式已开启 — 输入 /debug 关闭')
@@ -2533,7 +2533,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
       for (const s of dagSteps) {
         dependsOnMap[s.step] = s.depends_on
       }
-      const l2Nodes = (globalBus.request('node:get-nodes', {}) as any[]).filter(n => n.level === 'L2')
+      const l2Nodes = (globalBus.request<ToolNode[]>('node:get-nodes', {})).filter(n => n.level === 'L2')
       globalBus.emit('node:set-dag-chain', { steps: dagSteps.map(s => ({
         nodeId: l2Nodes.find(n => n.id === macroManifest.identity.id)?.id || macroManifest.identity.id,
         stepNum: s.step,
@@ -2649,7 +2649,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
       const candidateL2Ids = topCandidates.map(t => {
         const mcpPrefix = t.fullName.split('___')[0]
-        const l2Nodes = (globalBus.request('node:get-nodes', {}) as any[]).filter(n => n.level === 'L2')
+        const l2Nodes = (globalBus.request<ToolNode[]>('node:get-nodes', {})).filter(n => n.level === 'L2')
         return l2Nodes.find(n => n.id.includes(mcpPrefix) || t.shortName.includes(n.id.split('-').pop() || ''))?.id
       }).filter(Boolean) as string[]
       if (candidateL2Ids.length > 0) {
@@ -2658,7 +2658,7 @@ ${mcpTools.length > 0 ? toolListStr : '【警告】当前没有可用的 MCP 工
 
       // ===== Map plan steps to L2 nodes for DAG chain =====
       const stepToNodeMap = new Map<number, string>()
-      const l2Nodes = (globalBus.request('node:get-nodes', {}) as any[]).filter(n => n.level === 'L2')
+      const l2Nodes = (globalBus.request<ToolNode[]>('node:get-nodes', {})).filter(n => n.level === 'L2')
       for (const step of plan.steps) {
         const toolLower = step.tool.toLowerCase()
         const match = candidateL2Ids.find(id => {
