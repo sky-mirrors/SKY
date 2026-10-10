@@ -1,0 +1,6 @@
+# Git 钩子必须是 LF —— CRLF 会让 `#!/bin/sh\r` 在 Git Bash / macOS / Linux 上
+# 找不到解释器 `sh\r`，钩子静默失效（本机 Windows + autocrlf 下极易发生）。
+.githooks/* text eol=lf
+
+# shell 脚本同理
+*.sh text eol=lf

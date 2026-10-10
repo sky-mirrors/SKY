@@ -1,0 +1,26 @@
+#!/bin/sh
+# SKY pre-push 门禁 —— 开源发布审计
+#
+# 为什么在 push 前：密钥一旦推上 public 远端就**不可逆**（fork / 镜像 / 爬取会流出，
+# 删库也收不回）。本地钩子是最后一道能在「出网之前」拦住的门。
+# 2026-10-10：一个 DeepSeek key 随 test/e2e/*.spec.ts 进了初始提交，事后才发现——
+# 文件后来删了，但密钥仍在公开历史与 tag 里。本地门禁就是为了不再重演。
+#
+# 安装：npm run hooks:install（设 core.hooksPath = .githooks）
+# 绕过（确有急事时）：git push --no-verify
+set -e
+
+# 只在 git 仓库内、且有 node 时跑
+command -v node >/dev/null 2>&1 || { echo "[pre-push] 未找到 node，跳过开源审计"; exit 0; }
+
+echo "[pre-push] 开源发布审计（含 git 历史）…"
+if node scripts/oss-audit.mjs --history; then
+  echo "[pre-push] ✓ 通过"
+else
+  echo ""
+  echo "[pre-push] ✗ 检出未登记的密钥 / 机密形态，已阻止 push。"
+  echo "           处置：吊销并轮换该凭证；确认可接受后登记进"
+  echo "           scripts/oss-audit-history-whitelist.json（只存 sha256，绝不存明文）。"
+  echo "           确需绕过：git push --no-verify"
+  exit 1
+fi

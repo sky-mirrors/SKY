@@ -18,8 +18,23 @@
 git clone https://github.com/sky-mirrors/SKY.git
 cd SKY
 npm install
+npm run hooks:install   # 装 pre-push 开源审计钩子（见下「机密与发布审计」）
 npm run dev
 ```
+
+---
+
+## 机密与发布审计
+
+**硬规则：不要把任何真实凭证写进代码**——API key / token / 私钥一律走本机 `secureStore`（`src\services\secureStore.ts`），不进 git。**尤其不要在测试文件里硬编码真密钥**：2026-10-10 就发现过一个 DeepSeek key 随 `test\e2e\*.spec.ts` 进了初始提交，文件后来删了，密钥却仍在公开历史里。
+
+`scripts\oss-audit.mjs` 是发布前 / 出网前的门禁，三道接入：
+
+- **本地 pre-push**（推荐先装）：`npm run hooks:install`。它会在 push 前跑 `--history`，拦住含密钥的提交。急事可 `git push --no-verify` 绕过。
+- **CI**：`.github/workflows/ci.yml` 已接入（`fetch-depth: 0`，否则历史扫描失效）。
+- **手动**：`npm run audit:oss`。
+
+检出命中时的处置：吊销并轮换该凭证（**唯一根治手段**）；确认可接受后登记进 `scripts\oss-audit-history-whitelist.json`（**只存 sha256，绝不存明文**）。删除文件 ≠ 移除历史——public 仓库一旦推送不可逆。
 
 ---
 

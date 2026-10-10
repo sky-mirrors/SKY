@@ -1,0 +1,12 @@
+{
+  "_comment": "已知并已接受的历史密钥命中白名单。存 sha256 而非明文——本文件本身也在公开仓库里，绝不能回显密钥。",
+  "_policy": "这些是『已发生、已接受』的泄漏：文件已从当前树删除，但仍在公开 git 历史中。缓解手段是吊销并轮换凭证（见 SECURITY.md「凭证与机密」），不是清洗历史——filter-repo 无法回收已 fork/镜像/爬取的对象，且会打断所有现存克隆。",
+  "_howToAdd": "新增一项时填 sha256（`node -e \"console.log(require('crypto').createHash('sha256').update('<值>').digest('hex'))\"`），firstSeen 与 note 说明来源与处置。绝不要把明文写进本文件。",
+  "known": [
+    {
+      "sha256": "f1deb47f29cbf6e7b3fab1b1ac17215d86365c1b35b8957316bc7b88cb31cd8a",
+      "firstSeen": "2026-10-10",
+      "note": "DeepSeek API key，硬编码于 test/e2e/l0Skill.spec.ts 与 test/e2e/stress.spec.ts 的初始提交 1242e96（亦见 a3f03fa）。两文件已于 d1b63a9 删除，当前树与 origin/main 最新树均不含；但密钥仍在公开历史与 tag v0.1.0 中。处置：吊销轮换。"
+    }
+  ]
+}

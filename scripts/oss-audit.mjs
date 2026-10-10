@@ -144,6 +144,102 @@ if (HISTORY) {
     .filter((f) => /\.env|\.pem$|\.key$|id_rsa|secret|credential|\.db$|\.sqlite/i.test(f))
   console.log(suspicious.length ? suspicious.map((f) => `    ${f}`).join('\n') : '    (无命中)')
   blocking += suspicious.length
+
+  // ── [H] 历史 blob 内容扫描 ─────────────────────────────────────────────────
+  // 为什么必须有这一步：规则 A/B 只扫**当前跟踪文件**——文件一旦被删除，扫描就再也
+  // 看不到它。而真实泄漏恰恰常发生在「已删除文件的历史版本」里（2026-10-10 事件：
+  // 一个 DeepSeek key 随 `test/e2e/*.spec.ts` 进了初始提交，文件后来删了，但密钥
+  // 仍在公开历史与 v0.1.0 tag 中）。[G] 只查**文件名**，同样看不到文件**内容**里的密钥。
+  console.log('\n[H] git 全历史 blob 内容里的密钥形态（--history 深扫）')
+  const SECRET_SHAPES = [
+    ['密钥前缀', /sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{12}|AIza[0-9A-Za-z_-]{30}|xox[baprs]-[A-Za-z0-9-]{10,}/g],
+    ['私钥块', /-----BEGIN [A-Z ]*PRIVATE KEY-----/g],
+    // 赋值式密钥：只认「看起来像真值」的（≥24 位且非占位词），降低误报
+    ['赋值式密钥', /(?:api[_-]?key|secret|password|passwd|access[_-]?token|api[_-]?secret)\s*[:=]\s*['"]([A-Za-z0-9_/+-]{24,})['"]/gi]
+  ]
+  const PLACEHOLDER = /example|placeholder|your[_-]|\*\*\*|xxx+|<.*>|dummy|fake|test-key|sample|redacted|changeme|todo/i
+  let histScanned = 0
+  const histHits = new Map(SECRET_SHAPES.map(([l]) => [l, new Map()]))
+  try {
+    // 枚举所有可达对象，取 blob（--objects 会带上路径，去掉尾部路径差异）
+    const objList = execFileSync('git', ['rev-list', '--all', '--objects'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024 })
+    const shaSet = new Set()
+    for (const ln of objList.split('\n')) {
+      const sp = ln.indexOf(' ')
+      const sha = sp < 0 ? ln.trim() : ln.slice(0, sp)
+      if (/^[0-9a-f]{40}$/.test(sha)) shaSet.add(sha)
+    }
+    const shas = [...shaSet]
+    // 单进程批量读：cat-file --batch 按 blob 序号输出「<sha> <type> <size>\n<内容>\n」
+    const batchInput = shas.join('\n') + '\n'
+    const raw = execFileSync('git', ['cat-file', '--batch'], { cwd: ROOT, input: batchInput, maxBuffer: 1024 * 1024 * 1024 })
+    // 解析：header 行 "<sha> blob <size>"，其后 size 字节内容 + 1 字节换行
+    let pos = 0
+    while (pos < raw.length) {
+      const nl = raw.indexOf(0x0a, pos)
+      if (nl < 0) break
+      const header = raw.toString('utf8', pos, nl)
+      const m = header.match(/^([0-9a-f]{40}) (\w+) (\d+)$/)
+      if (!m) { pos = nl + 1; continue }
+      const [, sha, type, sizeStr] = m
+      const size = parseInt(sizeStr, 10)
+      const start = nl + 1
+      const end = start + size
+      pos = end + 1 // 跳过内容后的换行
+      if (type !== 'blob') continue
+      const buf = raw.subarray(start, end)
+      if (buf.includes(0)) continue // 二进制跳过
+      if (size > 4 * 1024 * 1024) continue // 超大文件跳过（避免拖慢）
+      const text = buf.toString('utf8')
+      if (!/sk-|ghp_|github_pat_|AKIA|AIza|xox[baprs]-|PRIVATE KEY|api[_-]?key|secret|password|token/i.test(text)) continue
+      histScanned++
+      for (const [label, re] of SECRET_SHAPES) {
+        re.lastIndex = 0
+        let mm
+        while ((mm = re.exec(text)) !== null) {
+          const hit = mm[1] ?? mm[0]
+          if (PLACEHOLDER.test(hit)) continue
+          if (!histHits.get(label).has(hit)) histHits.get(label).set(hit, new Set())
+          histHits.get(label).get(hit).add(sha.slice(0, 10))
+        }
+      }
+    }
+  } catch (e) {
+    console.log(`    ✗ 历史内容扫描失败: ${e.message}`)
+  }
+  console.log(`    （扫描 ${histScanned} 个含关键词的历史 blob）`)
+  // 已知并已接受的历史命中（白名单，存 sha256）——降级为提示，不阻塞 CI。
+  // 理由：这些是「已发生、已接受」的泄漏，文件已从当前树删除但仍在公开历史中；
+  // 让它们永久红只会让门禁失去意义。缓解手段是吊销轮换（见 SECURITY.md）。
+  let historyWhitelist = new Set()
+  try {
+    const wl = JSON.parse(readFileSync(join(ROOT, 'scripts/oss-audit-history-whitelist.json'), 'utf8'))
+    historyWhitelist = new Set((wl.known ?? []).map((x) => x.sha256))
+  } catch { /* 无白名单文件则空集 */ }
+  const { createHash } = await import('node:crypto')
+  const sha256 = (s) => createHash('sha256').update(s).digest('hex')
+  let histBlocking = 0
+  let histAccepted = 0
+  for (const [label] of SECRET_SHAPES) {
+    const m = histHits.get(label)
+    if (m.size === 0) { console.log(`    · ${label}: 0 种`); continue }
+    console.log(`    · ${label}: ${m.size} 种`)
+    for (const [hit, shas] of m) {
+      const accepted = historyWhitelist.has(sha256(hit))
+      // 脱敏：只回显前 6 位 + 长度，不完整打印密钥
+      const masked = hit.length > 8 ? `${hit.slice(0, 6)}…(${hit.length}位)` : hit
+      if (accepted) { histAccepted++; console.log(`        ○ ${masked}  ← blob ${[...shas].slice(0, 3).join(', ')}（白名单·已接受）`) }
+      else { histBlocking++; console.log(`        ✗ ${masked}  ← blob ${[...shas].slice(0, 3).join(', ')}`) }
+    }
+  }
+  if (histAccepted) console.log(`    （${histAccepted} 项命中白名单，已接受——处置见 SECURITY.md「凭证与机密」）`)
+  if (histBlocking) {
+    console.log('    ✗ 历史中检出**未登记**的密钥——吊销并轮换该凭证（public 仓库不可逆，这是唯一根治手段）；')
+    console.log('      确认已接受后可登记进 scripts/oss-audit-history-whitelist.json（只存 sha256，绝不存明文）。')
+  } else if (!histAccepted) {
+    console.log('    (无命中)')
+  }
+  blocking += histBlocking
 }
 
 // ── --fix：从 git HEAD 基线重建，只脱敏本机用户名 ─────────────────────────────

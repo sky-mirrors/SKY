@@ -11,7 +11,12 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
+      # fetch-depth: 0 —— 必须拉全历史。开源审计的历史扫描（oss-audit --history）
+      # 走 `git rev-list --all --objects`，浅克隆下只能看到 1 个提交，门禁形同虚设。
+      # 2026-10-10 事件正是发生在「已删除文件的历史版本」里。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -26,6 +31,11 @@ jobs:
 
       - name: Kernel purity check (M18)
         run: npx tsx scripts/purity-check.ts
+
+      # 开源发布审计：密钥 / 私钥块 / token 形态 + 本机路径 + 全历史 blob 内容。
+      # 已接受的历史命中在 scripts/oss-audit-history-whitelist.json 登记（存 sha256）。
+      - name: OSS pre-publish audit (incl. git history)
+        run: node scripts/oss-audit.mjs --history
 
       - name: Typecheck (soft gate, baseline 30 pre-existing errors)
         run: npm run typecheck
