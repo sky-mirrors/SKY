@@ -1,7 +1,7 @@
 # AGENTS.md — SKY 项目约定
 
 > 面向在本仓库工作的 AI 助手与人类贡献者。**改动前先读这一页。**
-> 文档状态：复核到 HEAD `9a957e4`。
+> 文档状态：复核到 HEAD `6f4630e`（2026-10-10 核对二、坑表：修正一条已过时的「兜底路径门值」）。
 
 ---
 
@@ -39,7 +39,7 @@
 | **`routeKind` 区分不出层** | 各层产出的计划 `routeKind` 都是 `plan`；真正的层在 `funnel:routed` 的 `source`。任何按 `routeKind` 做的分层统计都不可靠。 |
 | **L3 的 98 个占位不要清** | 那是作者预留位，属项目约定。历史文档里"清理 L3"的建议**已过期**。 |
 | **`config\l2_manifests\` 20 个 vs `l2Manifests.ts` 27 条** | 两处计数口径不同（磁盘清单 vs 代码登记），不是 bug，但统计时必须说明用的是哪个。 |
-| **兜底路径门值与主路径不同** | `dialogStore` 的旧内联兜底分支里 L0.5 仍硬编码 0.8，与漏斗 gate 的 0.6 不一致。 |
+| ~~**兜底路径门值与主路径不同**~~ | **✅ 已修（2026-10-10 复核）**：`dialogStore.ts:1808` 原硬编码 0.8，现改读 `loadFunnelGates().l05Pass`（配置通道，与主路径同源）。`grep "0\.8\b" src\stores\dialogStore.ts` 已无硬编码命中。 |
 | **`test\unit\apiStore.timerDispose.spec.ts` 的失败** | 仅在本地 Ollama 运行时失败，是环境噪声，不是回归。 |
 
 ---

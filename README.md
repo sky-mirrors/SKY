@@ -125,7 +125,7 @@ npm run dev
 **两条诚实的说明——因为这类东西通常是 README 会藏起来的：**
 
 1. **安装技能不会执行任何东西。** 目录条目带着 `nodes`/`edges`，但没有任何东西把它们喂给 DAG 引擎（`useDagEngine` 只服务管线画布），而 `createSkillFromWorkflow` 没有调用方。今天技能只是一个「发现 + 一键安装」的面板；真正的执行路径是 MCP。
-2. **21 个技能里有 16 个声明的 MCP server 是 store 不提供的**（store 只有 5 个）。安装处理器拿声明的 id 去 store 里查，查不到时**静默什么都不做**——不安装、不提示。技能数据本身已经带了完整的 `mcpCommand`/`mcpArgs`，也就是说兜底方案在数据里是现成的，只是查找路径没有用它。
+2. **21 个技能里有 16 个声明的 MCP server 是 store 不提供的**（store 只有 5 个）。~~安装处理器拿声明的 id 去 store 里查，查不到时静默什么都不做~~ → **✅ 2026-10-10 已修**：安装处理器改为 `skillStore.resolveMcpInstallItem()`——store 有则用 store 条目，没有则据技能自带的 `mcpCommand`/`mcpArgs`/`mcpEnvKeys` 合成条目安装，不再静默跳过（提交 `1788686`，5 个单测锁定）。
 
 ## 安全模型
 
@@ -147,7 +147,7 @@ npm run dev
 
 | 检查项 | 结果 |
 |---|---|
-| `npm test` | **2677 个用例** —— **2676 通过 / 1 失败**，211 个 spec 文件，约 9.9 s |
+| `npm test` | **2695 个用例** —— **2694 通过 / 1 失败**，211 个 spec 文件，约 8.5 s |
 | 已知噪声 | `test/unit/apiStore.timerDispose.spec.ts` **仅在本地 Ollama 运行时**失败——环境相关，不是回归 |
 | `npm run typecheck` | `tsc -b` + `vue-tsc` 干净 |
 | `npm run smoke:window-controls` | **35/35** —— 七个副窗全部：按钮渲染出来、`-webkit-app-region: drag` 生效、最小化真的最小化、关闭真的关闭 |
