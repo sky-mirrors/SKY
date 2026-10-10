@@ -1,8 +1,39 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { Skill, SkillNode, SkillEdge, SkillCatalogItem } from '@/models'
+import { Skill, SkillNode, SkillEdge, SkillCatalogItem, McpCatalogItem } from '@/models'
 import { SKILL_CATALOG } from '@/data/skillCatalog'
 import { vault } from '@/vault'
+
+/**
+ * 解析「安装某技能时，其声明的 MCP 依赖该装哪个条目」。
+ *
+ * 技能自带完整的 mcpServerId/mcpCommand/mcpArgs/mcpEnvKeys，而商店（MCP_CATALOG）
+ * 只收录其中一部分（技能引用 21 个 vs 商店 5 个）。旧实现只在商店找得到时才安装，
+ * 找不到就**静默跳过**——用户装了技能、依赖却没装上，且无任何提示。
+ *
+ * 这里改为：商店有则用商店条目（含更完整的元数据），没有则据技能自带字段合成一个，
+ * 保证「技能声明的 MCP 一定会被安装」。返回 null 表示该技能未声明 MCP 依赖。
+ */
+export function resolveMcpInstallItem(
+  item: SkillCatalogItem,
+  catalog: McpCatalogItem[]
+): McpCatalogItem | null {
+  if (!item.mcpServerId || !item.mcpCommand) return null
+  const found = catalog.find(c => c.id === item.mcpServerId)
+  if (found) return found
+  return {
+    id: item.mcpServerId,
+    name: `${item.name} 依赖`,
+    description: `由技能「${item.name}」声明的 MCP 服务器（未收录于商店）`,
+    category: item.category,
+    command: item.mcpCommand,
+    args: item.mcpArgs ?? [],
+    envKeys: item.mcpEnvKeys ?? [],
+    homepage: item.homepage ?? '',
+    source: 'community',
+    tags: ['skill-dependency']
+  }
+}
 
 export const useSkillStore = defineStore('skills', () => {
   const installedSkills = ref<Skill[]>([])

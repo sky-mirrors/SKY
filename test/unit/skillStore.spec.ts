@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { useSkillStore } from '@/stores/skillStore'
+import { useSkillStore, resolveMcpInstallItem } from '@/stores/skillStore'
+import type { SkillCatalogItem, McpCatalogItem } from '@/models'
 
 function mockLocalStorage() {
   const store: Record<string, string> = {}
@@ -143,5 +144,67 @@ describe('skillStore', () => {
     )
     expect(skill.name).toBe('Workflow Skill')
     expect(skill.id).toBeDefined()
+  })
+})
+
+// 卡点 5：技能声明的 MCP 若不在商店，旧实现静默跳过（装了技能但依赖没装上，
+// 用户无从察觉）。技能引用 21 个 MCP，商店只收录 5 个，缺口是常态而非边缘。
+describe('resolveMcpInstallItem', () => {
+  const mkSkill = (over: Partial<SkillCatalogItem> = {}): SkillCatalogItem => ({
+    id: 'skill-x', name: '示例技能', description: '', category: '测试',
+    version: '1.0.0', author: 'a', nodes: [], edges: [], dependencies: [], tags: [],
+    ...over
+  })
+  const mkCatalogItem = (id: string): McpCatalogItem => ({
+    id, name: id, description: '', category: 'c', command: 'npx',
+    args: ['-y', id], envKeys: [], homepage: '', source: 'official', tags: []
+  })
+
+  it('技能未声明 MCP 依赖时返回 null', () => {
+    expect(resolveMcpInstallItem(mkSkill(), [])).toBeNull()
+  })
+
+  it('仅有 mcpServerId 而缺 mcpCommand 时返回 null（不合成残缺条目）', () => {
+    expect(resolveMcpInstallItem(mkSkill({ mcpServerId: 'mcp-x' }), [])).toBeNull()
+  })
+
+  it('商店已收录时返回商店条目（保留更完整元数据）', () => {
+    const fromCatalog = mkCatalogItem('mcp-git')
+    const got = resolveMcpInstallItem(
+      mkSkill({ mcpServerId: 'mcp-git', mcpCommand: 'npx', mcpArgs: ['-y', 'self'] }),
+      [fromCatalog]
+    )
+    expect(got).toBe(fromCatalog) // 同一引用，未被合成条目覆盖
+  })
+
+  it('商店未收录时据技能自带字段合成条目（不再静默跳过）', () => {
+    const got = resolveMcpInstallItem(
+      mkSkill({
+        name: '网页研究',
+        category: '研究',
+        mcpServerId: 'mcp-exa',
+        mcpCommand: 'npx',
+        mcpArgs: ['-y', '@exa/mcp'],
+        mcpEnvKeys: ['EXA_API_KEY'],
+        homepage: 'https://exa.ai'
+      }),
+      [] // 商店为空
+    )
+    expect(got).not.toBeNull()
+    expect(got!.id).toBe('mcp-exa')
+    expect(got!.command).toBe('npx')
+    expect(got!.args).toEqual(['-y', '@exa/mcp'])
+    expect(got!.envKeys).toEqual(['EXA_API_KEY'])
+    expect(got!.homepage).toBe('https://exa.ai')
+    expect(got!.name).toContain('网页研究')
+  })
+
+  it('缺省 mcpArgs/mcpEnvKeys 时回退为空数组（不产生 undefined）', () => {
+    const got = resolveMcpInstallItem(
+      mkSkill({ mcpServerId: 'mcp-bare', mcpCommand: 'uvx' }),
+      []
+    )
+    expect(got!.args).toEqual([])
+    expect(got!.envKeys).toEqual([])
   })
 })

@@ -255,7 +255,7 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
-import { useSkillStore } from '@/domains/app'
+import { useSkillStore, resolveMcpInstallItem } from '@/domains/app'
 import { useMcpStore } from '@/domains/mcp'
 import { useMemoryStore } from '@/domains/memory'
 import { Skill, SkillCatalogItem, McpCatalogItem, McpToolPermission } from '@/models'
@@ -350,17 +350,19 @@ function onInstallCatalogSkill(item: SkillCatalogItem) {
   if (result.success) {
     emit('skillInstalled', item.id)
     if (result.mcpServerId && result.mcpCommand && !mcpStore.isCatalogItemInstalled(result.mcpServerId)) {
-      const mcpItem = mcpStore.catalog.find(c => c.id === result.mcpServerId)
-      if (mcpItem) {
-        if (mcpItem.envKeys.length > 0) {
-          envDialogItem.value = mcpItem
-          for (const key of mcpItem.envKeys) {
+      // 商店里没有该 MCP 时不再静默跳过——据技能自带字段合成条目安装（见 skillStore.resolveMcpInstallItem）。
+      // 技能引用的 MCP 远多于商店收录的（21 vs 5），静默跳过 = 装了技能但依赖没装上且用户无从察觉。
+      const itemToInstall = resolveMcpInstallItem(item, mcpStore.catalog)
+      if (itemToInstall) {
+        if (itemToInstall.envKeys.length > 0) {
+          envDialogItem.value = itemToInstall
+          for (const key of itemToInstall.envKeys) {
             envDialogValues[key] = ''
             envShowKeys[key] = false
           }
           envDialogVisible.value = true
         } else {
-          doInstallMcp(mcpItem, {})
+          doInstallMcp(itemToInstall, {})
         }
       }
     }
