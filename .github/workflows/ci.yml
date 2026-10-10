@@ -40,3 +40,51 @@ jobs:
       - name: Typecheck (soft gate, baseline 30 pre-existing errors)
         run: npm run typecheck
         continue-on-error: true
+
+  # 真机窗口冒烟：起真 Electron + CDP，验证「点最小化/关闭 → 窗口真的变」。
+  # 为什么不并进 ci job：那个 job 设了 ELECTRON_SKIP_BINARY_DOWNLOAD=1（无二进制），
+  # 且本 job 需要 GUI 会话与更长时间，混在一起会让失败难归因。
+  smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # 注意：这里**不能**设 ELECTRON_SKIP_BINARY_DOWNLOAD —— 必须下载真实 Electron 二进制。
+      - name: Install dependencies (with Electron binary)
+        run: npm ci
+
+      - name: Build renderer + main
+        run: npm run build
+
+      # 启动应用并等 CDP 就绪，再跑 smoke。用 Start-Process 使其非阻塞。
+      - name: Window-controls smoke (real windows via CDP)
+        shell: pwsh
+        run: |
+          $env:CDP_PORT = '9333'
+          # main.ts:49 有单实例锁，先确保没有残留实例
+          Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Process -FilePath "node_modules/.bin/electron.cmd" `
+            -ArgumentList ".", "--remote-debugging-port=$env:CDP_PORT" `
+            -NoNewWindow -PassThru | Out-Null
+
+          # 等 CDP 端点就绪（最多 60s）
+          $ready = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-WebRequest -Uri "http://127.0.0.1:$env:CDP_PORT/json/list" -UseBasicParsing -TimeoutSec 3
+              if ($r.StatusCode -eq 200) { $ready = $true; break }
+            } catch { }
+          }
+          if (-not $ready) { Write-Error "CDP 端点未在 60s 内就绪"; exit 1 }
+
+          node scripts/window-controls-smoke.mjs
+          $smokeExit = $LASTEXITCODE
+
+          Get-Process electron -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          exit $smokeExit
