@@ -1,0 +1,17 @@
+[package]
+name = "sky-exec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 执行层：DAG 步骤调度 + 条件求值 + 断点复用 + 取消"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
