@@ -1,0 +1,13 @@
+//! SKY 核心 crate。
+//!
+//! 纯逻辑，无 GUI 依赖——可独立 `cargo test`。
+//! 端口契约对应 `src/kernel/types.ts` 的 `PersistencePort` / `IOPort` / `LLMPort`。
+
+pub mod model;
+pub mod port;
+
+pub use model::{
+    BudgetMode, ChatMessage, DetectedDomain, ModelTier, PlanStep, RouteInput, RouteResult,
+    TaskComplexity, TaskPlan,
+};
+pub use port::{Io, Llm, Persistence, ShellOut, UiBridge, WriteDecision, WriteRequest};

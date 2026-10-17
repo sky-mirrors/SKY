@@ -1,0 +1,13 @@
+[package]
+name = "sky-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 核心领域模型与端口契约（纯逻辑，无 GUI 依赖）"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
