@@ -9,6 +9,7 @@ members = [
     "crates/sky-exec",
     "crates/sky-pack",
     "crates/sky-memory",
+    "crates/sky-app",
 ]
 
 [workspace.package]
