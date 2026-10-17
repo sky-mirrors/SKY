@@ -10,8 +10,10 @@
 //! 可脱离 GUI 单测（`cargo test -p sky-core` 等）。
 
 pub mod bridge;
+pub mod pipeline;
 pub mod ui;
 pub mod window;
 
 pub use bridge::{AutoDenyBridge, FrameCoalescer, ProgressEvent, DEFAULT_TIMEOUT_MS, FRAME_COALESCE_MS};
+pub use pipeline::{assistant_message, EchoRunner, Pipeline, PipelineResult, RouteOutcome};
 pub use window::{OpenAction, WindowId, WindowRegistry};

@@ -153,9 +153,12 @@ pub struct ExecOptions {
 /// - 依赖失败的步骤跳过（不执行）
 /// - `replay_prior_results` 中的步骤标记为 Reused
 /// - 取消时立即停止，剩余步骤保持 Pending
-pub async fn execute_plan<R: StepRunner>(
+///
+/// 接受 `&dyn StepRunner` 而非泛型——调用方常持有 trait object
+/// （如 `sky-app` 的接线层），泛型会要求 `Sized` 而无法传入。
+pub async fn execute_plan(
     plan: &TaskPlan,
-    runner: &R,
+    runner: &dyn StepRunner,
     opts: &ExecOptions,
     sink: Option<EventSink<'_>>,
 ) -> Result<MacroRunResult, ExecError> {

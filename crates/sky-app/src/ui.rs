@@ -13,14 +13,18 @@
 //! 各视图订阅同一 Signal，不再需要现状的 `storeSync*` 四组同步通道。
 
 use crate::bridge::ProgressEvent;
+use crate::pipeline::{EchoRunner, Pipeline, RouteOutcome};
 use crate::window::WindowId;
 use dioxus::prelude::*;
+use std::sync::Arc;
 
 /// 路由决策展示项。对应现状 `RuntimePanel.vue`（500 行）展示的内容。
 #[derive(Debug, Clone, PartialEq)]
 pub struct RouteTrace {
     pub source: String,
     pub confidence: f32,
+    /// 计划中的步骤摘要（工具名），供面板展示决策的实际产出。
+    pub steps: Vec<String>,
 }
 
 /// 应用全局状态——单一真相源。
@@ -36,18 +40,72 @@ pub struct AppState {
 #[component]
 pub fn MainView() -> Element {
     let mut state = use_signal(AppState::default);
+    // Pipeline 只构造一次，跨事件复用
+    let pipeline = use_signal(|| Arc::new(Pipeline::new()));
 
     let on_send = move |_| {
         let text = state.read().input.clone();
         if text.trim().is_empty() {
             return;
         }
-        state.write().messages.push(("user".into(), text));
+        state.write().messages.push(("user".into(), text.clone()));
         state.write().input.clear();
-        // 路由追踪占位——接入 sky-router 后填充真实决策
-        state.write().route_trace.push(RouteTrace {
-            source: "deterministic".into(),
-            confidence: 0.9,
+
+        let pipeline = pipeline.read().clone();
+        spawn(async move {
+            // 真实路由调用——不再是占位
+            let outcome = pipeline.route_only(&text).await;
+
+            let trace = match outcome {
+                RouteOutcome::Resolved {
+                    source,
+                    confidence,
+                    plan,
+                } => RouteTrace {
+                    source,
+                    confidence,
+                    steps: plan.steps.iter().map(|s| s.tool.clone()).collect(),
+                },
+                RouteOutcome::NeedsArbitration { candidates } => RouteTrace {
+                    source: format!("仲裁（{} 个候选）", candidates.len()),
+                    confidence: 0.5,
+                    steps: candidates,
+                },
+                RouteOutcome::Unresolved => RouteTrace {
+                    source: "unresolved".into(),
+                    confidence: 0.0,
+                    steps: vec![],
+                },
+            };
+
+            // 执行链路
+            let result = pipeline.run(&text, &EchoRunner).await;
+
+            let reply = if result.outcomes.is_empty() {
+                format!(
+                    "路由命中「{}」，置信度 {:.2}。该计划无执行步骤。",
+                    trace.source, trace.confidence
+                )
+            } else {
+                let lines: Vec<String> = result
+                    .outcomes
+                    .iter()
+                    .map(|o| {
+                        o.result
+                            .clone()
+                            .unwrap_or_else(|| format!("步骤 {} 失败", o.step))
+                    })
+                    .collect();
+                format!(
+                    "路由命中「{}」，置信度 {:.2}。\n执行结果：\n{}",
+                    trace.source,
+                    trace.confidence,
+                    lines.join("\n")
+                )
+            };
+
+            state.write().route_trace.push(trace);
+            state.write().messages.push(("assistant".into(), reply));
         });
     };
 
@@ -74,9 +132,9 @@ pub fn MainView() -> Element {
                     style: "flex: 1; display: flex; flex-direction: column; min-width: 0;",
                     div {
                         style: "flex: 1; overflow-y: auto; padding: 16px;",
-                        for (role, content) in state.read().messages.iter().cloned() {
+                        for (i, (role, content)) in state.read().messages.iter().cloned().enumerate() {
                             div {
-                                key: "{role}-{content}",
+                                key: "{i}",
                                 style: "margin-bottom: 12px;",
                                 div {
                                     style: "font-size: 12px; color: #888; margin-bottom: 4px;",
@@ -94,7 +152,7 @@ pub fn MainView() -> Element {
                         style: "display: flex; padding: 12px; border-top: 1px solid #e0e0e0; gap: 8px;",
                         input {
                             style: "flex: 1; padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;",
-                            placeholder: "输入任务…",
+                            placeholder: "输入任务…（试试「把文档转 pdf」）",
                             value: "{state.read().input}",
                             oninput: move |e| state.write().input = e.value(),
                         }
@@ -119,17 +177,23 @@ pub fn MainView() -> Element {
                             "尚无决策记录"
                         }
                     }
-                    for trace in state.read().route_trace.iter().cloned() {
+                    for (i, trace) in state.read().route_trace.iter().cloned().enumerate() {
                         div {
-                            key: "{trace.source}",
+                            key: "{i}",
                             style: "padding: 8px; margin-bottom: 8px; background: #f5f5f5; border-radius: 4px;",
                             div {
-                                style: "font-size: 13px;",
+                                style: "font-size: 13px; font-weight: 600;",
                                 "{trace.source}"
                             }
                             div {
                                 style: "font-size: 11px; color: #666;",
                                 "置信度 {trace.confidence:.2}"
+                            }
+                            if !trace.steps.is_empty() {
+                                div {
+                                    style: "font-size: 11px; color: #444; margin-top: 4px;",
+                                    "步骤：{trace.steps.join(\" → \")}"
+                                }
                             }
                         }
                     }
@@ -146,6 +210,7 @@ pub fn apply_progress(state: &mut AppState, ev: &ProgressEvent) {
             state.route_trace.push(RouteTrace {
                 source: source.clone(),
                 confidence: *confidence,
+                steps: Vec::new(),
             });
         }
         ProgressEvent::TokenDelta(t) => {
