@@ -4,6 +4,7 @@ members = [
     "crates/sky-core",
     "crates/sky-router",
     "crates/sky-cache",
+    "crates/sky-llm",
 ]
 
 [workspace.package]

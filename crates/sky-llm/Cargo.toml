@@ -1,0 +1,17 @@
+[package]
+name = "sky-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY LLM 层：SSE 流式解析 + provider 回退链 + token 预算与档位降级"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

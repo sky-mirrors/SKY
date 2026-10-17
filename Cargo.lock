@@ -114,6 +114,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sky-llm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sky-core",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "sky-router"
 version = "0.1.0"
 dependencies = [
