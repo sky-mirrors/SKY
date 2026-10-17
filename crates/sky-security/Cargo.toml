@@ -1,0 +1,16 @@
+[package]
+name = "sky-security"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 安全层：shell 白名单 + 路径校验 + 写门 + 交付核验，单一 chokepoint"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
