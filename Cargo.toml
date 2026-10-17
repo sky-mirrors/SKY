@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sky-core",
     "crates/sky-router",
+    "crates/sky-cache",
 ]
 
 [workspace.package]

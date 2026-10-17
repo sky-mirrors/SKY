@@ -93,6 +93,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sky-cache"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sky-core",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "sky-core"
 version = "0.1.0"
 dependencies = [

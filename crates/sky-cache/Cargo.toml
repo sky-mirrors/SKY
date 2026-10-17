@@ -1,0 +1,16 @@
+[package]
+name = "sky-cache"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 缓存层：指纹缓存 + 语义缓存（复合键隔离 + LRU + 自适应阈值）"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
