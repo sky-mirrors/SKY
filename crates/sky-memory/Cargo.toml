@@ -1,0 +1,16 @@
+[package]
+name = "sky-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 记忆层：会话上下文窗口 + FactGuard 事实守卫"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

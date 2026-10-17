@@ -1,0 +1,16 @@
+[package]
+name = "sky-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SKY 领域包宿主：四阶段事务式挂载 + constraints DSL 求值"
+
+[dependencies]
+sky-core = { path = "../sky-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
