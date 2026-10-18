@@ -73,13 +73,28 @@ pub fn MainView() -> Element {
         state.write().messages.push(("user".into(), text.clone()));
         state.write().input.clear();
         state.write().streaming = true;
+        // 留痕：从这里到「streaming=false」之间的墙钟时间，就是用户
+        // 感知到的等待时长。与日志里的 route elapsed 对照，可区分
+        // 「逻辑慢」与「事件/渲染慢」。
+        eprintln!("[sky] send begin: text={:?}", text);
 
         let pipeline = pipeline.read().clone();
         spawn(async move {
             // 只调 run() 一次——它内部已经包含完整路由（含 LLM 规划）。
             // 曾经的实现先调 route_only() 再调 run()，导致探索路径
             // 触发两次 LLM 调用，实测耗时从 7 秒翻倍到 14 秒。
+            let started = std::time::Instant::now();
             let result = pipeline.run(&text, &EchoRunner).await;
+            // 计时留痕：确定性路径设计上应是微秒级，若这里出现数秒，
+            // 说明实际走的是 explore（调了 LLM）。用户报告「转 pdf 也要
+            // 五六秒」时，端到端耗时与 route_source 一起看才有判断依据。
+            eprintln!(
+                "[sky] route_source={} elapsed={:?} planner_calls={} steps={}",
+                result.route_source,
+                started.elapsed(),
+                pipeline.planner_call_count(),
+                result.plan.steps.len()
+            );
 
             let trace = RouteTrace {
                 source: result.route_source.clone(),

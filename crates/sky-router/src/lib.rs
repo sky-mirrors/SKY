@@ -3,9 +3,11 @@
 //! 对应现状六层漏斗（`src/kernel/funnel.ts`）。六层 → 四段：
 //! `Cache → Deterministic → Retrieval → Explore`。
 
+pub mod normalize;
 pub mod stage;
 pub mod stages;
 
+pub use normalize::normalize;
 pub use stage::{Candidate, Outcome, Route, RouteCtx, Router, Stage};
 pub use stages::{CacheStage, DeterministicStage, ExploreStage, Matchable, RetrievalStage, Rule};
 

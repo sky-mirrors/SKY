@@ -240,3 +240,44 @@ async fn router_returns_arbitration_on_ambiguity() {
         other => panic!("期望 NeedsArbitration，得到 {other:?}"),
     }
 }
+
+// ---------- 输入归一化（中文输入法场景） ----------
+//
+// 回归背景：中文输入法在中文标点模式下，打出的字母与空格是全角的。
+// 用户想输 `pdf` 得到 `ｐｄｆ`，想输空格得到 `　`（U+3000）。
+// 修复前规则用半角关键词 contains 匹配全角串会失败，输入落到兜底段
+// 触发 LLM——实测「把文档转 ｐｄｆ」耗时 2.58–11.4 秒且消耗 token，
+// 而半角版本仅 151 微秒。用户主观感受就是「转个 pdf 也要等好几秒」。
+
+#[tokio::test]
+async fn deterministic_hits_with_fullwidth_pdf() {
+    let stage = DeterministicStage::with_default_rules();
+    let mut ctx = RouteCtx::default();
+    let r = stage.try_resolve(&input("把文档转ＰＤＦ"), &mut ctx).await;
+    let route = r;
+    assert!(
+        !route.is_defer(),
+        "全角 PDF 必须命中确定性段，否则会落到 explore 调 LLM"
+    );
+}
+
+#[tokio::test]
+async fn deterministic_hits_with_ideographic_space() {
+    let stage = DeterministicStage::with_default_rules();
+    let mut ctx = RouteCtx::default();
+    // 中文输入法打出的全角空格 U+3000
+    let r = stage
+        .try_resolve(&input("把文档转\u{3000}ｐｄｆ"), &mut ctx)
+        .await;
+    assert!(!r.is_defer(), "全角空格 + 全角字母必须命中");
+}
+
+#[tokio::test]
+async fn deterministic_still_defers_on_unrelated_input() {
+    let stage = DeterministicStage::with_default_rules();
+    let mut ctx = RouteCtx::default();
+    let r = stage
+        .try_resolve(&input("帮我把技术文档总结成三个要点"), &mut ctx)
+        .await;
+    assert!(r.is_defer(), "无关输入仍应 Defer——归一化不能变成宽泛匹配");
+}

@@ -110,11 +110,14 @@ impl DeterministicStage {
     }
 
     fn match_rule(&self, text: &str) -> Option<&Rule> {
-        let lower = text.to_lowercase();
+        // 归一化必须在此做：中文输入法在中文标点模式下打出全角字母/空格，
+        // 半角关键词 contains 匹配不上，输入会误落到 explore 段触发 LLM。
+        // 实测全角 "把文档转ｐｄｆ" 耗时 2.58–11.4s，半角仅 151µs。
+        let lower = crate::normalize(text);
         self.rules.iter().find(|r| {
             r.keywords
                 .iter()
-                .all(|k| lower.contains(&k.to_lowercase()))
+                .all(|k| lower.contains(&crate::normalize(k)))
         })
     }
 }
@@ -195,7 +198,7 @@ impl RetrievalStage {
         let hits = item
             .keywords
             .iter()
-            .filter(|k| lower.contains(&k.to_lowercase()))
+            .filter(|k| lower.contains(&crate::normalize(k)))
             .count();
         hits as f32 / item.keywords.len() as f32
     }
@@ -208,7 +211,8 @@ impl Stage for RetrievalStage {
     }
 
     async fn try_resolve(&self, input: &RouteInput, _ctx: &mut RouteCtx) -> Route {
-        let lower = input.text.to_lowercase();
+        // 与确定性段用同一归一化——两段对同一输入必须给出一致判断。
+        let lower = crate::normalize(&input.text);
 
         let mut scored: Vec<(f32, &Matchable)> = self
             .items
