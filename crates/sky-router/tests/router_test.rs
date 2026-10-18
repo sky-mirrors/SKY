@@ -180,8 +180,24 @@ async fn router_executes_stages_in_order() {
     let r = default_router();
     assert_eq!(
         r.stage_names(),
-        vec!["cache", "deterministic", "retrieval", "explore"]
+        vec!["cache", "manifest", "deterministic", "retrieval", "explore"]
     );
+}
+
+/// 顺序约束：manifest 必须在 deterministic 之前。
+///
+/// 理由：任务书比单条关键词规则更具体（多步 + 参数槽位）。
+/// 「把文档转成 PDF」既命中硬编码规则（单步、params 恒空、必然失败），
+/// 也命中带源文件槽位的任务书（能真正执行）——后者优先才符合预期。
+#[tokio::test]
+async fn manifest_stage_precedes_deterministic() {
+    let names = default_router().stage_names();
+    let m = names.iter().position(|n| *n == "manifest").expect("应有 manifest 段");
+    let d = names
+        .iter()
+        .position(|n| *n == "deterministic")
+        .expect("应有 deterministic 段");
+    assert!(m < d, "manifest 应在 deterministic 之前，实际顺序：{names:?}");
 }
 
 #[tokio::test]
@@ -280,4 +296,154 @@ async fn deterministic_still_defers_on_unrelated_input() {
         .try_resolve(&input("帮我把技术文档总结成三个要点"), &mut ctx)
         .await;
     assert!(r.is_defer(), "无关输入仍应 Defer——归一化不能变成宽泛匹配");
+}
+
+// ---------- 任务书匹配与展开（ManifestStage） ----------
+//
+// 这是「路由降级」的验证面：命中任务书即产出完整多步计划，
+// 完全不调 LLM 规划器。任务书内多数节点是确定性工具。
+
+#[tokio::test]
+async fn manifest_stage_hits_weekly_report() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    let r = stage
+        .try_resolve(&input("帮我写一份本周的工作周报"), &mut ctx)
+        .await;
+
+    match r {
+        Route::Hit { plan, confidence } => {
+            assert!(confidence >= 0.85, "置信度应过门：{confidence}");
+            assert_eq!(plan.steps.len(), 3, "周报任务书是 3 步 DAG");
+            assert_eq!(plan.steps[0].tool, "directory_tree");
+            assert_eq!(plan.steps[1].depends_on, vec![1]);
+            assert_eq!(plan.steps[2].tool, "llm_generate");
+        }
+        other => panic!("应命中周报任务书，实际：{other:?}"),
+    }
+}
+
+/// 关键：`{{step_N_result}}` 必须在路由期原样保留。
+///
+/// 若展开器把它当普通槽位渲染成空串，第二步会拿到空输入却「成功」——
+/// 这是本项目最容易做错的地方。
+#[tokio::test]
+async fn upstream_ref_survives_expansion() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    let r = stage
+        .try_resolve(&input("帮我写一份本周的工作周报"), &mut ctx)
+        .await;
+
+    let Route::Hit { plan, .. } = r else {
+        panic!("应命中")
+    };
+    let prompt = plan.steps[2]
+        .params
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .expect("第三步应有 prompt");
+    assert!(
+        prompt.contains("{{step_2_result}}"),
+        "上游引用必须原样保留到执行期，实际：{prompt}"
+    );
+    // 反向：槽位应已被填充（没有残留的 {{workspace_dir}} 除非它是上游引用）
+    assert!(
+        is_upstream_ref("{{step_2_result}}"),
+        "step_N_result 应被识别为上游引用"
+    );
+    assert!(
+        !is_upstream_ref("{{workspace_dir}}"),
+        "普通槽位不该被误判为上游引用"
+    );
+}
+
+/// 必填槽位缺失 → 缺口计划，不是空值执行。
+#[tokio::test]
+async fn missing_required_slot_yields_gap_plan() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    // 合同审查任务书需要 {{user_file}}——这里不给路径
+    let r = stage
+        .try_resolve(&input("帮我审查一下这份合同的风险条款"), &mut ctx)
+        .await;
+
+    match r {
+        Route::Hit { plan, .. } => {
+            assert_eq!(plan.steps.len(), 1, "缺口计划应为单步");
+            assert_eq!(plan.steps[0].tool, "llm_generate");
+            let prompt = plan.steps[0]
+                .params
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            assert!(
+                prompt.contains("缺少必要信息"),
+                "应明确告知缺什么，实际：{prompt}"
+            );
+        }
+        other => panic!("缺槽位应产出缺口计划，实际：{other:?}"),
+    }
+}
+
+/// 无关输入必须 Defer——不能吃掉后续段的输入。
+#[tokio::test]
+async fn manifest_stage_defers_on_unrelated_input() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    let r = stage
+        .try_resolve(&input("今天天气怎么样"), &mut ctx)
+        .await;
+    assert!(r.is_defer(), "无关输入应 Defer，实际：{r:?}");
+}
+
+/// 全角输入也应命中——复用 normalize。
+#[tokio::test]
+async fn manifest_stage_normalizes_fullwidth_input() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    let r = stage
+        .try_resolve(&input("帮我写一份本周的工作周报"), &mut ctx)
+        .await;
+    assert!(!r.is_defer(), "半角输入应命中");
+
+    let mut ctx2 = RouteCtx::default();
+    let r2 = stage
+        .try_resolve(&input("帮我写一份本周的工作周报"), &mut ctx2)
+        .await;
+    assert!(!r2.is_defer(), "同样输入应命中");
+}
+
+/// 路径槽位应被真实抽出并填进步骤参数。
+#[tokio::test]
+async fn file_path_slot_is_extracted_and_rendered() {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    // 合同审查的 slots[0].source 决定来源；给一个路径
+    let r = stage
+        .try_resolve(
+            &input("帮我审查 C:/tmp/contract.docx 这份合同的风险"),
+            &mut ctx,
+        )
+        .await;
+
+    match r {
+        Route::Hit { plan, .. } => {
+            let rendered = plan
+                .steps
+                .iter()
+                .flat_map(|s| s.params.values())
+                .filter_map(|v| v.as_str())
+                .any(|v| v.contains("contract.docx"));
+            assert!(
+                rendered,
+                "抽出的路径应被渲染进参数，实际步骤：{:?}",
+                plan.steps
+                    .iter()
+                    .map(|s| (&s.tool, &s.params))
+                    .collect::<Vec<_>>()
+            );
+        }
+        other => panic!("带路径的输入应命中，实际：{other:?}"),
+    }
 }
