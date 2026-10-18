@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY 能力模型 V6 · 通用层 / 领域层（重合即共享）</title>
+<style>
+  :root {
+    --bg:#fff; --panel:#fafafa; --ink:#1a1a1a; --sub:#888; --line:#e0e0e0;
+    --accent:#2563eb; --ok:#16a34a; --warn:#b45309; --mono:'Consolas',monospace; --r:4px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:var(--bg); color:var(--ink); padding:24px; display:flex; flex-direction:column; gap:32px; align-items:center; }
+  h1 { font-size:18px; align-self:flex-start; max-width:1100px; width:100%; margin:0 auto; }
+  h1 small { display:block; font-size:12px; color:var(--sub); font-weight:400; margin-top:6px; line-height:1.7; }
+  .app { width:1100px; max-width:100%; height:620px; border:1px solid var(--line); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 12px rgba(0,0,0,.06); }
+  header { display:flex; align-items:center; padding:8px 14px; border-bottom:1px solid var(--line); gap:12px; background:var(--panel); }
+  .brand { font-size:14px; font-weight:600; }
+  .spacer { flex:1; }
+  .engine { font-size:10.5px; color:var(--sub); }
+  .sb { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--panel); font-size:10.5px; color:var(--sub); height:24px; }
+  .sb .i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb .num { font-family:var(--mono); color:var(--ink); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:#ccc; }
+
+  /* 能力模型页 */
+  .model { flex:1; display:flex; overflow:hidden; }
+  .col { flex:1; overflow-y:auto; padding:14px 16px; }
+  .col + .col { border-left:1px solid var(--line); }
+  .col h3 { font-size:13px; margin-bottom:2px; }
+  .col .desc { font-size:11px; color:var(--sub); margin-bottom:12px; line-height:1.5; }
+  .cap { display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:5px; font-size:12px; background:#fff; }
+  .cap .n { font-weight:600; }
+  .cap .d { font-size:10px; color:var(--sub); display:block; margin-top:1px; }
+  .cap .tag { font-size:9px; padding:1px 6px; border-radius:6px; white-space:nowrap; }
+  .tag.core { background:#eff6ff; color:var(--accent); }
+  .tag.shared { background:#f0fdf4; color:var(--ok); }
+  .tag.domain { background:#fef3c7; color:var(--warn); }
+  .col.chem { background:#fcfcfa; }
+
+  /* 工作台页：通用工具条常驻 + 领域面板 */
+  .wb { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  .crumb { font-size:11px; color:var(--sub); padding:6px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  .crumb a { color:var(--accent); cursor:pointer; }
+  .common-bar {
+    display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap;
+  }
+  .cb { font-size:11px; padding:4px 10px; border:1px solid var(--line); border-radius:var(--r); background:#fff; cursor:pointer; }
+  .cb:hover { border-color:var(--accent); }
+  .cb .ic { margin-right:3px; }
+  .cb-label { font-size:9px; color:var(--sub); padding:0 16px 6px; }
+  .wb-body { flex:1; display:flex; overflow:hidden; }
+  .wb-main { flex:1.3; padding:12px 16px; overflow-y:auto; }
+  .wb-side { flex:1; border-left:1px solid var(--line); padding:12px 16px; overflow-y:auto; background:var(--panel); }
+  .wb-side h4, .wb-main h4 { font-size:12px; margin-bottom:8px; }
+  .field { margin-bottom:10px; }
+  .field label { font-size:10.5px; color:var(--sub); display:block; margin-bottom:4px; }
+  .field textarea { width:100%; min-height:44px; padding:8px; font-family:var(--mono); font-size:13px; border:1px solid var(--line); border-radius:var(--r); }
+  .btn { padding:6px 16px; font-size:12px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); cursor:pointer; font-weight:600; }
+  .btn.s { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:400; }
+  .readout { border:1px solid var(--line); border-radius:var(--r); padding:10px; margin-top:8px; }
+  .readout .f { font-family:var(--mono); font-size:18px; font-weight:700; }
+  .readout .m { font-size:11px; color:var(--sub); margin-top:3px; }
+  .ev { font-size:11.5px; padding:6px 9px; border-left:3px solid var(--ok); background:#fff; border-radius:0 var(--r) var(--r) 0; margin-bottom:5px; }
+  .ev.warn { border-left-color:var(--warn); }
+  .ev.cache { border-left-color:var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>能力模型：通用层（所有域共享，常驻工具条）+ 领域层（包声明引用，重合即共享同一实现）
+  <small>裁定落地：工具不按域复制——注册表全局唯一，领域包「声明引用」。化学和法务都要 file_read？引用同一个。工作台 = 通用工具条（常驻）+ 本包声明的能力面板（按包渲染）。</small>
+</h1>
+
+<!-- 页 1：能力模型总览 -->
+<div class="app">
+  <header><span class="brand">SKY</span><span class="engine">能力模型 · 三层</span></header>
+  <div class="model">
+    <div class="col">
+      <h3>通用层 · core</h3>
+      <div class="desc">所有域共享，harness 出厂自带。常驻工作台工具条——不管什么领域都在。</div>
+      <div class="cap"><span><span class="n">文件读写</span><span class="d">read / write / move / copy / find / tree</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">知识检索</span><span class="d">knowledge_search 语义召回</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">文本处理</span><span class="d">extract / summarize / join</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">Shell 执行</span><span class="d">白名单 + 危险子命令闸门</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">LLM 生成</span><span class="d">经 FactGuard/锚点/LlmPolicy 三环</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">应用自动化</span><span class="d">app_automate COM 桥（Origin/ChemDraw…）</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">产物落盘</span><span class="d">.sky-output 交付物</span></span><span class="tag core">core</span></div>
+      <div class="cap"><span><span class="n">验证闸门</span><span class="d">FactGuard / 锚点 / LlmPolicy</span></span><span class="tag core">core</span></div>
+    </div>
+    <div class="col">
+      <h3>领域层 · 化学（示例）</h3>
+      <div class="desc">包声明引用：core 工具直接复用（标 shared），专业能力包自带（标 domain）。</div>
+      <div class="cap"><span><span class="n">file_read</span><span class="d">读谱图/论文/报告</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">knowledge_search</span><span class="d">查文献笔记</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">app_automate</span><span class="d">Origin 绘图 / ChemDraw 打开</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">smiles_info</span><span class="d">SMILES 解析/分子量/验证</span></span><span class="tag domain">domain</span></div>
+      <div class="cap"><span><span class="n">结构导出</span><span class="d">MOL / SDF / PNG 草图</span></span><span class="tag domain">domain</span></div>
+      <div class="cap"><span><span class="n">光谱峰检测</span><span class="d">Origin 前处理（计划）</span></span><span class="tag domain">domain</span></div>
+    </div>
+    <div class="col">
+      <h3>领域层 · 法务/论文（重合示例）</h3>
+      <div class="desc">不同域引用同一 core 工具——重合天然解决：注册表全局唯一，谁用谁声明。</div>
+      <div class="cap"><span><span class="n">file_read</span><span class="d">读合同 / 读论文</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">text_extract</span><span class="d">抽条款 / 抽摘要</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">知识检索</span><span class="d">查判例 / 查文献</span></span><span class="tag shared">↩ core 共享</span></div>
+      <div class="cap"><span><span class="n">条款对比</span><span class="d">法务 domain</span></span><span class="tag domain">domain</span></div>
+      <div class="cap"><span><span class="n">双语对照</span><span class="d">论文 domain</span></span><span class="tag domain">domain</span></div>
+      <div class="cap"><span><span class="n">引用检查</span><span class="d">论文 domain（未来）</span></span><span class="tag domain">domain</span></div>
+      <div class="cap"><span><span class="n">金额 FactGuard</span><span class="d">法务/财务 domain 强化</span></span><span class="tag domain">domain</span></div>
+    </div>
+  </div>
+  <div class="sb">
+    <div class="i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="i">工具注册表全局唯一 · 领域包按需声明引用</div>
+  </div>
+</div>
+
+<!-- 页 2：工作台排版（通用条常驻 + 领域面板） -->
+<h1>工作台排版 V6：打开任何领域工作台，顶部是「通用工具条」（core 常驻），下方是「本包专业面板」——切域时通用条不变，只有专业面板换
+  <small>以化学硕博为例。蓝色 = core 共享（从别的域切过来还在）；橙色 = 本包专业。</small>
+</h1>
+<div class="app">
+  <header><span class="brand">SKY</span><span class="engine">包：化学硕博 · 宿主：SKY 核心</span></header>
+  <div class="crumb"><a>← 对话主控</a> / 化学硕博 / <b>工作台</b></div>
+  <!-- 通用工具条：所有域一致 -->
+  <div class="common-bar">
+    <button class="cb"><span class="ic">📁</span>文件</button>
+    <button class="cb"><span class="ic">🔍</span>知识检索</button>
+    <button class="cb"><span class="ic">📝</span>文本处理</button>
+    <button class="cb"><span class="ic">⚡</span>Shell</button>
+    <button class="cb"><span class="ic">🤖</span>LLM 生成</button>
+    <button class="cb"><span class="ic">🖥</span>应用自动化</button>
+    <button class="cb"><span class="ic">📦</span>产物</button>
+  </div>
+  <div class="cb-label">↑ 通用层（所有领域共享，切域不变）——以下为本包专业面板（切域即换）</div>
+  <div class="wb">
+    <div class="wb-body">
+      <div class="wb-main">
+        <h4>🧪 化学专业：结构解析（domain）</h4>
+        <div class="field">
+          <label>SMILES</label>
+          <textarea>CC(=O)OC1=CC=CC=C1C(=O)O</textarea>
+        </div>
+        <div class="actions" style="display:flex;gap:8px;margin-bottom:10px;">
+          <button class="btn" type="button">解析验证</button>
+          <button class="btn s" type="button">导出 MOL</button>
+        </div>
+        <div class="readout">
+          <div class="f">C₉H₈O₄</div>
+          <div class="m">180.16 g/mol · 21 原子 · 0 token · ✓ 机器验证通过</div>
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label>用 core 的知识检索查相关笔记（shared）</label>
+          <textarea style="min-height:0;">阿司匹林 合成</textarea>
+          <div style="margin-top:6px;"><button class="btn s" type="button">检索</button></div>
+        </div>
+      </div>
+      <div class="wb-side">
+        <h4>事件流 · 驯化裁决</h4>
+        <div class="ev">✓ smiles_info 解析通过 · C₉H₈O₄ · 0 token</div>
+        <div class="ev warn">⚠ FactGuard：LLM 报 C13H18O2 ≠ C9H8O4，已阻止</div>
+        <div class="ev cache">⚡ 知识检索命中缓存 · 0 token</div>
+        <div class="ev">✓ app_automate → Origin 导入完成</div>
+      </div>
+    </div>
+  </div>
+  <div class="sb">
+    <div class="i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="i">包：化学硕博</div>
+    <div class="i">通用 7 · 专业 3</div>
+    <div class="i">驯化 <span class="num">3/3</span></div>
+  </div>
+</div>
+
+</body>
+</html>
