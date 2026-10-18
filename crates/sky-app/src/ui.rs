@@ -29,12 +29,27 @@ pub struct RouteTrace {
 }
 
 /// 应用全局状态——单一真相源。
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
     pub input: String,
     pub messages: Vec<(String, String)>,
     pub route_trace: Vec<RouteTrace>,
     pub streaming: bool,
+    /// 当前视图：core（对话主控）/ chem（化学工作台）/ paper（论文精读）。
+    /// 领域工作台是对话主控的**子视图**——从包栏/功能卡进入，返回键回 core。
+    pub active_view: &'static str,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            messages: Vec::new(),
+            route_trace: Vec::new(),
+            streaming: false,
+            active_view: "core",
+        }
+    }
 }
 
 /// 主视图。
@@ -197,15 +212,110 @@ pub fn MainView() -> Element {
                 }
             }
 
-            // 主体：对话区 + 路由面板
+            // 主体：领域包侧栏 + 主区（对话/工作台）+ 路由面板
             div {
                 style: "display: flex; flex: 1; min-height: 0;",
+
+                // 领域包侧栏——热插拔的可见表达（§9.7：换域即换工作台）
+                div {
+                    style: "width: 200px; border-right: 1px solid #e0e0e0; background: #fafafa; padding: 10px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;",
+                    div {
+                        style: "font-size: 11px; color: #888; padding: 0 6px 6px; font-weight: 600;",
+                        "领域包"
+                    }
+                    div {
+                        style: if state.read().active_view == "core" {
+                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                        } else {
+                            "border: 1px dashed #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                        },
+                        onclick: move |_| state.write().active_view = "core",
+                        div { style: "font-size: 12.5px; font-weight: 600;", "SKY 核心" }
+                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "对话 · 规则路由 · 任务书引擎" }
+                    }
+                    div {
+                        style: if state.read().active_view == "chem" {
+                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                        } else {
+                            "border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
+                        },
+                        onclick: move |_| state.write().active_view = "chem",
+                        div {
+                            style: "font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;",
+                            "化学硕博"
+                            span {
+                                style: "font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #f0fdf4; color: #16a34a; font-weight: 400;",
+                                "已挂载"
+                            }
+                        }
+                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "SMILES 解析 · Origin/ChemDraw 桥" }
+                    }
+                    div {
+                        style: if state.read().active_view == "paper" {
+                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                        } else {
+                            "border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
+                        },
+                        onclick: move |_| state.write().active_view = "paper",
+                        div {
+                            style: "font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;",
+                            "科研论文"
+                            span {
+                                style: "font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #f0fdf4; color: #16a34a; font-weight: 400;",
+                                "已挂载"
+                            }
+                        }
+                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "双语精读 · 标注 · 知识检索" }
+                    }
+                    div {
+                        style: "margin-top: auto; padding: 8px 6px 0; font-size: 9.5px; color: #888; border-top: 1px dashed #e0e0e0; line-height: 1.5;",
+                        "加领域 = 加 JSON："
+                        div { style: "font-family: Consolas, monospace; font-size: 9px; color: #2563eb;", "config/l2_manifests/" }
+                    }
+                }
 
                 // 对话区
                 div {
                     style: "flex: 1; display: flex; flex-direction: column; min-width: 0;",
+
+                    // 面包屑：进入领域工作台后显示，返回键回对话主控
+                    if state.read().active_view != "core" {
+                        div {
+                            style: "display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #e0e0e0; font-size: 12px; background: #fafafa;",
+                            a {
+                                style: "color: #2563eb; cursor: pointer;",
+                                onclick: move |_| state.write().active_view = "core",
+                                "← 对话主控"
+                            }
+                            span { style: "color: #888;", "/" }
+                            span { style: "font-weight: 600;",
+                                if state.read().active_view == "chem" { "化学硕博工作台" } else { "科研论文工作台" }
+                            }
+                        }
+                    }
+
+                    // ===== 对话主控视图（core）=====
+                    if state.read().active_view == "core" {
                     div {
                         style: "flex: 1; overflow-y: auto; padding: 16px;",
+
+                        // 领域功能卡——领域包功能的入口（点击进工作台）
+                        div {
+                            style: "display: flex; gap: 10px; padding: 4px 0 14px; flex-wrap: wrap;",
+                            div {
+                                style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
+                                onclick: move |_| state.write().active_view = "chem",
+                                div { style: "font-weight: 600; margin-bottom: 2px;", "🧪 化学结构验证" }
+                                div { style: "color: #888; font-size: 11px;", "SMILES → 分子式/分子量 · 0 token" }
+                            }
+                            div {
+                                style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
+                                onclick: move |_| state.write().active_view = "paper",
+                                div { style: "font-weight: 600; margin-bottom: 2px;", "📄 论文精读" }
+                                div { style: "color: #888; font-size: 11px;", "双语对照 · 段落问答 · 动作缓存" }
+                            }
+                        }
+
                         for (i, (role, content)) in state.read().messages.iter().cloned().enumerate() {
                             div {
                                 key: "{i}",
@@ -229,6 +339,129 @@ pub fn MainView() -> Element {
                             }
                         }
                     }
+                    } // ===== end if core =====
+
+                    // ===== 化学工作台视图（chem）——复用 ChemLabState =====
+                    if state.read().active_view == "chem" {
+                        div {
+                            style: "flex: 1; overflow-y: auto; padding: 16px;",
+                            div {
+                                style: "font-size: 12px; color: #888; margin-bottom: 10px; line-height: 1.5;",
+                                "粘贴 SMILES，本地解析分子式与分子量——解析失败即幻觉拦截，全程 0 token。"
+                                div { style: "font-size: 10px; color: #aaa; margin-top: 2px;",
+                                    "支持：有机主族 / 分支 / 环编号 / 双三键；立体@与电荷形态走 RDKit 通道（未接入）。"
+                                }
+                            }
+                            div {
+                                style: "display: flex; gap: 8px; margin-bottom: 10px;",
+                                input {
+                                    style: "flex: 1; padding: 7px 10px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #ccc; border-radius: 4px;",
+                                    placeholder: "例：CC(=O)OC1=CC=CC=C1C(=O)O",
+                                    value: "{chem.read().input}",
+                                    oninput: move |e| chem.write().input = e.value(),
+                                    onkeydown: move |e| {
+                                        if e.key() == Key::Enter && !e.is_composing() {
+                                            chem.write().analyze();
+                                        }
+                                    },
+                                }
+                                button {
+                                    style: "padding: 7px 16px; font-size: 12.5px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 4px; font-weight: 600;",
+                                    onclick: move |_| chem.write().analyze(),
+                                    "解析验证"
+                                }
+                            }
+                            if let Some((formula, mw, atoms)) = chem.read().last_result.clone() {
+                                div {
+                                    style: "border: 1px solid #e0e0e0; border-radius: 4px; padding: 14px; margin-bottom: 10px;",
+                                    div { style: "font-family: Consolas, monospace; font-size: 22px; font-weight: 700;", "{formula}" }
+                                    div { style: "display: flex; gap: 20px; margin-top: 6px; font-size: 12px;",
+                                        span { style: "font-family: Consolas, monospace;", "{mw:.2} g/mol" }
+                                        span { style: "font-family: Consolas, monospace;", "{atoms} 原子" }
+                                        span { style: "font-family: Consolas, monospace; color: #16a34a;", "0 token" }
+                                    }
+                                    div { style: "font-size: 11px; color: #16a34a; margin-top: 8px;", "✓ 机器验证通过（本地解析器，非 LLM）" }
+                                }
+                            }
+                            div { style: "font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600;", "事件流（驯化闸门记录）" }
+                            if chem.read().events.is_empty() {
+                                div { style: "font-size: 12px; color: #aaa;", "暂无记录——输入 SMILES 开始" }
+                            }
+                            for (i, ev) in chem.read().events.iter().cloned().enumerate() {
+                                div {
+                                    key: "{i}",
+                                    style: if ev.is_alert() {
+                                        "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-left: 3px solid #b45309; border-radius: 4px; font-size: 12px;"
+                                    } else {
+                                        "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-left: 3px solid #16a34a; border-radius: 4px; font-size: 12px;"
+                                    },
+                                    if ev.is_alert() { "⚠ 幻觉拦截" } else { "✓ 验证通过" }
+                                    " · {ev.summary()}"
+                                }
+                            }
+                        }
+                    }
+
+                    // ===== 论文精读视图（paper）——复用 ReaderState =====
+                    if state.read().active_view == "paper" {
+                        div {
+                            style: "flex: 1; overflow-y: auto; padding: 16px;",
+                            div {
+                                style: "font-size: 12px; color: #888; margin-bottom: 10px;",
+                                "段落点选 → 动作按钮（规范化键缓存，同段同动作第二次 0 token）"
+                            }
+                            div {
+                                style: "display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;",
+                                for sec in crate::paper_reader::default_sections() {
+                                    button {
+                                        key: "{sec.no}",
+                                        style: if reader_current.read().to_string() == sec.no.to_string() {
+                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 3px;"
+                                        } else {
+                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #e5e7eb; border: none; border-radius: 3px;"
+                                        },
+                                        onclick: move |_| reader_current.set(sec.no),
+                                        "§{sec.no} {sec.digest}"
+                                    }
+                                }
+                            }
+                            div {
+                                style: "display: flex; gap: 8px; margin-bottom: 10px;",
+                                button {
+                                    style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
+                                    onclick: move |_| {
+                                        let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
+                                        work_trigger.call(("summarize", no));
+                                    },
+                                    "摘要本段"
+                                }
+                                button {
+                                    style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
+                                    onclick: move |_| {
+                                        let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
+                                        work_trigger.call(("ask", no));
+                                    },
+                                    "问答本段"
+                                }
+                            }
+                            div { style: "font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600;", "产出" }
+                            if reader.read().outputs.is_empty() {
+                                div { style: "font-size: 12px; color: #aaa;", "选段后点动作按钮" }
+                            }
+                            for (i, (name, no, text, hit)) in reader.read().outputs.iter().cloned().enumerate() {
+                                div {
+                                    key: "{i}",
+                                    style: "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-radius: 4px; font-size: 12px;",
+                                    div { style: "color: #888; font-size: 11px; margin-bottom: 2px;",
+                                        if hit { "⚡ 缓存回放" } else { "首次执行" }
+                                        " · {name} · §{no}"
+                                    }
+                                    "{text}"
+                                }
+                            }
+                        }
+                    }
+
                     // 输入区
                     div {
                         style: "display: flex; padding: 12px; border-top: 1px solid #e0e0e0; gap: 8px;",
@@ -250,163 +483,6 @@ pub fn MainView() -> Element {
                             disabled: state.read().streaming,
                             onclick: move |_| submit.call(()),
                             if state.read().streaming { "处理中…" } else { "发送" }
-                        }
-                    }
-                }
-
-                // 论文阅读台样板（§9.7）：minimap 段落条 + 规范化动作按钮 + 产出流。
-                // 每个按钮 = WorkAction → canonical_key → dispatch（命中 0 token 回放）。
-                div {
-                    style: "border-top: 1px solid #e0e0e0; padding: 12px 16px; max-height: 260px; overflow-y: auto; background: #fafafa;",
-
-                    div {
-                        style: "font-size: 13px; font-weight: 600; margin-bottom: 8px;",
-                        "论文阅读台（工作台样板）"
-                        span {
-                            style: "margin-left: 8px; font-size: 11px; font-weight: 400; color: #888;",
-                            "按钮发规范化动作键——同段同动作第二次直达缓存"
-                        }
-                    }
-
-                    // minimap：段落锚点条
-                    div {
-                        style: "display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;",
-                        for sec in crate::paper_reader::default_sections() {
-                            button {
-                                key: "{sec.no}",
-                                style: if reader_current.read().to_string() == sec.no.to_string() {
-                                    "padding: 2px 10px; font-size: 12px; cursor: pointer; background: #1e40af; color: white; border: none; border-radius: 3px;"
-                                } else {
-                                    "padding: 2px 10px; font-size: 12px; cursor: pointer; background: #e5e7eb; border: none; border-radius: 3px;"
-                                },
-                                onclick: move |_| reader_current.set(sec.no),
-                                "§{sec.no} {sec.digest}"
-                            }
-                        }
-                    }
-
-                    // 动作按钮（作用于当前选中段落）
-                    div {
-                        style: "display: flex; gap: 8px; margin-bottom: 8px;",
-                        button {
-                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
-                            onclick: move |_| {
-                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
-                                work_trigger.call(("translate", no));
-                            },
-                            "翻译本段"
-                        }
-                        button {
-                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
-                            onclick: move |_| {
-                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
-                                work_trigger.call(("summarize", no));
-                            },
-                            "摘要本段"
-                        }
-                        button {
-                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
-                            onclick: move |_| {
-                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
-                                work_trigger.call(("ask", no));
-                            },
-                            "问答本段"
-                        }
-                    }
-
-                    // 产出流
-                    if reader.read().outputs.is_empty() {
-                        div {
-                            style: "font-size: 12px; color: #999;",
-                            "选中段落并点动作按钮；同段同动作第二次触发将直达缓存（0 token）"
-                        }
-                    }
-                    for (i, (name, no, text, hit)) in reader.read().outputs.iter().cloned().enumerate() {
-                        div {
-                            key: "{i}",
-                            style: "padding: 6px 8px; margin-bottom: 6px; background: white; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 12px; line-height: 1.5;",
-                            div {
-                                style: "color: #888; margin-bottom: 2px; font-size: 11px;",
-                                if hit { "⚡ 缓存回放" } else { "首次执行" }
-                                " · {name} · §{no}"
-                            }
-                            "{text}"
-                        }
-                    }
-                }
-
-                // 化学工作台（§9.7 化学硕博）：SMILES 机器验证 + 事件流。
-                // 输入 → smiles_info 解析（失败即幻觉告警）→ 读出格 + 事件流水。
-                div {
-                    style: "border-top: 1px solid #e0e0e0; padding: 12px 16px; background: #f4f7f6; max-height: 280px; overflow-y: auto;",
-
-                    div {
-                        style: "font-size: 13px; font-weight: 600; margin-bottom: 8px;",
-                        "化学工作台（硕博样板）"
-                        span {
-                            style: "margin-left: 8px; font-size: 11px; font-weight: 400; color: #0d7a5f;",
-                            "SMILES 机器验证 · 解析失败即幻觉"
-                        }
-                    }
-
-                    div {
-                        style: "display: flex; gap: 8px; margin-bottom: 8px; align-items: stretch;",
-                        input {
-                            style: "flex: 1; padding: 6px 10px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #d9ded8; border-radius: 4px;",
-                            placeholder: "粘贴 SMILES，例：CC(=O)OC1=CC=CC=C1C(=O)O",
-                            value: "{chem.read().input}",
-                            oninput: move |e| chem.write().input = e.value(),
-                        }
-                        button {
-                            style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; background: #0d7a5f; color: white; border: none; border-radius: 4px;",
-                            onclick: move |_| {
-                                let mut lab = chem.write();
-                                lab.analyze();
-                            },
-                            "解析验证"
-                        }
-                    }
-
-                    // 读出格：最近一次解析结果
-                    if let Some((formula, mw, atoms)) = chem.read().last_result.clone() {
-                        div {
-                            style: "display: flex; gap: 8px; margin-bottom: 8px;",
-                            div {
-                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
-                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{formula}" }
-                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "分子式" }
-                            }
-                            div {
-                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
-                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{mw:.2}" }
-                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "分子量 g/mol" }
-                            }
-                            div {
-                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
-                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{atoms}" }
-                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "原子数" }
-                            }
-                        }
-                    }
-
-                    // 事件流水（驯化闸门可见记录：绿=通过，橙=被拦）
-                    if chem.read().events.is_empty() {
-                        div {
-                            style: "font-size: 12px; color: #999;",
-                            "粘贴 SMILES 点「解析验证」；非法结构将被标记为告警（幻觉拦截）"
-                        }
-                    }
-                    for (i, ev) in chem.read().events.iter().cloned().enumerate() {
-                        div {
-                            key: "{i}",
-                            style: if ev.is_alert() {
-                                "padding: 6px 8px; margin-bottom: 4px; background: white; border-left: 3px solid #b45309; border-radius: 4px; font-size: 12px;"
-                            } else {
-                                "padding: 6px 8px; margin-bottom: 4px; background: white; border-left: 3px solid #0d7a5f; border-radius: 4px; font-size: 12px;"
-                            },
-                            if ev.is_alert() { "⚠ 幻觉拦截" } else { "✓ 验证通过" }
-                            " · "
-                            "{ev.summary()}"
                         }
                     }
                 }
