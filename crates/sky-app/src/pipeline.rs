@@ -37,6 +37,13 @@ pub struct PipelineResult {
 pub struct Pipeline {
     router: Router,
     planner: Option<crate::planner::LlmPlanner>,
+    /// LLM 规划器被调用的次数。
+    ///
+    /// 存在的理由：一次用户发送必须只触发一次 LLM 调用（每次约 7 秒、
+    /// 消耗 token）。曾经 UI 先调 `route_only` 再调 `run`，而 `run` 内部
+    /// 又调一次 `route_only`，导致同一次发送调用两次 LLM。这个计数器让
+    /// 该回归可被测试锁住，而不是靠读代码发现。
+    planner_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Default for Pipeline {
@@ -50,6 +57,7 @@ impl Pipeline {
         Self {
             router: default_router(),
             planner: None,
+            planner_calls: Default::default(),
         }
     }
 
@@ -58,7 +66,13 @@ impl Pipeline {
         Self {
             router: default_router(),
             planner: Some(planner),
+            planner_calls: Default::default(),
         }
+    }
+
+    /// LLM 规划器累计被调用次数。供测试断言「一次发送一次调用」。
+    pub fn planner_call_count(&self) -> usize {
+        self.planner_calls.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// 是否已接入 LLM 规划器。
@@ -82,6 +96,8 @@ impl Pipeline {
                 // 探索段命中且接了规划器 → 由 LLM 生成真实计划
                 if source == "explore" && plan.steps.is_empty() {
                     if let Some(planner) = &self.planner {
+                        self.planner_calls
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         return match planner.plan(text).await {
                             crate::planner::PlanOutcome::Planned(p) => RouteOutcome::Resolved {
                                 source: "explore+llm".to_string(),
@@ -285,5 +301,37 @@ mod tests {
         let m = assistant_message("hi");
         assert_eq!(m.role, "assistant");
         assert_eq!(m.content, "hi");
+    }
+
+    /// 回归：一次 `run()` 必须只调用一次 LLM 规划器。
+    ///
+    /// 曾经的 UI 实现先调 `route_only()` 再调 `run()`，而 `run()` 内部
+    /// 又调一次 `route_only()`——同一次发送触发两次 LLM 调用，
+    /// 实测耗时从 7 秒翻到 14 秒，用户看到的就是「没反应」。
+    ///
+    /// 这里用无密钥的 planner：调用会走 `Failed` 分支，但计数器照增，
+    /// 因此能在不发真实网络请求的前提下断言调用次数。
+    #[tokio::test]
+    async fn run_calls_planner_exactly_once() {
+        let p = Pipeline::with_planner(crate::planner::LlmPlanner::with_key(""));
+        let _ = p.run("完全无关的输入 xyz", &EchoRunner).await;
+        assert_eq!(
+            p.planner_call_count(),
+            1,
+            "一次 run 只能触发一次 LLM 调用；多于 1 说明路由逻辑分叉了"
+        );
+    }
+
+    /// 确定性路径不得触碰 LLM——既省 token 也省 7 秒等待。
+    #[tokio::test]
+    async fn deterministic_path_never_calls_planner() {
+        let p = Pipeline::with_planner(crate::planner::LlmPlanner::with_key(""));
+        let r = p.run("把文档转 pdf", &EchoRunner).await;
+        assert_eq!(r.route_source, "deterministic");
+        assert_eq!(
+            p.planner_call_count(),
+            0,
+            "确定性命中不该调用 LLM"
+        );
     }
 }

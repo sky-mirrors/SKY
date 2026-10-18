@@ -13,7 +13,7 @@
 //! 各视图订阅同一 Signal，不再需要现状的 `storeSync*` 四组同步通道。
 
 use crate::bridge::ProgressEvent;
-use crate::pipeline::{EchoRunner, Pipeline, RouteOutcome};
+use crate::pipeline::{EchoRunner, Pipeline};
 use crate::window::WindowId;
 use dioxus::prelude::*;
 use std::sync::Arc;
@@ -56,43 +56,36 @@ pub fn MainView() -> Element {
         }
     });
 
-    let on_send = move |_| {
+    // 发送逻辑。不接收事件参数，鼠标点击与回车键共用。
+    // 用 use_callback 而非裸闭包——裸 FnMut 被两处 move 捕获会冲突，
+    // 而复制两份逻辑正是上次「run 与 route_only 分叉」bug 的来源。
+    let submit = use_callback(move |_: ()| {
         let text = state.read().input.clone();
         if text.trim().is_empty() {
             return;
         }
+        // 处理中：防止重复提交，并让用户看到「确实在跑」。
+        // 探索路径要调一次 LLM，实测约 7 秒；没有这个提示，
+        // 用户会以为按钮没反应。
+        if state.read().streaming {
+            return;
+        }
         state.write().messages.push(("user".into(), text.clone()));
         state.write().input.clear();
+        state.write().streaming = true;
 
         let pipeline = pipeline.read().clone();
         spawn(async move {
-            // 真实路由调用——不再是占位
-            let outcome = pipeline.route_only(&text).await;
-
-            let trace = match outcome {
-                RouteOutcome::Resolved {
-                    source,
-                    confidence,
-                    plan,
-                } => RouteTrace {
-                    source,
-                    confidence,
-                    steps: plan.steps.iter().map(|s| s.tool.clone()).collect(),
-                },
-                RouteOutcome::NeedsArbitration { candidates } => RouteTrace {
-                    source: format!("仲裁（{} 个候选）", candidates.len()),
-                    confidence: 0.5,
-                    steps: candidates,
-                },
-                RouteOutcome::Unresolved => RouteTrace {
-                    source: "unresolved".into(),
-                    confidence: 0.0,
-                    steps: vec![],
-                },
-            };
-
-            // 执行链路
+            // 只调 run() 一次——它内部已经包含完整路由（含 LLM 规划）。
+            // 曾经的实现先调 route_only() 再调 run()，导致探索路径
+            // 触发两次 LLM 调用，实测耗时从 7 秒翻倍到 14 秒。
             let result = pipeline.run(&text, &EchoRunner).await;
+
+            let trace = RouteTrace {
+                source: result.route_source.clone(),
+                confidence: result.route_confidence,
+                steps: result.plan.steps.iter().map(|s| s.tool.clone()).collect(),
+            };
 
             let reply = if result.outcomes.is_empty() {
                 format!(
@@ -119,8 +112,9 @@ pub fn MainView() -> Element {
 
             state.write().route_trace.push(trace);
             state.write().messages.push(("assistant".into(), reply));
+            state.write().streaming = false;
         });
-    };
+    });
 
     rsx! {
         div {
@@ -159,6 +153,14 @@ pub fn MainView() -> Element {
                                 }
                             }
                         }
+                        // 处理中提示。探索路径要调 LLM，实测约 7 秒——
+                        // 没有这条，用户会以为发送没反应。
+                        if state.read().streaming {
+                            div {
+                                style: "font-size: 13px; color: #888; font-style: italic;",
+                                "处理中…（正在生成计划，约需数秒）"
+                            }
+                        }
                     }
                     // 输入区
                     div {
@@ -168,11 +170,19 @@ pub fn MainView() -> Element {
                             placeholder: "输入任务…（试试「把文档转 pdf」）",
                             value: "{state.read().input}",
                             oninput: move |e| state.write().input = e.value(),
+                            onkeydown: move |e| {
+                                // Enter 发送。但中文输入法选词时按 Enter 是确认候选词，
+                                // 必须跳过——否则刚打完拼音就误发了半截内容。
+                                if e.key() == Key::Enter && !e.is_composing() {
+                                    submit.call(());
+                                }
+                            },
                         }
                         button {
                             style: "padding: 8px 20px; font-size: 14px; cursor: pointer;",
-                            onclick: on_send,
-                            "发送"
+                            disabled: state.read().streaming,
+                            onclick: move |_| submit.call(()),
+                            if state.read().streaming { "处理中…" } else { "发送" }
                         }
                     }
                 }
