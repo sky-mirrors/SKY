@@ -65,11 +65,27 @@ pub fn MainView() -> Element {
         }
     });
 
+    // 论文阅读台样板（95 册 §9.7）：动作按钮走 dispatch_work_action
+    // （规范化键缓存），minimap 段落条提供动作槽位。
+    let reader = use_signal(crate::paper_reader::ReaderState::default);
+    let mut reader_current = use_signal(|| 1u32);
+
+    let work_trigger = use_callback(move |(name, no): (&'static str, u32)| {
+        let mut reader = reader;
+        let pipeline = pipeline.read().clone();
+        spawn(async move {
+            let section = crate::paper_reader::default_sections()
+                .into_iter()
+                .find(|s| s.no == no)
+                .expect("段落号来自 minimap，必存在");
+            reader.write().trigger(&pipeline, name, &section).await;
+        });
+    });
+
     // 发送逻辑。不接收事件参数，鼠标点击与回车键共用。
     // 用 use_callback 而非裸闭包——裸 FnMut 被两处 move 捕获会冲突，
     // 而复制两份逻辑正是上次「run 与 route_only 分叉」bug 的来源。
-    let submit = use_callback(move |_: ()| {
-        let text = state.read().input.clone();
+    let submit = use_callback(move |_: ()| {        let text = state.read().input.clone();
         if text.trim().is_empty() {
             return;
         }
@@ -231,6 +247,87 @@ pub fn MainView() -> Element {
                             disabled: state.read().streaming,
                             onclick: move |_| submit.call(()),
                             if state.read().streaming { "处理中…" } else { "发送" }
+                        }
+                    }
+                }
+
+                // 论文阅读台样板（§9.7）：minimap 段落条 + 规范化动作按钮 + 产出流。
+                // 每个按钮 = WorkAction → canonical_key → dispatch（命中 0 token 回放）。
+                div {
+                    style: "border-top: 1px solid #e0e0e0; padding: 12px 16px; max-height: 260px; overflow-y: auto; background: #fafafa;",
+
+                    div {
+                        style: "font-size: 13px; font-weight: 600; margin-bottom: 8px;",
+                        "论文阅读台（工作台样板）"
+                        span {
+                            style: "margin-left: 8px; font-size: 11px; font-weight: 400; color: #888;",
+                            "按钮发规范化动作键——同段同动作第二次直达缓存"
+                        }
+                    }
+
+                    // minimap：段落锚点条
+                    div {
+                        style: "display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;",
+                        for sec in crate::paper_reader::default_sections() {
+                            button {
+                                key: "{sec.no}",
+                                style: if reader_current.read().to_string() == sec.no.to_string() {
+                                    "padding: 2px 10px; font-size: 12px; cursor: pointer; background: #1e40af; color: white; border: none; border-radius: 3px;"
+                                } else {
+                                    "padding: 2px 10px; font-size: 12px; cursor: pointer; background: #e5e7eb; border: none; border-radius: 3px;"
+                                },
+                                onclick: move |_| reader_current.set(sec.no),
+                                "§{sec.no} {sec.digest}"
+                            }
+                        }
+                    }
+
+                    // 动作按钮（作用于当前选中段落）
+                    div {
+                        style: "display: flex; gap: 8px; margin-bottom: 8px;",
+                        button {
+                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
+                            onclick: move |_| {
+                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
+                                work_trigger.call(("translate", no));
+                            },
+                            "翻译本段"
+                        }
+                        button {
+                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
+                            onclick: move |_| {
+                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
+                                work_trigger.call(("summarize", no));
+                            },
+                            "摘要本段"
+                        }
+                        button {
+                            style: "padding: 4px 12px; font-size: 12px; cursor: pointer;",
+                            onclick: move |_| {
+                                let no = reader_current.read().to_string().parse::<u32>().unwrap_or(1);
+                                work_trigger.call(("ask", no));
+                            },
+                            "问答本段"
+                        }
+                    }
+
+                    // 产出流
+                    if reader.read().outputs.is_empty() {
+                        div {
+                            style: "font-size: 12px; color: #999;",
+                            "选中段落并点动作按钮；同段同动作第二次触发将直达缓存（0 token）"
+                        }
+                    }
+                    for (i, (name, no, text, hit)) in reader.read().outputs.iter().cloned().enumerate() {
+                        div {
+                            key: "{i}",
+                            style: "padding: 6px 8px; margin-bottom: 6px; background: white; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 12px; line-height: 1.5;",
+                            div {
+                                style: "color: #888; margin-bottom: 2px; font-size: 11px;",
+                                if hit { "⚡ 缓存回放" } else { "首次执行" }
+                                " · {name} · §{no}"
+                            }
+                            "{text}"
                         }
                     }
                 }
