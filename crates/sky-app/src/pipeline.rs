@@ -138,6 +138,15 @@ impl Pipeline {
 
     /// 仅路由——不执行。用于只想知道决策链的场景（如路由面板）。
     pub async fn route_only(&self, text: &str) -> RouteOutcome {
+        self.route_with_backfill(text, true).await
+    }
+
+    /// 路由核心。`backfill` 控制「自由文本键回填」：
+    /// 聊天路径（route_only）回填自由文本键；workmode 分发**不回填**——
+    /// 动作名不含槽位，若按动作名回填，同动作不同槽位会互串缓存
+    /// （实测：第 2 段回填后第 3 段直接命中——槽位被键吞了）。
+    /// workmode 分发自己以含槽位的规范化键回填。
+    async fn route_with_backfill(&self, text: &str, backfill: bool) -> RouteOutcome {
         let input = RouteInput {
             text: text.to_string(),
             ..Default::default()
@@ -162,7 +171,8 @@ impl Pipeline {
                 // 命中且计划可执行 → 回填缓存，让重复输入下次直达 cache 段。
                 // explore+llm 的规划结果同样回填——重复探索请求省一次 7 秒 LLM 规划。
                 // explore 空计划（无 planner）不缓存，保持骨架行为。
-                if !plan.steps.is_empty() {
+                // backfill=false（workmode 分发）时跳过——由调用方以规范化键回填。
+                if backfill && !plan.steps.is_empty() {
                     self.plan_cache.store(text, &plan);
                 }
                 // 探索段命中且接了规划器 → 由 LLM 生成真实计划
@@ -413,9 +423,10 @@ impl Pipeline {
             };
         }
 
-        // 第 2 步：未命中——动作名即路由输入（任务书关键词可覆盖动作语义），
-        // 命中后以规范化键回填，让同按钮下次直达。
-        let outcome = self.route_only(&action.action).await;
+        // 第 2 步：未命中——动作名即路由输入（任务书关键词可覆盖动作语义）。
+        // **不回填自由文本键**（动作名不含槽位，回填会让同动作不同槽位互串）；
+        // 以含槽位的规范化键回填，让同按钮下次直达。
+        let outcome = self.route_with_backfill(&action.action, false).await;
         if let RouteOutcome::Resolved {
             ref plan,
             confidence,

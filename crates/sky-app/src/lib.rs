@@ -11,6 +11,7 @@
 
 pub mod artifact;
 pub mod bridge;
+pub mod paper_reader;
 pub mod pipeline;
 pub mod planner;
 pub mod real_runner;
