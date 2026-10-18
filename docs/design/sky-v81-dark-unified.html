@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY V8.1 · 全窗深色统一</title>
+<style>
+  :root {
+    --s0:#0b1020; --s1:#131a2e; --s2:#1a2340;   /* 侧栏三阶 */
+    --m0:#0f1526; --m1:#161d33; --m2:#1d2642;   /* 主区三阶（略亮于侧栏，层级区分） */
+    --ink:#dfe6ff; --sub:#7c86ad; --line:#232c4a;
+    --gold:#e8b64c; --cyan:#5ad4e6; --ok:#7ee787; --warn:#f0a35e;
+    --accent:#6c9bff;                            /* 深色下的主按钮蓝（提亮保对比） */
+    --mono:'Consolas',monospace; --r:6px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#1a1f33; padding:20px; }
+  .app { width:1240px; max-width:100%; height:840px; margin:0 auto; border-radius:10px; overflow:hidden; display:flex; box-shadow:0 6px 30px rgba(0,0,0,.5); }
+
+  /* ============ 侧栏（沿用 V8） ============ */
+  .ledger { width:264px; background:var(--s0); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; }
+  .lg-brand { padding:16px 16px 12px; }
+  .lg-brand .t { font-size:16px; font-weight:800; letter-spacing:1px; }
+  .lg-brand .t .star { color:var(--gold); }
+  .lg-brand .s { font-size:10px; color:var(--sub); margin-top:2px; }
+  .ledger-sum { margin:0 12px 10px; border:1px solid var(--line); border-radius:8px; background:linear-gradient(160deg, var(--s1), var(--s2)); padding:12px 14px; }
+  .ledger-sum .big { font-family:var(--mono); font-size:26px; font-weight:700; color:var(--gold); }
+  .ledger-sum .big small { font-size:11px; color:var(--sub); font-weight:400; }
+  .ledger-sum .lbl { font-size:10px; color:var(--sub); }
+  .ledger-sum .row2 { display:flex; justify-content:space-between; margin-top:8px; }
+  .ledger-sum .row2 .big2 { font-family:var(--mono); font-size:17px; color:var(--ok); font-weight:700; }
+  .ledger-sum .row2 .l2 { font-size:10px; color:var(--sub); }
+  .ledger-sum .split { display:flex; gap:16px; margin-top:10px; }
+  .ledger-sum .cell .n { font-family:var(--mono); font-size:13px; color:var(--cyan); }
+  .ledger-sum .cell .l { font-size:9.5px; color:var(--sub); }
+  .engines { margin:0 12px 10px; }
+  .engines h5 { font-size:10px; color:var(--sub); margin-bottom:6px; padding-left:2px; }
+  .engine-row { display:flex; align-items:center; gap:8px; padding:5px 8px; border-radius:6px; font-size:11.5px; cursor:pointer; }
+  .engine-row:hover { background:var(--s1); }
+  .lamp { width:7px; height:7px; border-radius:50%; }
+  .lamp.on { background:var(--ok); box-shadow:0 0 6px rgba(126,231,135,.6); }
+  .lamp.off { background:var(--line); }
+  .engine-row .en { flex:1; }
+  .engine-row .fam { font-family:var(--mono); font-size:9px; color:var(--sub); }
+  .trails-h { display:flex; align-items:center; justify-content:space-between; padding:6px 14px; }
+  .trails-h .t { font-size:10px; color:var(--sub); }
+  .trails-h .flt { font-size:10px; color:var(--cyan); cursor:pointer; }
+  .trail { margin:0 10px 6px; border:1px solid var(--line); border-radius:8px; background:var(--s1); padding:9px 11px; cursor:pointer; }
+  .trail:hover { border-color:var(--gold); }
+  .trail.cur { border-color:var(--gold); background:var(--s2); }
+  .trail .route { display:flex; align-items:center; gap:5px; font-family:var(--mono); font-size:10px; margin-bottom:4px; }
+  .route .node { padding:1px 6px; border-radius:4px; background:var(--s2); color:var(--sub); }
+  .route .node.hit { background:rgba(232,182,76,.15); color:var(--gold); font-weight:700; }
+  .route .arr { color:var(--sub); }
+  .trail .task { font-size:12px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trail .meta { display:flex; justify-content:space-between; margin-top:4px; font-size:9.5px; color:var(--sub); }
+  .trail .meta .saved { color:var(--ok); font-family:var(--mono); }
+  .trail .meta .pack { color:var(--cyan); }
+  .lg-foot { margin-top:auto; padding:10px 14px; border-top:1px solid var(--line); font-size:10px; color:var(--sub); display:flex; justify-content:space-between; align-items:center; }
+  .lg-foot .u { display:flex; align-items:center; gap:6px; color:var(--ink); }
+  .avatar { width:20px; height:20px; border-radius:50%; background:var(--gold); color:#0b1020; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; }
+
+  /* ============ 主区：深色对话（V8.1 统一） ============ */
+  .main { flex:1; background:var(--m0); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; }
+  .mh { padding:12px 20px; border-bottom:1px solid var(--line); background:var(--m1); }
+  .mh .t { font-size:14px; font-weight:600; color:var(--ink); }
+  .mh .r { font-family:var(--mono); font-size:10.5px; color:var(--sub); margin-top:3px; }
+  .mh .r .layer { color:var(--gold); font-weight:600; }
+  .msgs { flex:1; overflow-y:auto; padding:16px 22px; }
+  .m { margin-bottom:14px; max-width:700px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:3px; font-family:var(--mono); }
+  .m.user .text {
+    display:inline-block; padding:8px 12px; border-radius:8px; font-size:12.5px;
+    background:var(--m2); border:1px solid var(--line); color:var(--ink);
+  }
+  .m .text { font-size:12.5px; line-height:1.7; color:var(--ink); }
+  .m .art { margin-top:6px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .gates { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .gt { font-size:9.5px; padding:2px 8px; border-radius:8px; }
+  .gt.pass { background:rgba(126,231,135,.12); color:var(--ok); }
+  .gt.save { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .composer { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--line); background:var(--m1); }
+  .composer input {
+    flex:1; padding:10px 12px; font-size:12.5px; border-radius:var(--r);
+    background:var(--m2); border:1px solid var(--line); color:var(--ink);
+  }
+  .composer input::placeholder { color:var(--sub); }
+  .composer input:focus { outline:1px solid var(--accent); }
+  .composer button { padding:10px 22px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; font-size:12.5px; }
+
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--m1); font-size:10.5px; color:var(--sub); height:24px; }
+  .sb-i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb-i .num { font-family:var(--mono); color:var(--ink); }
+  .sb-i.right { margin-left:auto; border-right:none; border-left:1px solid var(--line); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:var(--line); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 侧栏（V8 沿用） -->
+  <aside class="ledger">
+    <div class="lg-brand">
+      <div class="t">SKY<span class="star"> ✦</span></div>
+      <div class="s">成本账本 · 路由全可见</div>
+    </div>
+    <div class="ledger-sum">
+      <div class="big">¥0.42</div>
+      <div class="lbl">本月实际 LLM 支出</div>
+      <div class="row2">
+        <div><div class="big2">¥3.86</div><div class="l2">已被省下</div></div>
+      </div>
+      <div class="split">
+        <div class="cell"><div class="n">71%</div><div class="l">命中率</div></div>
+        <div class="cell"><div class="n">37/200</div><div class="l">缓存</div></div>
+        <div class="cell"><div class="n">3/3</div><div class="l">驯化</div></div>
+      </div>
+    </div>
+    <div class="engines">
+      <h5>领域引擎</h5>
+      <div class="engine-row"><span class="lamp on"></span><span class="en">SKY 核心</span></div>
+      <div class="engine-row"><span class="lamp on"></span><span class="en">化学硕博<span class="fam"> · smiles</span></span></div>
+      <div class="engine-row"><span class="lamp on"></span><span class="en">科研论文<span class="fam"> · reader</span></span></div>
+      <div class="engine-row"><span class="lamp off"></span><span class="en">财务法务</span></div>
+    </div>
+    <div class="trails-h"><span class="t">决策轨迹（按包）</span><span class="flt">只看被拦截 ✕</span></div>
+    <div class="trail cur">
+      <div class="route"><span class="node hit">L2 任务书</span><span class="arr">→</span><span class="node">DAG 3 步</span></div>
+      <div class="task">实验数据.csv 摘要成周报</div>
+      <div class="meta"><span class="pack">化学硕博</span><span class="saved">省 2.8k tok</span></div>
+    </div>
+    <div class="trail">
+      <div class="route"><span class="node hit">smiles_info</span><span class="arr">→</span><span class="node">本地解析</span></div>
+      <div class="task">阿司匹林 SMILES 分子量</div>
+      <div class="meta"><span class="pack">化学硕博</span><span class="saved">0 tok</span></div>
+    </div>
+    <div class="trail" style="border-color:var(--warn);">
+      <div class="route"><span class="node" style="background:rgba(240,163,94,.15);color:var(--warn);">FactGuard ✕</span></div>
+      <div class="task">合同违约金条款审查</div>
+      <div class="meta"><span class="pack">财务法务</span><span class="saved" style="color:var(--warn);">拦截 · 差 90%</span></div>
+    </div>
+    <div class="lg-foot">
+      <span class="u"><span class="avatar">A</span> Administrator</span>
+      <span>SKY v0.3</span>
+    </div>
+  </aside>
+
+  <!-- 主区：深色对话 -->
+  <div class="main">
+    <div class="mh">
+      <div class="t">实验数据.csv 摘要成周报</div>
+      <div class="r">路由 <span class="layer">L2 manifest 命中</span> · DAG 3 步 · LLM 1 次 · FactGuard ✓ · 引用锚点 ✓</div>
+    </div>
+    <div class="msgs">
+      <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报</div></div>
+      <div class="m">
+        <div class="who">SKY</div>
+        <div class="text">已从任务书「周报自动草稿」展开执行：读目录 → 读文件 → 生成周报。所有金额经 FactGuard 与源数据比对：0 冲突。</div>
+        <div class="art">📎 .sky-output/周报草稿.docx (18.9 KB)</div>
+        <div class="gates">
+          <span class="gt pass">FactGuard ✓</span>
+          <span class="gt pass">引用锚点 ✓</span>
+          <span class="gt pass">LlmPolicy ✓</span>
+          <span class="gt save">⚡ 下次同任务 0 tok</span>
+        </div>
+      </div>
+      <div class="m user"><div class="who">你</div><div class="text">阿司匹林的 SMILES 是什么，分子量多少</div></div>
+      <div class="m">
+        <div class="who">SKY · smiles_info · 本地解析器（非 LLM）</div>
+        <div class="text">CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol</div>
+        <div class="gates"><span class="gt save">⚡ 指纹缓存命中 · 0 tok</span></div>
+      </div>
+    </div>
+    <div class="composer">
+      <input type="text" placeholder="继续这个任务……">
+      <button type="button">发送</button>
+    </div>
+    <div class="statusbar">
+      <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+      <div class="sb-i">本次 <span class="num">620</span> tok</div>
+      <div class="sb-i">确定性步骤 <span class="num">2/3</span></div>
+      <div class="sb-i">产物 <span class="num">3</span></div>
+      <div class="sb-i right"><span class="dot off"></span> Origin COM</div>
+      <div class="sb-i right"><span class="dot off"></span> ChemDraw COM</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
