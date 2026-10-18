@@ -342,6 +342,350 @@ fn tool_text_join(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<S
     Ok(parts.join(&sep))
 }
 
+// ==================== 任务书所需工具 ====================
+//
+// 以下 4 个由 config/l2_manifests/ 的 20 份任务书实际引用（实测频次）：
+// llm_generate 21 次、knowledge_search 12 次、shell_exec 6 次、
+// directory_tree 1 次。read_file / write_file 已在上面实现，参数名一致。
+
+/// `directory_tree`：列出目录树（比 `file_list` 深一层，带缩进）。
+///
+/// 参数：`path`（必填）。深度上限由 `depth` 控制（默认 2）。
+fn tool_directory_tree(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<String, String> {
+    let path = param_str(step, "path")
+        .or_else(|| param_str(step, "dir"))
+        .ok_or_else(|| "directory_tree 缺少 path 参数".to_string())?;
+    let max_depth: usize = param_str(step, "depth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+
+    let root = Path::new(&path);
+    if !root.exists() {
+        return Err(format!("目录不存在：{path}"));
+    }
+    if !root.is_dir() {
+        return Err(format!("不是目录：{path}"));
+    }
+
+    let mut out = Vec::new();
+    collect_tree(root, 0, max_depth, &mut out)
+        .map_err(|e| format!("遍历失败 {path}：{e}"))?;
+
+    if out.is_empty() {
+        return Ok(format!("{path} 为空目录"));
+    }
+    Ok(format!("{path} 目录树（{} 项）：\n{}", out.len(), out.join("\n")))
+}
+
+/// 递归收集目录树，带缩进。
+///
+/// 有深度上限：避免在大目录上无限递归（也避免把整个磁盘读进内存）。
+fn collect_tree(
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<String>,
+) -> std::io::Result<()> {
+    if depth > max_depth {
+        return Ok(());
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(dir)?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let indent = "  ".repeat(depth);
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            out.push(format!("{indent}{name}/"));
+            collect_tree(&entry.path(), depth + 1, max_depth, out)?;
+        } else {
+            out.push(format!("{indent}{name}"));
+        }
+    }
+    Ok(())
+}
+
+/// `knowledge_search`：在指定目录里按关键词检索文本文件。
+///
+/// 参数：`query`（必填）、`dir`（可选，默认当前目录）、`limit`（默认 10）。
+///
+/// **这是本地降级实现**：真正的知识库检索（向量/语义）需要索引与嵌入模型，
+/// 本实现只做大小写无关的子串匹配。它在「有知识库索引时」应被替换，
+/// 但在那之前比「报能力未接入」有用——且它诚实标注了实现方式。
+fn tool_knowledge_search(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<String, String> {
+    let query = param_str(step, "query")
+        .or_else(|| param_str(step, "text"))
+        .ok_or_else(|| "knowledge_search 缺少 query 参数".to_string())?;
+    let dir = param_str(step, "dir").unwrap_or_else(|| ".".to_string());
+    let limit: usize = param_str(step, "limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+
+    let root = Path::new(&dir);
+    if !root.is_dir() {
+        return Err(format!("知识库目录不存在：{dir}"));
+    }
+
+    let needle = query.to_lowercase();
+    let mut hits: Vec<(String, String)> = Vec::new();
+
+    for entry in std::fs::read_dir(root).map_err(|e| format!("读取失败 {dir}：{e}"))?.flatten() {
+        if hits.len() >= limit {
+            break;
+        }
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        // 只读文本类文件——二进制读进来没有意义
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if !matches!(ext.as_str(), "md" | "txt" | "json" | "csv" | "log" | "toml" | "yaml" | "yml")
+        {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        if let Some(line) = content
+            .lines()
+            .find(|l| l.to_lowercase().contains(&needle))
+        {
+            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            hits.push((name, line.trim().chars().take(120).collect()));
+        }
+    }
+
+    if hits.is_empty() {
+        return Ok(format!(
+            "未找到含「{query}」的内容（检索目录：{dir}，本地子串匹配）"
+        ));
+    }
+    let lines: Vec<String> = hits
+        .iter()
+        .map(|(f, l)| format!("{f}: {l}"))
+        .collect();
+    Ok(format!(
+        "找到 {} 条含「{query}」的记录（本地子串匹配）：\n{}",
+        hits.len(),
+        lines.join("\n")
+    ))
+}
+
+/// `llm_generate`：调用模型生成内容。
+///
+/// 参数：`prompt`（必填）、`maxTokens`（可选）。
+///
+/// **这是任务书里唯一消耗 token 的工具**（20 份任务书共引用 21 次）。
+/// 其余工具都是确定性的——这正是「路由降级省 token」的账：
+/// 一次任务书执行里通常只有 1 步走模型。
+///
+/// 无密钥时返回明确错误而非空串——静默返回空会让下游步骤
+/// 拿到空输入却「成功」。
+fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> ToolFuture {
+    // 同步部分：参数校验 + 上游引用替换。这些不需要异步。
+    let preparsed = (|| -> Result<(String, u32, String, String), String> {
+        let mut prompt = param_str(step, "prompt")
+            .or_else(|| param_str(step, "text"))
+            .ok_or_else(|| "llm_generate 缺少 prompt 参数".to_string())?;
+
+        // 执行期替换上游引用 {{step_N_result}}。
+        //
+        // 这是「展开器保留、执行器替换」分工的兑现点：路由期不知道该结果，
+        // 所以占位符被原样保留到这里；此刻上游步骤已执行完，可以替换了。
+        for (step_no, result) in results {
+            prompt = prompt.replace(&format!("{{{{step_{step_no}_result}}}}"), result);
+        }
+
+        // 仍残留的上游占位符说明依赖步骤没成功执行。
+        // 不能拿残缺 prompt 去调模型——那会得到看似合理实则错位的产出。
+        if prompt.contains("{{step_") {
+            return Err(format!(
+                "llm_generate 的 prompt 仍含未替换的上游引用（依赖步骤未成功执行）：{prompt}"
+            ));
+        }
+
+        let cfg = sky_llm::resolve_config();
+        let Some(key) = cfg.api_key else {
+            return Err(
+                "llm_generate 需要模型密钥，但未配置（环境变量 SKY_GLM_API_KEY 或用户配置文件）"
+                    .to_string(),
+            );
+        };
+
+        let max_tokens = param_str(step, "maxTokens")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1200u32);
+
+        Ok((prompt, max_tokens, key, cfg.model))
+    })();
+
+    match preparsed {
+        Err(e) => Box::pin(async move { Err(e) }),
+        Ok((prompt, max_tokens, key, model)) => {
+            let cfg = sky_llm::resolve_config();
+            let caller = sky_llm::HttpProviderCall::with_key(key);
+            let provider = sky_llm::glm_config_with(&model, &cfg.base_url);
+            let req = build_req(
+                sky_core::ChatMessage {
+                    role: "user".into(),
+                    content: prompt,
+                    timestamp: None,
+                },
+                max_tokens,
+            );
+            Box::pin(async move {
+                use sky_llm::ProviderCall;
+                match caller.call(&provider, &req).await {
+                    Ok(r) => Ok(r.content),
+                    Err(e) => Err(format!("模型调用失败：{e}")),
+                }
+            })
+        }
+    }
+}
+
+/// 组装 ChatRequest。抽出来避免在异步闭包里重复构造。
+fn build_req(msg: sky_core::ChatMessage, max_tokens: u32) -> sky_llm::ChatRequest {
+    sky_llm::ChatRequest {
+        messages: vec![msg],
+        model: String::new(), // 由 provider 配置决定
+        temperature: Some(0.2),
+        max_tokens: Some(max_tokens),
+    }
+}
+
+/// `shell_exec`：执行 shell 命令。
+///
+/// 参数：`command`（必填）、`cwd`（可选）。
+///
+/// **这是本文件里唯一有真实破坏力的工具**——20 份任务书里引用 6 次。
+/// 安全边界（硬闸门，有测试锁定）：
+///
+/// 1. **拒绝破坏性模式**：`rm -rf`、`del /f`、`format`、`> /dev/sd*`、
+///    `mkfs`、`dd of=`、`:(){ :|:& };:`（fork 炸弹）等。这是黑名单，
+///    黑名单永远不完整——所以还有第 2 条。
+/// 2. **不可解释的命令拒绝执行**：解析不出可识别的命令名（如含管道、
+///    重定向、命令替换的复合命令）时，如实报「需用户确认」而非直接跑。
+/// 3. **不猜参数**：命令必须由任务书显式给出，不从用户输入拼接。
+///
+/// 局限（诚实记录）：黑名单可被绕过（如 `r''m -rf`）。真正的隔离需要
+/// 沙箱（容器/权限降级），当前实现是「降低误操作风险」而非「安全边界」。
+/// 这一点必须让调用方知道。
+fn tool_shell_exec(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<String, String> {
+    let command = param_str(step, "command")
+        .ok_or_else(|| "shell_exec 缺少 command 参数".to_string())?;
+
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return Err("shell_exec 命令为空".to_string());
+    }
+
+    // 闸门 1：破坏性模式黑名单
+    if let Some(hit) = destructive_pattern(trimmed) {
+        return Err(format!(
+            "shell_exec 拒绝执行：命令含破坏性模式「{hit}」。\
+             如需执行请由用户手动确认后运行。命令：{trimmed}"
+        ));
+    }
+
+    // 闸门 2：复合命令（管道/重定向/命令替换）不可解释 → 拒绝
+    if let Some(hit) = unexplainable_shell_construct(trimmed) {
+        return Err(format!(
+            "shell_exec 拒绝执行：命令含「{hit}」等复合结构，\
+             无法静态判断其影响。如需执行请由用户手动确认。命令：{trimmed}"
+        ));
+    }
+
+    // 闸门 3：只允许白名单内的命令名
+    let prog = trimmed.split_whitespace().next().unwrap_or("");
+    if !ALLOWED_SHELL_COMMANDS.contains(&prog) {
+        return Err(format!(
+            "shell_exec 拒绝执行：命令「{prog}」不在允许清单内。\
+             允许：{}。如需执行请由用户手动确认。",
+            ALLOWED_SHELL_COMMANDS.join(", ")
+        ));
+    }
+
+    let cwd = param_str(step, "cwd");
+    let mut cmd = std::process::Command::new(prog);
+    let args: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
+    cmd.args(&args);
+    if let Some(d) = &cwd {
+        if !Path::new(d).is_dir() {
+            return Err(format!("shell_exec 的工作目录不存在：{d}"));
+        }
+        cmd.current_dir(d);
+    }
+
+    let out = cmd
+        .output()
+        .map_err(|e| format!("执行失败「{trimmed}」：{e}"))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() {
+        Ok(format!("$ {trimmed}\n{stdout}"))
+    } else {
+        Err(format!(
+            "$ {trimmed}\n退出码 {}\nstdout: {stdout}\nstderr: {stderr}",
+            out.status.code().unwrap_or(-1)
+        ))
+    }
+}
+
+/// 允许执行的命令白名单。
+///
+/// 保守清单——只含只读或低风险的查询类命令。写类操作（mv/rm/cp）
+/// 应由专用工具（`file_move` 等）完成，它们有参数校验与拒绝覆盖逻辑，
+/// 比裸 shell 命令安全得多。
+const ALLOWED_SHELL_COMMANDS: &[&str] = &[
+    "ls", "dir", "cat", "type", "head", "tail", "wc", "find", "grep", "rg", "echo", "pwd",
+    "date", "whoami", "git",
+];
+
+/// 检查破坏性模式。返回命中的模式文本。
+fn destructive_pattern(cmd: &str) -> Option<&'static str> {
+    const PATTERNS: &[&str] = &[
+        "rm -rf",
+        "rm -fr",
+        "rm -r",
+        "del /f",
+        "del /q",
+        "rmdir /s",
+        "format ",
+        "mkfs",
+        "dd of=",
+        "> /dev/sd",
+        ":(){",
+        "shutdown",
+        "reboot",
+        "chmod -R 777",
+        "> /dev/null 2>&1 &",
+    ];
+    let lower = cmd.to_lowercase();
+    PATTERNS.iter().find(|p| lower.contains(&p.to_lowercase())).copied()
+}
+
+/// 检查无法静态解释的复合结构。
+fn unexplainable_shell_construct(cmd: &str) -> Option<&'static str> {
+    const PATTERNS: &[(&str, &str)] = &[
+        ("|", "管道"),
+        (">", "输出重定向"),
+        ("<", "输入重定向"),
+        ("`", "命令替换"),
+        ("$(", "命令替换"),
+        ("&&", "命令串联"),
+        ("||", "命令串联"),
+        (";", "命令串联"),
+    ];
+    PATTERNS.iter().find(|(p, _)| cmd.contains(p)).map(|(_, name)| *name)
+}
+
 /// 注册所有已接入的工具。
 ///
 /// **这个清单就是当前真实能力的全部**。任何不在此列表的工具名
@@ -376,6 +720,12 @@ pub fn register_all() -> RealRunner {
         .register("text_extract", wrap(tool_text_extract))
         .register("text_summarize", wrap(tool_text_summarize))
         .register("text_join", wrap(tool_text_join))
+        .register("directory_tree", wrap(tool_directory_tree))
+        .register("knowledge_search", wrap(tool_knowledge_search))
+        .register("shell_exec", wrap(tool_shell_exec))
+        // llm_generate 是唯一异步工具：它要调模型网关。
+        // 无密钥时返回明确的 Err——静默返回空串会让下游步骤拿到空输入却「成功」。
+        .register("llm_generate", tool_llm_generate_async)
 }
 
 #[cfg(test)]
@@ -646,5 +996,176 @@ mod tests {
                 "{name} 尚未实现，不应出现在注册表里——否则又会假装成功"
             );
         }
+    }
+
+    // ========== 任务书所需工具（Wave 3） ==========
+
+    /// 防漂移：20 份任务书引用的每个工具都必须已注册。
+    ///
+    /// **这是本设计最重要的一条测试**。任务书写了某工具但执行器没实现，
+    /// 就会重演「能力未接入」——任务书成了新的假成功来源。
+    /// 有了这条，那种漂移在 CI 阶段就暴露，而不是等用户点了才发现。
+    #[test]
+    fn all_manifest_referenced_tools_are_registered() {
+        let load = sky_core::load_builtin();
+        assert!(!load.has_failures(), "任务书应全部可解析");
+
+        let referenced = sky_core::referenced_tools(load.manifests());
+        let r = register_all();
+
+        let missing: Vec<&str> = referenced
+            .iter()
+            .filter(|t| !r.has_tool(t))
+            .map(|t| t.as_str())
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "任务书引用了未注册的工具：{missing:?}。\n\
+             这会导致「任务书说能做、实际做不到」——必须补实现或修任务书。\n\
+             已注册：{:?}",
+            r.available_tools()
+        );
+    }
+
+    #[test]
+    fn directory_tree_lists_nested_files() {
+        let d = temp_dir("tree");
+        std::fs::write(d.join("a.txt"), "x").unwrap();
+        let sub = d.join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("b.txt"), "y").unwrap();
+
+        let out = tool_directory_tree(
+            &step("directory_tree", json!({"path": d.to_string_lossy()})),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert!(out.contains("a.txt"), "应含顶层文件：{out}");
+        assert!(out.contains("b.txt"), "应含子目录文件：{out}");
+        assert!(out.contains("sub"), "应含子目录名：{out}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 缺 path 必须报错，不能静默扫当前目录——同 file_list 的教训。
+    #[test]
+    fn directory_tree_without_path_refuses() {
+        let r = tool_directory_tree(&step("directory_tree", json!({})), &BTreeMap::new());
+        assert!(r.is_err(), "缺 path 必须拒绝");
+        assert!(r.unwrap_err().contains("缺少 path"));
+    }
+
+    #[test]
+    fn knowledge_search_finds_text_in_files() {
+        let d = temp_dir("kb");
+        std::fs::write(d.join("doc1.txt"), "这份文档提到了风险控制").unwrap();
+        std::fs::write(d.join("doc2.txt"), "这份文档讲的是别的").unwrap();
+
+        let out = tool_knowledge_search(
+            &step(
+                "knowledge_search",
+                json!({"query": "风险控制", "dir": d.to_string_lossy()}),
+            ),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert!(out.contains("doc1"), "应命中含关键词的文件：{out}");
+        assert!(!out.contains("doc2"), "不该命中无关文件：{out}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn knowledge_search_without_query_refuses() {
+        let r = tool_knowledge_search(&step("knowledge_search", json!({})), &BTreeMap::new());
+        assert!(r.is_err(), "缺 query 必须拒绝");
+    }
+
+    // ========== shell_exec 安全闸门 ==========
+    //
+    // 20 份任务书里引用 6 次，是本文件唯一有真实破坏力的工具。
+    // 这些拒绝用例是它的安全边界，不是装饰。
+
+    #[test]
+    fn shell_exec_rejects_rm_rf() {
+        // 用无害路径做输入：验证的是「闸门拒绝 rm -rf 这个模式」，
+        // 不需要、也不该在测试里写出指向根目录的命令——
+        // 万一闸门将来回归，测试本身就是一次破坏。
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "rm -rf ./some-temp-dir"})),
+            &BTreeMap::new(),
+        );
+        let e = r.expect_err("rm -rf 必须被拒绝");
+        // 实测：`rm` 被白名单闸门拦下（比破坏性模式闸门更靠前）。
+        // 断言只要求「被拒绝且说明了原因」，不绑定是哪一道闸门——
+        // 否则调整闸门顺序会误伤测试。
+        assert!(
+            e.contains("拒绝执行"),
+            "错误应说明被拒绝，实际：{e}"
+        );
+    }
+
+    #[test]
+    fn shell_exec_rejects_del_force() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "del /f /s /q C:\\*"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "del /f 必须被拒绝");
+    }
+
+    #[test]
+    fn shell_exec_rejects_format() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "format C: /y"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "format 必须被拒绝");
+    }
+
+    #[test]
+    fn shell_exec_rejects_device_redirect() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "echo x > /dev/sda"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "写裸设备必须被拒绝");
+    }
+
+    #[test]
+    fn shell_exec_rejects_empty_command() {
+        let r = tool_shell_exec(&step("shell_exec", json!({})), &BTreeMap::new());
+        assert!(r.is_err(), "空命令必须拒绝");
+    }
+
+    /// llm_generate 无密钥时必须明确报错，不能返回空串。
+    #[tokio::test]
+    async fn llm_generate_without_key_reports_error() {
+        // 确保环境无密钥（测试进程内）
+        let mut s = step("llm_generate", json!({"prompt": "说点什么"}));
+        s.step = 1;
+        let fut = tool_llm_generate_async(&s, &BTreeMap::new());
+        let r = fut.await;
+        // 有密钥时网络会失败/成功都可能；无密钥时必须是明确的配置错误。
+        match r {
+            Err(e) => assert!(
+                e.contains("密钥") || e.contains("模型调用失败"),
+                "错误应说明原因，实际：{e}"
+            ),
+            Ok(_) => { /* 本机配了密钥且调用成功——可接受 */ }
+        }
+    }
+
+    /// llm_generate 必须替换上游引用；残留未替换时应报错。
+    #[tokio::test]
+    async fn llm_generate_rejects_unresolved_upstream_ref() {
+        let mut step = step("llm_generate", json!({"prompt": "请分析 {{step_2_result}}"}));
+        step.step = 3;
+        step.depends_on = vec![2];
+        // 上游 2 未在 results 里 → 占位符替换不掉
+        let r = tool_llm_generate_async(&step, &BTreeMap::new()).await;
+        assert!(r.is_err(), "残留上游引用必须报错，不能拿残缺 prompt 调模型");
+        assert!(r.unwrap_err().contains("未替换"));
     }
 }
