@@ -829,14 +829,49 @@ fn now_millis() -> u64 {
 /// `llm_generate` 的三态同步预处理结果。
 enum LlmOutcome {
     /// 指纹缓存命中——直接回放，不调模型、不需要密钥。
-    Cached(String),
+    /// FactGuard 已在同步段裁决（critical 冲突不会走到这个变体）。
+    Cached { text: String },
     /// 未命中——需要真实调用。
     Call {
         prompt: String,
         max_tokens: u32,
         key: String,
         model: String,
+        /// 上游步骤结果拼接（FactGuard 的源文档）。
+        source: String,
     },
+}
+
+/// 收集上游步骤结果作为 FactGuard 的源文档。
+/// 没有上游引用时返回空串（guard 直接放行）。
+fn collect_source(results: &BTreeMap<u32, String>, prompt: &str) -> String {
+    if !prompt.contains("{{step_") {
+        return String::new();
+    }
+    results.values().cloned().collect::<Vec<_>>().join("\n")
+}
+
+/// FactGuard 裁决：产出与源文档存在 critical 事实冲突时阻断。
+///
+/// 法务/财务 anti-hallucination 链路的兑现点（95 册 §9.7）：
+/// 模型改写金额/日期/百分比超出阈值（金额 10% / 日期 3 天 / 百分比 1）→ 拒绝。
+/// 小差异走就地修正（`corrected_output`）；无源文档（无上游引用）直接放行。
+fn fact_guard_verdict(source: &str, output: &str) -> Result<String, String> {
+    if source.trim().is_empty() {
+        return Ok(output.to_string());
+    }
+    let r = sky_memory::guard(source, output);
+    match r.severity {
+        sky_memory::Severity::Critical => Err(format!(
+            "FactGuard 拦截：产出与源文档存在关键事实不一致，已阻止交付。{}",
+            r.conflicts
+                .iter()
+                .map(|c| c.detail.clone())
+                .collect::<Vec<_>>()
+                .join("；")
+        )),
+        _ => Ok(r.corrected_output.unwrap_or_else(|| output.to_string())),
+    }
 }
 
 fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> ToolFuture {
@@ -845,6 +880,10 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
         let mut prompt = param_str(step, "prompt")
             .or_else(|| param_str(step, "text"))
             .ok_or_else(|| "llm_generate 缺少 prompt 参数".to_string())?;
+
+        // FactGuard 源文档收集必须在替换**前**——替换后 prompt 已不含
+        // {{step_N}}，collect_source 将永远返回空串（实测踩过）。
+        let source_doc = collect_source(results, &prompt);
 
         // 执行期替换上游引用。
         //
@@ -862,6 +901,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
 
         // 步骤级响应缓存：命中即回放，不调模型、不需要密钥。
         // 必须排在密钥检查之前——命中回放是无密钥环境的可用路径。
+        // 源文档在命中/未命中两路都要带（FactGuard 对缓存产出同样校验）。
         let cached = {
             let cache = llm_response_cache();
             cache
@@ -869,7 +909,8 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                 .map(|e| e.response_text.clone())
         };
         if let Some(text) = cached {
-            return Ok(LlmOutcome::Cached(text));
+            let checked = fact_guard_verdict(&source_doc, &text)?;
+            return Ok(LlmOutcome::Cached { text: checked });
         }
 
         let cfg = sky_llm::resolve_config();
@@ -889,17 +930,19 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             max_tokens,
             key,
             model: cfg.model,
+            source: source_doc,
         })
     })();
 
     match preparsed {
         Err(e) => Box::pin(async move { Err(e) }),
-        Ok(LlmOutcome::Cached(text)) => Box::pin(async move { Ok(text) }),
+        Ok(LlmOutcome::Cached { text }) => Box::pin(async move { Ok(text) }),
         Ok(LlmOutcome::Call {
             prompt,
             max_tokens,
             key,
             model,
+            source,
         }) => {
             let cfg = sky_llm::resolve_config();
             let caller = sky_llm::HttpProviderCall::with_key(key);
@@ -918,18 +961,21 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                 use sky_llm::ProviderCall;
                 match caller.call(&provider, &req).await {
                     Ok(r) => {
+                        // FactGuard 裁决：critical 冲突阻断，小差异就地修正。
+                        // 裁决在回填之前——被拦截的产出不得进缓存。
+                        let checked = fact_guard_verdict(&source, &r.content)?;
                         // 成功产出回填指纹缓存——同 prompt 下次零 token 回放。
-                        llm_response_cache().put(&prompt_fp, &r.content, now_millis());
+                        llm_response_cache().put(&prompt_fp, &checked, now_millis());
                         // 同步追加落盘（跨会话资产）。失败容忍：缓存是优化不是事实源。
                         let _ = sky_cache::append_entry(
                             &llm_cache_store_path(),
                             &sky_cache::PersistedEntry {
                                 key: prompt_fp,
-                                response: r.content.clone(),
+                                response: checked.clone(),
                                 saved_at: now_millis(),
                             },
                         );
-                        Ok(r.content)
+                        Ok(checked)
                     }
                     Err(e) => Err(format!("模型调用失败：{e}")),
                 }
@@ -1810,6 +1856,72 @@ mod tests {
         let _ = calls.load(Ordering::SeqCst);
         let _ = std::fs::remove_file(&store);
         std::env::remove_var("SKY_CACHE_STORE");
+    }
+
+    /// FactGuard 接线（法务 anti-hallucination 链路，95 册 §9.7）：
+    /// `llm_generate` 的产出（模型改写合同金额）与上游步骤结果（合同原文）
+    /// 存在 critical 事实冲突时必须被阻断——不能把「金额对不上」的产出
+    /// 静默交给下游步骤或用户。
+    #[tokio::test]
+    async fn fact_guard_blocks_amount_conflict_against_upstream() {
+        // 上游步骤（step 1）产出合同原文：违约金 50 万元
+        let mut results = BTreeMap::new();
+        results.insert(
+            1u32,
+            "合同第三条：乙方违约应支付违约金人民币¥500,000元，于30日内付清。".to_string(),
+        );
+
+        // llm_generate 的 prompt 引用 step_1，产出（缓存注入）篡改金额为 5 万
+        let prompt_text = "根据以下合同生成风险摘要：{{step_1_result}}";
+        let key = sky_cache::FingerprintCache::fingerprint(&replace_upstream_refs(
+            prompt_text,
+            &results,
+        ));
+        llm_response_cache().put(
+            &key,
+            "违约摘要：乙方需支付违约金人民币¥50,000元（约 5 万元）。",
+            now_millis(),
+        );
+
+        let mut s = step("llm_generate", json!({"prompt": prompt_text}));
+        s.step = 2;
+        let fut = tool_llm_generate_async(&s, &results);
+        let r = fut.await;
+        match r {
+            Err(e) => assert!(
+                e.contains("事实") || e.contains("不一致"),
+                "金额 50 万→5 万属 critical 冲突，应被 FactGuard 阻断并说明，实际：{e}"
+            ),
+            Ok(text) => panic!(
+                "篡改金额的产出不应被放行，实际返回了：{text}"
+            ),
+        }
+    }
+
+    /// 反向：一致产出正常放行（小差异走就地修正或直接通过）。
+    #[tokio::test]
+    async fn fact_guard_passes_consistent_output() {
+        let mut results = BTreeMap::new();
+        results.insert(
+            1u32,
+            "合同第三条：乙方违约应支付违约金人民币¥500,000元。".to_string(),
+        );
+        let prompt_text = "总结：{{step_1_result}}";
+        let key =
+            sky_cache::FingerprintCache::fingerprint(&replace_upstream_refs(prompt_text, &results));
+        llm_response_cache().put(
+            &key,
+            "摘要：违约金为人民币¥500,000元，条款清晰无异议。",
+            now_millis(),
+        );
+        let mut s = step("llm_generate", json!({"prompt": prompt_text}));
+        s.step = 2;
+        let fut = tool_llm_generate_async(&s, &results);
+        let r = fut.await;
+        match r {
+            Ok(text) => assert!(text.contains("500,000"), "一致产出应原样放行：{text}"),
+            Err(e) => panic!("一致产出不应被拦截：{e}"),
+        }
     }
 
     /// llm_generate 无密钥时必须明确报错，不能返回空串。
