@@ -13,7 +13,7 @@
 //! 各视图订阅同一 Signal，不再需要现状的 `storeSync*` 四组同步通道。
 
 use crate::bridge::ProgressEvent;
-use crate::pipeline::Pipeline;
+use crate::pipeline::{plan_write_targets, PreparedRequest, Pipeline};
 
 use crate::window::WindowId;
 use dioxus::prelude::*;
@@ -28,6 +28,16 @@ pub struct RouteTrace {
     pub steps: Vec<String>,
 }
 
+/// 待审批的写门请求——审批卡数据源（fail-closed：出现即等用户裁决）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingApproval {
+    pub tool_name: String,
+    pub operation: String,
+    pub target: String,
+    /// 审批期间的已路由请求，裁决后原样执行（不重跑路由）。
+    pub prepared: PreparedRequest,
+}
+
 /// 应用全局状态——单一真相源。
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
@@ -38,6 +48,8 @@ pub struct AppState {
     /// 当前视图：core（对话主控）/ chem（化学工作台）/ paper（论文精读）。
     /// 领域工作台是对话主控的**子视图**——从包栏/功能卡进入，返回键回 core。
     pub active_view: &'static str,
+    /// 写门待审批请求。非空时对话输入禁用，直到用户三态裁决。
+    pub pending_approval: Option<PendingApproval>,
 }
 
 impl Default for AppState {
@@ -48,8 +60,53 @@ impl Default for AppState {
             route_trace: Vec::new(),
             streaming: false,
             active_view: "core",
+            pending_approval: None,
         }
     }
+}
+
+/// 把执行结果拼成回复文本——如实呈现每一步状态（成功/失败/未接入可辨）。
+///
+/// 此前 EchoRunner 对一切都返回 Ok，于是「能力未接入」被显示成
+/// 「已执行」——用户以为文件已转换，去目标目录却找不到。
+/// 系统不能撒谎，按 status 分别渲染。
+fn format_reply(result: &crate::pipeline::PipelineResult) -> String {
+    if result.outcomes.is_empty() {
+        return format!(
+            "路由命中「{}」，置信度 {:.2}。该计划无执行步骤。",
+            result.route_source, result.route_confidence
+        );
+    }
+    let lines: Vec<String> = result
+        .outcomes
+        .iter()
+        .map(|o| {
+            if let Some(err) = &o.error {
+                format!("✗ 步骤 {}：{}", o.step, err)
+            } else {
+                o.result
+                    .clone()
+                    .unwrap_or_else(|| format!("步骤 {} 无输出", o.step))
+            }
+        })
+        .collect();
+    let failed = result.outcomes.iter().filter(|o| !o.is_success()).count();
+    let header = if failed == 0 {
+        format!(
+            "路由命中「{}」，置信度 {:.2}。",
+            result.route_source, result.route_confidence
+        )
+    } else {
+        format!(
+            "路由命中「{}」，置信度 {:.2}。\n⚠ {} 个步骤未完成（{}/{} 成功）。",
+            result.route_source,
+            result.route_confidence,
+            failed,
+            result.outcomes.len() - failed,
+            result.outcomes.len()
+        )
+    };
+    format!("{header}\n执行情况：\n{}", lines.join("\n"))
 }
 
 /// 主视图。
@@ -85,7 +142,7 @@ pub fn MainView() -> Element {
     let reader = use_signal(crate::paper_reader::ReaderState::default);
     let mut reader_current = use_signal(|| 1u32);
 
-    // 化学工作台（§9.7 化学硕博）：SMILES 机器验证。
+    // 化学工作台（§9.7 化学与化工）：SMILES 机器验证。
     let mut chem = use_signal(crate::smiles::ChemLabState::default);
 
     let work_trigger = use_callback(move |(name, no): (&'static str, u32)| {
@@ -97,6 +154,43 @@ pub fn MainView() -> Element {
                 .find(|s| s.no == no)
                 .expect("段落号来自 minimap，必存在");
             reader.write().trigger(&pipeline, name, &section).await;
+        });
+    });
+
+    // 审批卡三态裁决（写门 fail-closed：拒绝=整请求不执行）。
+    // 裁决复用挂起的 prepared——路由（含 LLM 规划）不重跑。
+    let resolve_approval = use_callback(move |decision: bool| {
+        let mut state = state;
+        let Some(pending) = state.write().pending_approval.take() else {
+            return;
+        };
+        let decision_enum = if decision {
+            sky_core::WriteDecision::Once
+        } else {
+            sky_core::WriteDecision::Deny
+        };
+        let pipeline = pipeline.read().clone();
+        state.write().streaming = true;
+        spawn(async move {
+            let result = pipeline
+                .run_prepared(&pending.prepared, &crate::tools::register_all(), Some(decision_enum))
+                .await;
+            let reply = if !decision {
+                format!(
+                    "已拒绝——{} → {} 未执行。fail-closed：没有授权就没有动作。",
+                    pending.tool_name, pending.target
+                )
+            } else {
+                format_reply(&result)
+            };
+            let trace = RouteTrace {
+                source: result.route_source.clone(),
+                confidence: result.route_confidence,
+                steps: result.plan.steps.iter().map(|s| s.tool.clone()).collect(),
+            };
+            state.write().route_trace.push(trace);
+            state.write().messages.push(("assistant".into(), reply));
+            state.write().streaming = false;
         });
     });
 
@@ -127,10 +221,39 @@ pub fn MainView() -> Element {
             // 曾经的实现先调 route_only() 再调 run()，导致探索路径
             // 触发两次 LLM 调用，实测耗时从 7 秒翻倍到 14 秒。
             let started = std::time::Instant::now();
-            // 用已注册真实能力的 runner：文件系统类工具会真的读写文件，
-            // LLM 类工具会真的调模型。未实现的能力（如 PDF 转换）如实报
-            // 「未接入」，不假装成功。
-            let result = pipeline.run(&text, &crate::tools::register_all()).await;
+            // prepare → 写门检查 → run_prepared：
+            // 路由（含可能的 LLM 规划）只跑一次；计划含写类步骤时
+            // 不执行，挂起等用户审批卡裁决（fail-closed）。
+            let prepared = pipeline.prepare(&text).await;
+            let write_reqs = plan_write_targets(&prepared.plan);
+            let decision = if write_reqs.is_empty() {
+                None
+            } else {
+                // 挂起审批：route_trace 也要记录（用户能看到路由已发生）
+                let trace = RouteTrace {
+                    source: prepared.route_source.clone(),
+                    confidence: prepared.route_confidence,
+                    steps: prepared.plan.steps.iter().map(|s| s.tool.clone()).collect(),
+                };
+                state.write().route_trace.push(trace);
+                state.write().pending_approval = Some(PendingApproval {
+                    tool_name: write_reqs[0].tool_name.clone(),
+                    operation: write_reqs[0].operation.clone(),
+                    target: write_reqs[0].target.clone(),
+                    prepared,
+                });
+                state.write().streaming = false;
+                eprintln!(
+                    "[sky] write-gate pending: {} → {} (elapsed={:?})",
+                    write_reqs[0].tool_name,
+                    write_reqs[0].target,
+                    started.elapsed()
+                );
+                return; // 审批卡回调里继续
+            };
+            let result = pipeline
+                .run_prepared(&prepared, &crate::tools::register_all(), decision)
+                .await;
             // 计时留痕：确定性路径设计上应是微秒级，若这里出现数秒，
             // 说明实际走的是 explore（调了 LLM）。用户报告「转 pdf 也要
             // 五六秒」时，端到端耗时与 route_source 一起看才有判断依据。
@@ -148,49 +271,7 @@ pub fn MainView() -> Element {
                 steps: result.plan.steps.iter().map(|s| s.tool.clone()).collect(),
             };
 
-            let reply = if result.outcomes.is_empty() {
-                format!(
-                    "路由命中「{}」，置信度 {:.2}。该计划无执行步骤。",
-                    trace.source, trace.confidence
-                )
-            } else {
-                // 如实呈现每一行的真实状态。
-                // 此前用 EchoRunner 对一切都返回 Ok("已执行 xxx")，
-                // 于是「能力未接入」被显示成「已执行」——用户以为文件已转换，
-                // 去目标目录却找不到。系统不能撒谎，所以这里按 status
-                // 分别渲染：成功、失败（含未接入）必须一眼可辨。
-                let lines: Vec<String> = result
-                    .outcomes
-                    .iter()
-                    .map(|o| {
-                        if let Some(err) = &o.error {
-                            format!("✗ 步骤 {}：{}", o.step, err)
-                        } else {
-                            o.result
-                                .clone()
-                                .unwrap_or_else(|| format!("步骤 {} 无输出", o.step))
-                        }
-                    })
-                    .collect();
-                let failed = result.outcomes.iter().filter(|o| !o.is_success()).count();
-                let header = if failed == 0 {
-                    format!(
-                        "路由命中「{}」，置信度 {:.2}。",
-                        trace.source, trace.confidence
-                    )
-                } else {
-                    format!(
-                        "路由命中「{}」，置信度 {:.2}。\n\
-                         ⚠ {} 个步骤未完成（{}/{} 成功）。",
-                        trace.source,
-                        trace.confidence,
-                        failed,
-                        result.outcomes.len() - failed,
-                        result.outcomes.len()
-                    )
-                };
-                format!("{header}\n执行情况：\n{}", lines.join("\n"))
-            };
+            let reply = format_reply(&result);
 
             state.write().route_trace.push(trace);
             state.write().messages.push(("assistant".into(), reply));
@@ -242,7 +323,7 @@ pub fn MainView() -> Element {
                         onclick: move |_| state.write().active_view = "chem",
                         div {
                             style: "font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;",
-                            "化学硕博"
+                            "化学与化工"
                             span {
                                 style: "font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #f0fdf4; color: #16a34a; font-weight: 400;",
                                 "已挂载"
@@ -259,7 +340,7 @@ pub fn MainView() -> Element {
                         onclick: move |_| state.write().active_view = "paper",
                         div {
                             style: "font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;",
-                            "科研论文"
+                            "科学研究"
                             span {
                                 style: "font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #f0fdf4; color: #16a34a; font-weight: 400;",
                                 "已挂载"
@@ -289,7 +370,7 @@ pub fn MainView() -> Element {
                             }
                             span { style: "color: #888;", "/" }
                             span { style: "font-weight: 600;",
-                                if state.read().active_view == "chem" { "化学硕博工作台" } else { "科研论文工作台" }
+                                if state.read().active_view == "chem" { "化学与化工工作台" } else { "科学研究工作台" }
                             }
                         }
                     }
@@ -305,13 +386,13 @@ pub fn MainView() -> Element {
                             div {
                                 style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
                                 onclick: move |_| state.write().active_view = "chem",
-                                div { style: "font-weight: 600; margin-bottom: 2px;", "🧪 化学结构验证" }
+                                div { style: "font-weight: 600; margin-bottom: 2px;", "化学结构验证" }
                                 div { style: "color: #888; font-size: 11px;", "SMILES → 分子式/分子量 · 0 token" }
                             }
                             div {
                                 style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
                                 onclick: move |_| state.write().active_view = "paper",
-                                div { style: "font-weight: 600; margin-bottom: 2px;", "📄 论文精读" }
+                                div { style: "font-weight: 600; margin-bottom: 2px;", "论文精读" }
                                 div { style: "color: #888; font-size: 11px;", "双语对照 · 段落问答 · 动作缓存" }
                             }
                         }
@@ -327,6 +408,33 @@ pub fn MainView() -> Element {
                                 div {
                                     style: "font-size: 14px; white-space: pre-wrap;",
                                     "{content}"
+                                }
+                            }
+                        }
+                        // 写门审批卡——fail-closed：出现即等裁决，期间禁输入
+                        if let Some(p) = state.read().pending_approval.clone() {
+                            div {
+                                style: "border: 1px solid #b45309; background: #fffbeb; border-radius: 6px; padding: 12px 14px; margin: 10px 0; max-width: 560px;",
+                                div {
+                                    style: "font-size: 12.5px; font-weight: 700; color: #b45309; margin-bottom: 8px;",
+                                    "写操作需要授权 —— 写门 fail-closed"
+                                }
+                                div {
+                                    style: "font-family: Consolas, monospace; font-size: 12px; background: #f5f5f5; border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; margin-bottom: 10px;",
+                                    "{p.tool_name}\n操作：{p.operation}\n目标：{p.target}"
+                                }
+                                div {
+                                    style: "display: flex; gap: 8px;",
+                                    button {
+                                        style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; background: #16a34a; color: white; border: none; border-radius: 4px; font-weight: 600;",
+                                        onclick: move |_| resolve_approval.call(true),
+                                        "允许一次"
+                                    }
+                                    button {
+                                        style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; color: #dc2626; border: 1px solid #e5e7eb; background: white; border-radius: 4px;",
+                                        onclick: move |_| resolve_approval.call(false),
+                                        "拒绝"
+                                    }
                                 }
                             }
                         }

@@ -12,7 +12,7 @@
 //!   → 结果 / 事件流
 //! ```
 
-use sky_core::{ChatMessage, RouteInput, TaskPlan};
+use sky_core::{ChatMessage, RouteInput, TaskPlan, WriteDecision, WriteRequest};
 use sky_exec::{execute_plan, ExecOptions, StepOutcome, StepRunner};
 use sky_router::{default_router_with_cache, Outcome, RouteCache, Router};
 use std::collections::BTreeMap;
@@ -34,6 +34,48 @@ pub struct PipelineResult {
     /// 用户要的是「结果」——一份能打开的文件，不是控制台里的一行字。
     /// 落盘在管线末端统一完成，不必让 20 份任务书各加 write_file 步骤。
     pub artifact: crate::artifact::ArtifactOutcome,
+}
+
+/// 写类工具集合——写门拦截的目标。
+///
+/// 依据 sky-security 写门语义（fail-closed：无授权不动盘）。
+const WRITE_TOOLS: &[&str] = &["write_file", "file_copy", "file_move"];
+
+/// 路由完成后、执行前的「待审批请求」。
+///
+/// **为什么要拆出 prepare**：写门需要在执行前向用户要授权，
+/// 路由（可能含 7 秒 LLM 调用）不能因为等审批而重跑。
+/// UI 的审批卡数据源就是这里的 `write_requests`。
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreparedRequest {
+    pub route_source: String,
+    pub route_confidence: f32,
+    pub plan: TaskPlan,
+}
+
+/// 计划中的写类步骤 → 写门请求（按步骤序去重）。
+pub fn plan_write_targets(plan: &TaskPlan) -> Vec<WriteRequest> {
+    let mut out: Vec<WriteRequest> = Vec::new();
+    for step in &plan.steps {
+        if WRITE_TOOLS.contains(&step.tool.as_str()) {
+            let target = step
+                .params
+                .get("dst")
+                .or_else(|| step.params.get("path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("(未指定目标)")
+                .to_string();
+            let req = WriteRequest {
+                tool_name: step.tool.clone(),
+                operation: step.description.clone(),
+                target,
+            };
+            if !out.contains(&req) {
+                out.push(req);
+            }
+        }
+    }
+    out
 }
 
 /// 接线层。
@@ -235,30 +277,79 @@ impl Pipeline {
     /// **复用 `route_only`**——避免路由逻辑在两处分叉。
     /// 曾经的实现各自复制了一份 router 调用，导致 planner 只接在
     /// `route_only` 而未接在 `run`，探索路径在完整链路里拿不到 LLM 计划。
+    ///
+    /// 无写门场景（测试/骨架）的便捷路径；UI 主路径走 `prepare` +
+    /// `run_prepared`（写门 fail-closed 检查点在两者之间）。
     pub async fn run(&self, text: &str, runner: &dyn StepRunner) -> PipelineResult {
-        let (route_source, route_confidence, plan) = match self.route_only(text).await {
+        let prepared = self.prepare(text).await;
+        self.run_prepared(&prepared, runner, None).await
+    }
+
+    /// 仅路由——产出待执行请求。UI 在 prepare 与 run_prepared 之间
+    /// 审批写门（`plan_write_targets` 非空时渲染审批卡）。
+    pub async fn prepare(&self, text: &str) -> PreparedRequest {
+        match self.route_only(text).await {
             RouteOutcome::Resolved {
                 source,
                 confidence,
                 plan,
-            } => (source, confidence, plan),
-            RouteOutcome::NeedsArbitration { candidates } => {
-                let plan = TaskPlan {
+            } => PreparedRequest {
+                route_source: source,
+                route_confidence: confidence,
+                plan,
+            },
+            RouteOutcome::NeedsArbitration { candidates } => PreparedRequest {
+                route_source: format!("arbitration({})", candidates.join(",")),
+                route_confidence: 0.5,
+                plan: TaskPlan {
                     intent: text.to_string(),
-                    needs: candidates.clone(),
+                    needs: candidates,
                     steps: vec![],
-                };
-                (format!("arbitration({})", candidates.join(",")), 0.5, plan)
-            }
-            RouteOutcome::Unresolved => (
-                "unresolved".to_string(),
-                0.0,
-                TaskPlan {
+                },
+            },
+            RouteOutcome::Unresolved => PreparedRequest {
+                route_source: "unresolved".to_string(),
+                route_confidence: 0.0,
+                plan: TaskPlan {
                     intent: text.to_string(),
                     needs: vec![],
                     steps: vec![],
                 },
-            ),
+            },
+        }
+    }
+
+    /// 执行已路由的请求。`write_decision` 为写门裁决：
+    /// - `None`：无写门场景（测试/骨架）——保持原行为；
+    /// - `Some(Deny)`：**整个请求不执行**（fail-closed——不细粒度放行
+    ///   非写步骤，因为一次发送是一个语义整体，部分执行会让用户
+    ///   以为任务完成了一半）；
+    /// - `Some(Once/Always)`：正常执行。
+    pub async fn run_prepared(
+        &self,
+        prepared: &PreparedRequest,
+        runner: &dyn StepRunner,
+        write_decision: Option<WriteDecision>,
+    ) -> PipelineResult {
+        let PreparedRequest {
+            route_source,
+            route_confidence,
+            plan,
+        } = prepared;
+        let (route_source, route_confidence, plan) = {
+            if write_decision == Some(WriteDecision::Deny) {
+                (
+                    format!("写门拒绝({route_source})"),
+                    *route_confidence,
+                    TaskPlan {
+                        intent: plan.intent.clone(),
+                        needs: plan.needs.clone(),
+                        steps: vec![],
+                    },
+                )
+            } else {
+                (route_source.clone(), *route_confidence, plan.clone())
+            }
         };
 
         // 执行前注入宿主槽位（不改变返回给调用方的 plan——
@@ -639,5 +730,132 @@ mod tests {
             }
             other => panic!("得到 {other:?}"),
         }
+    }
+
+    /// 写门（fail-closed）三态契约——RED 测试先行。
+    ///
+    /// 契约：prepare 识别计划中的写类步骤并产出 WriteRequest；
+    /// run_prepared 收到 Deny 时整个请求不执行（fail-closed）；
+    /// Once/Always 正常执行。UI 审批卡的数据源就是 prepare 的写目标。
+    #[test]
+    fn plan_write_targets_detects_write_tools() {
+        let plan = TaskPlan {
+            intent: "备份".into(),
+            needs: vec![],
+            steps: vec![
+                sky_core::PlanStep {
+                    step: 1,
+                    tool: "read_file".into(),
+                    description: "读".into(),
+                    params: Default::default(),
+                    depends_on: vec![],
+                    expected_output: String::new(),
+                    fallback: None,
+                },
+                sky_core::PlanStep {
+                    step: 2,
+                    tool: "file_copy".into(),
+                    description: "复制".into(),
+                    params: serde_json::json!({"dst": "D:\\backup\\a.docx"})
+                        .as_object()
+                        .cloned()
+                        .map(serde_json::Map::into_iter)
+                        .map(|it| it.collect())
+                        .unwrap_or_default(),
+                    depends_on: vec![1],
+                    expected_output: String::new(),
+                    fallback: None,
+                },
+                sky_core::PlanStep {
+                    step: 3,
+                    tool: "write_file".into(),
+                    description: "写".into(),
+                    params: Default::default(),
+                    depends_on: vec![1],
+                    expected_output: String::new(),
+                    fallback: None,
+                },
+            ],
+        };
+        let targets = plan_write_targets(&plan);
+        assert_eq!(targets.len(), 2, "只识别写类工具步骤");
+        assert_eq!(targets[0].tool_name, "file_copy");
+        assert_eq!(targets[1].tool_name, "write_file");
+    }
+
+    #[tokio::test]
+    async fn run_prepared_deny_blocks_execution() {
+        let p = Pipeline::new();
+        let prepared = PreparedRequest {
+            route_source: "manifest".into(),
+            route_confidence: 0.9,
+            plan: TaskPlan {
+                intent: "复制文件".into(),
+                needs: vec![],
+                steps: vec![sky_core::PlanStep {
+                    step: 1,
+                    tool: "file_copy".into(),
+                    description: "复制".into(),
+                    params: Default::default(),
+                    depends_on: vec![],
+                    expected_output: String::new(),
+                    fallback: None,
+                }],
+            },
+        };
+        let r = p
+            .run_prepared(&prepared, &EchoRunner, Some(WriteDecision::Deny))
+            .await;
+        assert!(
+            r.outcomes.is_empty(),
+            "Deny 必须不执行任何步骤（fail-closed）"
+        );
+        assert!(
+            r.route_source.contains("写门拒绝"),
+            "拒绝要有明确路由来源标记，得到 {}",
+            r.route_source
+        );
+    }
+
+    #[tokio::test]
+    async fn run_prepared_once_executes_normally() {
+        let p = Pipeline::new();
+        let prepared = PreparedRequest {
+            route_source: "deterministic".into(),
+            route_confidence: 0.9,
+            plan: TaskPlan {
+                intent: "转pdf".into(),
+                needs: vec![],
+                steps: vec![sky_core::PlanStep {
+                    step: 1,
+                    tool: "doc_convert".into(),
+                    description: "转换".into(),
+                    params: Default::default(),
+                    depends_on: vec![],
+                    expected_output: String::new(),
+                    fallback: None,
+                }],
+            },
+        };
+        let r = p
+            .run_prepared(&prepared, &EchoRunner, Some(WriteDecision::Once))
+            .await;
+        assert_eq!(r.outcomes.len(), 1, "Once 放行后正常执行");
+        assert!(r.outcomes[0].is_success());
+    }
+
+    /// 一次发送只路由一次的契约同样约束 prepare→run_prepared 路径。
+    #[tokio::test]
+    async fn prepare_then_run_prepared_calls_planner_once() {
+        let p = Pipeline::with_planner(crate::planner::LlmPlanner::with_key(""));
+        let prepared = p.prepare("完全无关的输入 xyz").await;
+        let _ = p
+            .run_prepared(&prepared, &EchoRunner, Some(WriteDecision::Once))
+            .await;
+        assert_eq!(
+            p.planner_call_count(),
+            1,
+            "prepare+run_prepared 合计只能一次 LLM 调用（防 7s→14s 回归）"
+        );
     }
 }
