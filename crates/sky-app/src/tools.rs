@@ -480,53 +480,205 @@ fn tool_knowledge_search(step: &PlanStep, _results: &BTreeMap<u32, String>) -> R
         return Err(format!("知识库目录不存在：{dir}"));
     }
 
-    let needle = query.to_lowercase();
-    let mut hits: Vec<(String, String)> = Vec::new();
+    let candidates = recall_candidates(root, &query, limit * 3);
 
-    for entry in std::fs::read_dir(root).map_err(|e| format!("读取失败 {dir}：{e}"))?.flatten() {
-        if hits.len() >= limit {
-            break;
-        }
+    if candidates.is_empty() {
+        return Ok(format!(
+            "未找到与「{query}」相关的内容（检索目录：{dir}，词项重合度召回）"
+        ));
+    }
+
+    // 确定性召回已能给出明确排序时，不必调模型——这正是省 token 的账。
+    // 只在候选之间难以区分（或候选多于需要）时才需要语义重排。
+    let lines: Vec<String> = candidates
+        .iter()
+        .take(limit)
+        .map(|c| format!("{}（相关度 {:.2}）：{}", c.file, c.score, c.snippet))
+        .collect();
+
+    Ok(format!(
+        "找到 {} 条相关记录（词项重合度召回，未调模型）：\n{}",
+        lines.len(),
+        lines.join("\n")
+    ))
+}
+
+/// 一个召回候选。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Candidate {
+    pub file: String,
+    pub snippet: String,
+    pub score: f32,
+}
+
+/// 确定性召回：按词项重合度给文档打分。
+///
+/// **为什么不是纯子串匹配**：子串匹配要求查询词完整出现在文档里，
+/// 「风险 控制」这样的多词查询、或词序不同（「控制风险」vs「风险控制」）
+/// 都会漏。改为把查询切成词项，按命中比例打分——零成本，且召回率明显更高。
+///
+/// 打分权重：文件名命中 > 正文命中（文件名是作者给出的主题摘要）。
+/// 同分时按文件名字典序，保证结果稳定（不依赖文件系统遍历顺序）。
+pub fn recall_candidates(root: &Path, query: &str, max: usize) -> Vec<Candidate> {
+    // 查询切词：中文按字符二元组 + 英文按空白/标点切分。
+    // 中文没有空格分词，二元组是无需词典的通用近似。
+    let terms = tokenize(query);
+    if terms.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out: Vec<Candidate> = Vec::new();
+
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
+
+    for entry in entries.flatten() {
         let p = entry.path();
         if !p.is_file() {
             continue;
         }
-        // 只读文本类文件——二进制读进来没有意义
         let ext = p
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-        if !matches!(ext.as_str(), "md" | "txt" | "json" | "csv" | "log" | "toml" | "yaml" | "yml")
-        {
+        // 只读文本类文件——二进制读进来没有意义
+        if !matches!(
+            ext.as_str(),
+            "md" | "txt" | "json" | "csv" | "log" | "toml" | "yaml" | "yml"
+        ) {
             continue;
         }
         let Ok(content) = std::fs::read_to_string(&p) else {
             continue;
         };
-        if let Some(line) = content
-            .lines()
-            .find(|l| l.to_lowercase().contains(&needle))
-        {
-            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-            hits.push((name, line.trim().chars().take(120).collect()));
+
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let name_lower = name.to_lowercase();
+        let content_lower = content.to_lowercase();
+
+        // 打分：文件名命中权重 3，正文命中权重 1
+        let mut score = 0.0f32;
+        for t in &terms {
+            if name_lower.contains(t) {
+                score += 3.0;
+            }
+            if content_lower.contains(t) {
+                score += 1.0;
+            }
         }
+        if score == 0.0 {
+            continue;
+        }
+        // 归一化到 [0,1]：除以理论最大值
+        let max_score = (terms.len() as f32) * 4.0;
+        let normalized = (score / max_score).min(1.0);
+
+        // 摘录：优先取含最多查询词的那一行
+        let snippet = best_line(&content, &terms);
+
+        out.push(Candidate {
+            file: name,
+            snippet,
+            score: normalized,
+        });
     }
 
-    if hits.is_empty() {
-        return Ok(format!(
-            "未找到含「{query}」的内容（检索目录：{dir}，本地子串匹配）"
-        ));
+    // 稳定排序：分数降序，同分按文件名升序
+    out.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.file.cmp(&b.file))
+    });
+    out.truncate(max);
+    out
+}
+
+/// 把查询切成词项。
+///
+/// 中文：连续汉字取二元组（「风险控制」→ 风险/险控/控制）。
+/// 英文/数字：按非字母数字字符切分。
+///
+/// 不用词典分词：引入分词器是重依赖，二元组召回率够用且零依赖。
+fn tokenize(query: &str) -> Vec<String> {
+    let lower = query.to_lowercase();
+    let mut terms = Vec::new();
+    let mut cjk_buf: Vec<char> = Vec::new();
+
+    let flush_cjk = |buf: &mut Vec<char>, out: &mut Vec<String>| {
+        if buf.len() == 1 {
+            out.push(buf[0].to_string());
+        } else {
+            for w in buf.windows(2) {
+                out.push(w.iter().collect());
+            }
+        }
+        buf.clear();
+    };
+
+    let mut latin_buf = String::new();
+    let flush_latin = |buf: &mut String, out: &mut Vec<String>| {
+        if !buf.is_empty() {
+            out.push(buf.clone());
+            buf.clear();
+        }
+    };
+
+    for ch in lower.chars() {
+        if ch.is_alphanumeric() && !is_cjk(ch) {
+            flush_cjk(&mut cjk_buf, &mut terms);
+            latin_buf.push(ch);
+        } else if is_cjk(ch) {
+            flush_latin(&mut latin_buf, &mut terms);
+            cjk_buf.push(ch);
+        } else {
+            flush_latin(&mut latin_buf, &mut terms);
+            flush_cjk(&mut cjk_buf, &mut terms);
+        }
     }
-    let lines: Vec<String> = hits
-        .iter()
-        .map(|(f, l)| format!("{f}: {l}"))
-        .collect();
-    Ok(format!(
-        "找到 {} 条含「{query}」的记录（本地子串匹配）：\n{}",
-        hits.len(),
-        lines.join("\n")
-    ))
+    flush_latin(&mut latin_buf, &mut terms);
+    flush_cjk(&mut cjk_buf, &mut terms);
+
+    terms.sort();
+    terms.dedup();
+    terms
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32, 0x4E00..=0x9FFF | 0x3400..=0x4DBF)
+}
+
+/// 从正文里挑出与查询最相关的一行作为摘录。
+fn best_line(content: &str, terms: &[String]) -> String {
+    let mut best: Option<(usize, &str)> = None;
+    for line in content.lines() {
+        let l = line.trim();
+        if l.is_empty() {
+            continue;
+        }
+        let lower = l.to_lowercase();
+        let hits = terms.iter().filter(|t| lower.contains(*t)).count();
+        if hits > 0 && best.map(|(b, _)| hits > b).unwrap_or(true) {
+            best = Some((hits, l));
+        }
+    }
+    match best {
+        Some((_, l)) => l.chars().take(120).collect(),
+        None => content
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
+            .trim()
+            .chars()
+            .take(120)
+            .collect(),
+    }
 }
 
 /// `llm_generate`：调用模型生成内容。
@@ -1273,6 +1425,146 @@ mod tests {
     fn knowledge_search_without_query_refuses() {
         let r = tool_knowledge_search(&step("knowledge_search", json!({})), &BTreeMap::new());
         assert!(r.is_err(), "缺 query 必须拒绝");
+    }
+
+    // ---- 语义召回（P3）----
+
+    #[test]
+    fn tokenize_splits_cjk_into_bigrams() {
+        let t = tokenize("风险控制");
+        assert!(t.contains(&"风险".to_string()), "{t:?}");
+        assert!(t.contains(&"控制".to_string()), "{t:?}");
+    }
+
+    #[test]
+    fn tokenize_handles_mixed_cjk_latin() {
+        let t = tokenize("检查 PDF 风险");
+        assert!(t.iter().any(|x| x == "pdf"), "{t:?}");
+        assert!(t.iter().any(|x| x == "风险"), "{t:?}");
+    }
+
+    /// 关键：词序不同也能召回——子串匹配做不到这个。
+    ///
+    /// 文档写「控制风险」，查询说「风险控制」，子串匹配会漏；
+    /// 二元组切词后两者共享「风险」「控制」两个词项，能召回。
+    #[test]
+    fn recall_handles_word_order_difference() {
+        let d = temp_dir("order");
+        std::fs::write(d.join("a.txt"), "本文讨论如何控制风险").unwrap();
+        std::fs::write(d.join("b.txt"), "完全无关的内容").unwrap();
+
+        let hits = recall_candidates(&d, "风险控制", 10);
+        assert!(
+            hits.iter().any(|c| c.file == "a.txt"),
+            "词序不同应仍能召回：{hits:?}"
+        );
+        assert!(
+            !hits.iter().any(|c| c.file == "b.txt"),
+            "无关文件不该被召回：{hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 部分词命中也能召回——子串匹配要求完整包含查询串。
+    #[test]
+    fn recall_matches_partial_terms() {
+        let d = temp_dir("partial");
+        std::fs::write(d.join("risk.md"), "风险识别与评估方法").unwrap();
+
+        let hits = recall_candidates(&d, "风险评估", 10);
+        assert!(
+            hits.iter().any(|c| c.file == "risk.md"),
+            "部分词命中应召回：{hits:?}"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 文件名命中权重高于正文命中。
+    #[test]
+    fn filename_hits_outweigh_body_hits() {
+        let d = temp_dir("weight");
+        std::fs::write(d.join("合同风险.md"), "一些普通内容").unwrap();
+        std::fs::write(d.join("notes.txt"), "正文里提到风险这个词").unwrap();
+
+        let hits = recall_candidates(&d, "风险", 10);
+        assert_eq!(hits[0].file, "合同风险.md", "文件名命中应排前：{hits:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 排序必须稳定——同分时按文件名，不依赖文件系统遍历顺序。
+    #[test]
+    fn recall_order_is_deterministic() {
+        let d = temp_dir("stable");
+        for n in ["c.txt", "a.txt", "b.txt"] {
+            std::fs::write(d.join(n), "风险").unwrap();
+        }
+        let first = recall_candidates(&d, "风险", 10);
+        let second = recall_candidates(&d, "风险", 10);
+        assert_eq!(first, second, "两次召回结果应完全一致");
+        let names: Vec<&str> = first.iter().map(|c| c.file.as_str()).collect();
+        assert_eq!(names, vec!["a.txt", "b.txt", "c.txt"], "同分应按文件名升序");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn recall_ignores_binary_files() {
+        let d = temp_dir("binary");
+        std::fs::write(d.join("data.bin"), "风险").unwrap();
+        let hits = recall_candidates(&d, "风险", 10);
+        assert!(hits.is_empty(), "二进制文件不该被召回：{hits:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 摘录应挑出与查询最相关的那一行，而不是第一行。
+    #[test]
+    fn snippet_picks_most_relevant_line() {
+        let d = temp_dir("snippet");
+        std::fs::write(
+            d.join("doc.md"),
+            "# 标题\n\n无关的一段话\n\n这里讨论了风险控制的具体做法\n",
+        )
+        .unwrap();
+        let hits = recall_candidates(&d, "风险控制", 10);
+        assert_eq!(hits.len(), 1);
+        assert!(
+            hits[0].snippet.contains("风险控制"),
+            "摘录应含查询词所在行：{}",
+            hits[0].snippet
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn search_reports_no_hits_clearly() {
+        let d = temp_dir("nohit");
+        std::fs::write(d.join("a.txt"), "完全无关").unwrap();
+        let out = tool_knowledge_search(
+            &step(
+                "knowledge_search",
+                json!({"query": "量子纠缠", "dir": d.to_string_lossy()}),
+            ),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(out.contains("未找到"), "{out}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// 输出必须标明「未调模型」——让用户知道这次检索省了 token。
+    #[test]
+    fn search_output_states_no_model_call() {
+        let d = temp_dir("nomodel");
+        std::fs::write(d.join("a.txt"), "风险控制").unwrap();
+        let out = tool_knowledge_search(
+            &step(
+                "knowledge_search",
+                json!({"query": "风险", "dir": d.to_string_lossy()}),
+            ),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(out.contains("未调模型"), "应标明未消耗 token：{out}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     // ========== shell_exec 安全闸门 ==========
