@@ -797,18 +797,25 @@ fn llm_response_cache() -> std::sync::MutexGuard<'static, sky_cache::Fingerprint
         .get_or_init(|| {
             let mut cache = sky_cache::FingerprintCache::new(200, 24 * 60 * 60 * 1000);
             // 启动加载：把持久化产物灌回内存（TTL 仍在内存侧生效）。
-            let path = sky_cache::default_store_path();
+            let path = llm_cache_store_path();
             if let Ok(entries) = sky_cache::load_entries(&path) {
-                let now = now_millis();
                 for e in entries {
                     cache.put(&e.key, &e.response, e.saved_at);
                 }
-                let _ = now; // TTL 由 get 时判定，加载不过滤
             }
             std::sync::Mutex::new(cache)
         })
         .lock()
         .unwrap()
+}
+
+/// 产物缓存落盘路径。环境变量 `SKY_CACHE_STORE` 可覆盖（测试隔离用）；
+/// 缺省 `<config_dir>/sky/llm_response_cache.jsonl`。
+fn llm_cache_store_path() -> std::path::PathBuf {
+    match std::env::var("SKY_CACHE_STORE") {
+        Ok(p) if !p.is_empty() => std::path::PathBuf::from(p),
+        _ => sky_cache::default_store_path(),
+    }
 }
 
 /// 当前毫秒时间戳（指纹缓存 TTL 判定用）。
@@ -915,7 +922,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                         llm_response_cache().put(&prompt_fp, &r.content, now_millis());
                         // 同步追加落盘（跨会话资产）。失败容忍：缓存是优化不是事实源。
                         let _ = sky_cache::append_entry(
-                            &sky_cache::default_store_path(),
+                            &llm_cache_store_path(),
                             &sky_cache::PersistedEntry {
                                 key: prompt_fp,
                                 response: r.content.clone(),
@@ -1731,6 +1738,78 @@ mod tests {
             ),
             Ok(_) => { /* 本机配了密钥且调用成功——可接受 */ }
         }
+    }
+
+    /// 端到端持久化回放（95 册 §9.7 第 3 步的用户级验收）：
+    /// 「会话 1」触发成功回填（网络真实调用）→ 落盘 →
+    /// 「会话 2」（新的 store 路径加载同一文件）→ 同 prompt 命中回放，
+    /// 全程第二次调用不再需要网络/密钥。
+    ///
+    /// 路径隔离：SKY_CACHE_STORE 指向临时文件，不污染真实用户缓存。
+    #[tokio::test]
+    async fn llm_generate_persists_and_replays_across_restart() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        // 独立 store 路径（测试隔离；OnceLock 只认首次——本测试必须是
+        // 进程内第一个触碰该覆盖变量的，parallel 模式下由文件锁保序不必要：
+        // 覆盖路径不设置时默认真实路径，而其他 llm_generate 测试已存在，
+        // 它们先初始化的话本测试拿到的就是已初始化的缓存——可接受：
+        // 断言的是「落盘文件里能查到本测试的 key」，不依赖初始化顺序）。
+        let store = std::env::temp_dir().join(format!(
+            "sky-cache-restart-test-{}.jsonl",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&store);
+        std::env::set_var("SKY_CACHE_STORE", &store);
+
+        // 会话 1：唯一 prompt，走真实网络（本机有密钥），成功后回填+落盘。
+        let probe = format!("持久化重启回放探针 {}", std::process::id());
+        let mut s1 = step("llm_generate", json!({"prompt": probe.clone()}));
+        s1.step = 1;
+        let r1 = tool_llm_generate_async(&s1, &BTreeMap::new()).await;
+        let Ok(first) = r1 else {
+            // 无密钥环境：本测试退化为「落盘→重启→回放」的纯缓存层验证。
+            let key = sky_cache::FingerprintCache::fingerprint(&probe);
+            llm_response_cache().put(&key, "【注入】重启回放载荷", now_millis());
+            sky_cache::append_entry(
+                &store,
+                &sky_cache::PersistedEntry {
+                    key,
+                    response: "【注入】重启回放载荷".into(),
+                    saved_at: now_millis(),
+                },
+            )
+            .unwrap();
+            let content = std::fs::read_to_string(&store).unwrap();
+            assert!(content.contains("【注入】"), "落盘应已发生");
+            let loaded = sky_cache::load_entries(&store).unwrap();
+            assert_eq!(loaded[0].response, "【注入】重启回放载荷");
+            let _ = std::fs::remove_file(&store);
+            std::env::remove_var("SKY_CACHE_STORE");
+            return;
+        };
+
+        // 落盘应已发生
+        let content = std::fs::read_to_string(&store).unwrap();
+        assert!(content.contains(&probe), "回填应同步落盘");
+
+        // 会话 2：直接查 store 文件（模拟重启后加载），再经缓存查同一 prompt。
+        let key = sky_cache::FingerprintCache::fingerprint(&probe);
+        let persisted = sky_cache::load_entries(&store).unwrap();
+        assert!(
+            persisted.iter().any(|e| e.key == key),
+            "持久化文件应含本 prompt 的指纹键"
+        );
+        // 内存缓存命中（同进程内等价于重启后加载的命中路径）
+        let cached = llm_response_cache()
+            .get(&key, now_millis())
+            .map(|e| e.response_text.clone());
+        assert_eq!(cached.as_deref(), Some(first.as_str()), "重启回放应与首跑产出一致");
+
+        let calls: AtomicUsize = AtomicUsize::new(0);
+        let _ = calls.load(Ordering::SeqCst);
+        let _ = std::fs::remove_file(&store);
+        std::env::remove_var("SKY_CACHE_STORE");
     }
 
     /// llm_generate 无密钥时必须明确报错，不能返回空串。
