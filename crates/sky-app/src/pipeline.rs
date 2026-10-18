@@ -14,8 +14,9 @@
 
 use sky_core::{ChatMessage, RouteInput, TaskPlan};
 use sky_exec::{execute_plan, ExecOptions, StepOutcome, StepRunner};
-use sky_router::{default_router, Outcome, Router};
+use sky_router::{default_router_with_cache, Outcome, RouteCache, Router};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// 一次请求的完整处理结果。
 #[derive(Debug, Clone, PartialEq)]
@@ -53,6 +54,14 @@ pub struct Pipeline {
     available_tools: Vec<String>,
     /// 产出落盘配置。
     artifact_config: crate::artifact::ArtifactConfig,
+    /// 路由级计划缓存（共享给 router 的 cache 段）。
+    ///
+    /// **为什么在 Pipeline 层回填**：缓存键要的是「最终胜出的计划」，
+    /// 只有 `route_only` 知道谁胜出（manifest / deterministic / explore+llm）；
+    /// CacheStage 自己不知道下游结果。
+    plan_cache: Arc<RouteCache>,
+    /// 缓存命中次数。供测试断言「第二次相同输入走缓存」。
+    plan_cache_hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Default for Pipeline {
@@ -63,23 +72,29 @@ impl Default for Pipeline {
 
 impl Pipeline {
     pub fn new() -> Self {
+        let (router, plan_cache) = default_router_with_cache(Arc::new(RouteCache::default()));
         Self {
-            router: default_router(),
+            router,
             planner: None,
             planner_calls: Default::default(),
             available_tools: Vec::new(),
             artifact_config: crate::artifact::ArtifactConfig::default(),
+            plan_cache_hits: Default::default(),
+            plan_cache,
         }
     }
 
     /// 接入 LLM 规划器——探索路径将由 LLM 生成计划。
     pub fn with_planner(planner: crate::planner::LlmPlanner) -> Self {
+        let (router, plan_cache) = default_router_with_cache(Arc::new(RouteCache::default()));
         Self {
-            router: default_router(),
+            router,
             planner: Some(planner),
             planner_calls: Default::default(),
             available_tools: Vec::new(),
             artifact_config: crate::artifact::ArtifactConfig::default(),
+            plan_cache_hits: Default::default(),
+            plan_cache,
         }
     }
 
@@ -110,6 +125,17 @@ impl Pipeline {
         self.planner.is_some()
     }
 
+    /// 路由缓存累计命中次数（cache 段直接回放的请求数）。
+    pub fn plan_cache_hits(&self) -> usize {
+        self.plan_cache_hits
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// 路由缓存当前条目数。
+    pub fn plan_cache_entries(&self) -> usize {
+        self.plan_cache.len()
+    }
+
     /// 仅路由——不执行。用于只想知道决策链的场景（如路由面板）。
     pub async fn route_only(&self, text: &str) -> RouteOutcome {
         let input = RouteInput {
@@ -123,6 +149,22 @@ impl Pipeline {
                 confidence,
                 source,
             } => {
+                // 缓存段命中即回放：直接计一次命中，不回填。
+                if source == "cache" {
+                    self.plan_cache_hits
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    return RouteOutcome::Resolved {
+                        source: source.to_string(),
+                        confidence,
+                        plan,
+                    };
+                }
+                // 命中且计划可执行 → 回填缓存，让重复输入下次直达 cache 段。
+                // explore+llm 的规划结果同样回填——重复探索请求省一次 7 秒 LLM 规划。
+                // explore 空计划（无 planner）不缓存，保持骨架行为。
+                if !plan.steps.is_empty() {
+                    self.plan_cache.store(text, &plan);
+                }
                 // 探索段命中且接了规划器 → 由 LLM 生成真实计划
                 if source == "explore" && plan.steps.is_empty() {
                     if let Some(planner) = &self.planner {
@@ -381,13 +423,61 @@ mod tests {
         }
     }
 
+    /// 缓存回填与二次命中：第一次走下游段并回填，第二次相同输入直接命中 cache 段。
+    /// 归一化变体（全角/大小写）必须共享同一条目。
+    #[tokio::test]
+    async fn repeated_input_hits_cache_with_normalized_variant() {
+        let p = Pipeline::new();
+
+        // 第一次：走 deterministic（缓存为空）
+        let first = p.route_only("把文档转 pdf").await;
+        match &first {
+            RouteOutcome::Resolved { source, .. } => assert_eq!(source, "deterministic"),
+            other => panic!("第一次应 deterministic，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_entries(), 1, "命中计划应回填缓存");
+        assert_eq!(p.plan_cache_hits(), 0);
+
+        // 第二次：完全相同输入 → cache 段直达
+        let second = p.route_only("把文档转 pdf").await;
+        match &second {
+            RouteOutcome::Resolved { source, .. } => assert_eq!(source, "cache"),
+            other => panic!("第二次应命中 cache，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_hits(), 1);
+
+        // 第三次：全角+大写变体 → 同一条目，仍命中 cache
+        let third = p.route_only("把文档转　ＰＤＦ").await;
+        match &third {
+            RouteOutcome::Resolved { source, plan, .. } => {
+                assert_eq!(source, "cache");
+                assert_eq!(plan.steps[0].tool, "doc_convert", "回放计划必须与原计划等价");
+            }
+            other => panic!("变体应命中 cache，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_hits(), 2);
+        assert_eq!(p.plan_cache_entries(), 1, "变体不得新增条目");
+    }
+
+    /// 缓存命中不得劫持探索路径——不同输入互不污染。
+    #[tokio::test]
+    async fn cache_does_not_cross_contaminate_inputs() {
+        let p = Pipeline::new();
+        let _ = p.route_only("把文档转 pdf").await;
+        let other = p.route_only("完全无关的输入 xyz").await;
+        match &other {
+            RouteOutcome::Resolved { source, .. } => assert_eq!(source, "explore"),
+            other => panic!("不同输入不得命中缓存，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_hits(), 0);
+    }
+
     /// 全链路：路由 → 执行，步骤应被 EchoRunner 执行。
     #[tokio::test]
     async fn full_pipeline_executes_plan_steps() {
         let p = Pipeline::new();
         let r = p.run("把文档转 pdf", &EchoRunner).await;
-        assert_eq!(r.route_source, "deterministic");
-        assert_eq!(r.outcomes.len(), 1, "应有一步被执行");
+        assert_eq!(r.route_source, "deterministic");        assert_eq!(r.outcomes.len(), 1, "应有一步被执行");
         assert!(r.outcomes[0].is_success());
         assert!(r.outcomes[0].result.as_ref().unwrap().contains("doc_convert"));
     }
