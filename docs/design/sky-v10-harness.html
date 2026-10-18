@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY V10 · Harness 总设计（交互原型）</title>
+<style>
+  :root {
+    --s0:#0b1020; --s1:#131a2e; --s2:#1a2340;
+    --m0:#0f1526; --m1:#161d33; --m2:#1d2642;
+    --ink:#dfe6ff; --sub:#7c86ad; --line:#232c4a;
+    --gold:#e8b64c; --cyan:#5ad4e6; --ok:#7ee787; --warn:#f0a35e; --danger:#f85149;
+    --accent:#6c9bff; --mono:'Consolas',monospace; --r:6px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#141a2b; }
+  .app { width:1240px; max-width:100%; height:860px; margin:16px auto; border-radius:10px; overflow:hidden; display:flex; box-shadow:0 8px 36px rgba(0,0,0,.55); }
+
+  /* ===== 账本侧栏 ===== */
+  .ledger { width:250px; background:var(--s0); color:var(--ink); display:flex; flex-direction:column; flex-shrink:0; }
+  .brand { padding:14px 16px 10px; font-size:15px; font-weight:800; }
+  .brand .star { color:var(--gold); }
+  .brand .s { font-size:9.5px; color:var(--sub); margin-top:1px; }
+  .sum { margin:0 12px 8px; border:1px solid var(--line); border-radius:8px; background:linear-gradient(160deg,var(--s1),var(--s2)); padding:10px 13px; }
+  .sum .big { font-family:var(--mono); font-size:24px; font-weight:700; color:var(--gold); }
+  .sum .lbl { font-size:9.5px; color:var(--sub); }
+  .sum .row2 { display:flex; justify-content:space-between; margin-top:7px; }
+  .sum .sv { font-family:var(--mono); font-size:14px; color:var(--ok); font-weight:700; }
+  .sum .sl { font-size:9.5px; color:var(--sub); }
+  .nav { display:flex; flex-direction:column; gap:1px; padding:0 10px 6px; }
+  .nav-i { padding:8px 10px; border-radius:6px; font-size:12.5px; cursor:pointer; color:var(--sub); display:flex; align-items:center; gap:8px; }
+  .nav-i:hover { background:var(--s1); color:var(--ink); }
+  .nav-i.active { background:var(--s2); color:var(--ink); }
+  .nav-i .key { margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--sub); border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+  .nav-i.active .key { color:var(--ink); border-color:var(--s2); }
+  .lamp { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .lamp.on { background:var(--ok); box-shadow:0 0 5px rgba(126,231,135,.55); }
+  .lamp.off { background:var(--line); }
+  .foot { margin-top:auto; padding:10px 14px; border-top:1px solid var(--line); font-size:10px; color:var(--sub); display:flex; justify-content:space-between; align-items:center; }
+  .foot .u { display:flex; align-items:center; gap:6px; color:var(--ink); cursor:pointer; }
+  .av { width:20px; height:20px; border-radius:50%; background:var(--gold); color:#0b1020; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; }
+
+  /* ===== 主区 ===== */
+  .main { flex:1; background:var(--m0); color:var(--ink); display:flex; flex-direction:column; min-width:0; }
+  .mh { padding:10px 20px; border-bottom:1px solid var(--line); background:var(--m1); }
+  .mh .t { font-size:14px; font-weight:600; }
+  .mh .r { font-family:var(--mono); font-size:10.5px; color:var(--sub); margin-top:3px; }
+  .mh .r .layer { color:var(--gold); font-weight:600; }
+  .view { flex:1; overflow-y:auto; padding:16px 22px; }
+  .msgs { flex:1; overflow-y:auto; padding:16px 22px; }
+  .m { margin-bottom:14px; max-width:700px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:3px; font-family:var(--mono); }
+  .m .who .layer { color:var(--gold); }
+  .m.user .text { display:inline-block; padding:8px 12px; border-radius:8px; background:var(--m2); border:1px solid var(--line); font-size:12.5px; }
+  .m .text { font-size:12.5px; line-height:1.7; }
+  .m .art { margin-top:6px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .gates { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .gt { font-size:9.5px; padding:2px 8px; border-radius:8px; }
+  .gt.pass { background:rgba(126,231,135,.12); color:var(--ok); }
+  .gt.save { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .composer { display:flex; gap:8px; padding:12px 22px; border-top:1px solid var(--line); background:var(--m1); }
+  .composer input { flex:1; padding:10px 12px; font-size:12.5px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  .composer input:focus { outline:1px solid var(--accent); }
+  .composer button { padding:10px 22px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; font-size:12.5px; }
+  .composer .hint { align-self:center; font-size:9.5px; color:var(--sub); }
+
+  /* ===== 审批卡（对齐 Claude Code/Codex 权限模式——写门三态） ===== */
+  .approve {
+    border:1px solid var(--warn); border-radius:var(--r); background:var(--m1);
+    padding:12px 14px; margin:10px 0; max-width:640px;
+  }
+  .approve .ah { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--warn); font-weight:700; margin-bottom:8px; }
+  .approve .ac { font-family:var(--mono); font-size:11px; background:var(--m2); border-radius:var(--r); padding:8px 10px; color:var(--ink); margin-bottom:10px; white-space:pre-wrap; }
+  .approve .ab { display:flex; gap:8px; }
+  .ab button { padding:6px 14px; border-radius:var(--r); font-size:11.5px; cursor:pointer; border:1px solid var(--line); background:var(--m2); color:var(--ink); }
+  .ab button.ok { background:rgba(126,231,135,.15); color:var(--ok); border-color:rgba(126,231,135,.3); font-weight:600; }
+  .ab button.no { color:var(--danger); }
+
+  /* ===== 思考动态 ===== */
+  .think { border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:9px 13px; margin:10px 0; font-family:var(--mono); font-size:11px; max-width:640px; }
+  .think .step { display:flex; align-items:center; gap:8px; padding:3px 0; color:var(--sub); }
+  .think .step.done { color:var(--ink); }
+  .think .step.run { color:var(--gold); }
+  .think .mark { width:14px; text-align:center; }
+  @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:1} }
+  .pulse { animation:pulse 1s infinite; }
+
+  /* ===== 事件流画布（OpenHands canvas 模式） ===== */
+  .feed-item { display:flex; gap:10px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:7px; background:var(--m1); }
+  .feed-item .ts { font-family:var(--mono); font-size:9.5px; color:var(--sub); min-width:58px; padding-top:2px; }
+  .feed-item .fi-body { flex:1; font-size:11.5px; line-height:1.5; }
+  .feed-item .fi-head { display:flex; gap:6px; align-items:center; margin-bottom:3px; }
+  .fi-kind { font-size:9px; padding:1px 7px; border-radius:3px; font-weight:700; }
+  .fk-route { background:rgba(232,182,76,.12); color:var(--gold); }
+  .fk-exec { background:rgba(108,155,255,.12); color:var(--accent); }
+  .fk-gate-ok { background:rgba(126,231,135,.12); color:var(--ok); }
+  .fk-gate-block { background:rgba(248,81,73,.12); color:var(--danger); }
+  .fk-cache { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .fk-artifact { background:rgba(126,231,135,.12); color:var(--ok); }
+  .fk-approval { background:rgba(240,163,94,.12); color:var(--warn); }
+
+  /* ===== 市场卡（能力/包，goose extensions 模式） ===== */
+  .mk-grid { display:flex; gap:10px; flex-wrap:wrap; }
+  .mk { width:calc(50% - 5px); border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:12px 14px; }
+  .mk .mt { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .mk .mn { font-size:13px; font-weight:700; }
+  .mk .md { font-size:11px; color:var(--sub); line-height:1.5; margin-bottom:8px; }
+  .mk .mc { font-family:var(--mono); font-size:9.5px; color:var(--sub); margin-bottom:8px; }
+  .mk .mc .cap { color:var(--cyan); }
+  .mk .ab button { padding:4px 12px; font-size:10.5px; }
+  .installed { color:var(--ok); font-size:11px; }
+
+  h4.vh { font-size:12px; color:var(--sub); letter-spacing:.5px; margin-bottom:10px; font-weight:700; }
+  .view-tab { display:inline-block; padding:5px 14px; margin-right:6px; margin-bottom:10px; font-size:11.5px; border-radius:var(--r); border:1px solid var(--line); cursor:pointer; color:var(--sub); background:var(--m1); }
+  .view-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--m1); font-size:10.5px; color:var(--sub); height:24px; }
+  .sb-i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb-i .num { font-family:var(--mono); color:var(--ink); }
+  .sb-i.right { margin-left:auto; border-right:none; border-left:1px solid var(--line); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:var(--line); }
+  .hidden { display:none !important; }
+  /* 设置 */
+  .set-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px dashed var(--line); }
+  .set-row .l { font-size:12.5px; }
+  .set-row .l .d { font-size:10.5px; color:var(--sub); margin-top:2px; }
+  .set-row input { width:280px; padding:7px 10px; font-family:var(--mono); font-size:12px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  .swbtn { font-size:10.5px; padding:3px 12px; border-radius:8px; cursor:pointer; border:none; }
+  .swbtn.on { background:rgba(126,231,135,.15); color:var(--ok); }
+  .swbtn.off { background:var(--m2); color:var(--sub); }
+  h3.sec { font-size:12.5px; margin:18px 0 10px; color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 账本侧栏 ===== -->
+  <aside class="ledger">
+    <div class="brand">SKY<span class="star" style="color:var(--gold);"> ✦</span><div class="s">成本账本 · 路由全可见</div></div>
+    <div class="sum">
+      <div class="big">¥0.42</div><div class="lbl">本月 LLM 实付</div>
+      <div class="row2"><span class="sv">↓ 已省 ¥3.86</span></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-i active" data-v="chat" onclick="go('chat')">对话 <span class="key">1</span></div>
+      <div class="nav-i" data-v="feed" onclick="go('feed')">事件流画布 <span class="key">2</span></div>
+      <div class="nav-i" data-v="market" onclick="go('market')">能力与领域包 <span class="key">3</span></div>
+      <div class="nav-i" data-v="settings" onclick="go('settings')">设置 <span class="key">4</span></div>
+      <div class="nav-i" data-v="account" onclick="go('account')">账号 <span class="key">5</span></div>
+    </nav>
+    <div style="padding:4px 14px 6px;"><h4 class="vh" style="margin:0;">领域引擎</h4></div>
+    <nav class="nav" style="padding-top:0;">
+      <div class="nav-i"><span class="lamp on"></span> SKY 核心</div>
+      <div class="nav-i"><span class="lamp on"></span> 化学与化工</div>
+      <div class="nav-i"><span class="lamp on"></span> 科学研究</div>
+      <div class="nav-i"><span class="lamp off"></span> 财务与法务</div>
+    </nav>
+    <div class="foot">
+      <span class="u"><span class="av">A</span> Administrator</span>
+      <span>SKY v0.3</span>
+    </div>
+  </aside>
+
+  <!-- ===== 主区 ===== -->
+  <div class="main">
+    <!-- ===== 对话视图：审批卡 + 思考动态 ===== -->
+    <div id="v-chat" class="msgs" style="display:flex; flex-direction:column;">
+      <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报，存到桌面</div></div>
+
+      <!-- 思考动态：路由/执行/驯化三步可见（复现 SKY 论点：过程透明） -->
+      <div class="think" id="think-box">
+        <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 路由：L2 任务书「周报自动草稿」命中（0 tok）</div>
+        <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 执行 DAG：directory_tree → read_file（2/3 · 0 tok）</div>
+        <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> llm_generate 完成（620 tok）· FactGuard 通过 · 引用锚点命中</div>
+      </div>
+
+      <div class="m">
+        <div class="who">SKY · L2 任务书 · 3 步 · LLM 1 次 · 驯化三环全过</div>
+        <div class="text">周报已生成。金额与源数据比对 0 冲突，摘要含原文锚点两处。</div>
+        <div class="art">📎 .sky-output/周报草稿.docx (18.9 KB)</div>
+        <div class="gates"><span class="gt pass">FactGuard ✓</span><span class="gt pass">引用锚点 ✓</span><span class="gt pass">LlmPolicy ✓</span><span class="gt save">下次同任务 0 tok</span></div>
+      </div>
+
+      <div class="m user"><div class="who">你</div><div class="text">再把它复制到 D 盘备份目录</div></div>
+
+      <!-- 审批卡：写操作三态审批（对齐 Claude Code/Codex 权限模式；SKY 写门三态） -->
+      <div class="approve" id="approve-card">
+        <div class="ah">⚠ 写操作需要授权 —— 写门 fail-closed</div>
+        <div class="ac">file_copy
+src: C:\Users\你\Desktop\周报草稿.docx
+dst: D:\backup\周报草稿.docx</div>
+        <div class="ab">
+          <button class="ok" onclick="approve('once')">允许一次</button>
+          <button onclick="approve('always')">总是允许（写至 D:\backup）</button>
+          <button class="no" onclick="approve('deny')">拒绝</button>
+        </div>
+      </div>
+      <div id="after-approve"></div>
+
+      <div class="m" id="demo-chat" style="margin-top:6px;">
+        <div class="who">试试键盘：Alt+1..5 切视图 · 事件流画布看全部裁决记录</div>
+      </div>
+    </div>
+
+    <!-- ===== 事件流画布 ===== -->
+    <div id="v-feed" class="view hidden">
+      <h4 class="vh">事件流画布 · 全部裁决与执行记录（OpenHands canvas 模式：事件流即真相）</h4>
+      <div class="feed-item"><span class="ts">14:02:11</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-cache">缓存命中</span><span>smiles_info · 指纹键命中</span></div>咖啡因 C₈H₁₀N₄O₂ · 0 token 回放</div></div>
+      <div class="feed-item"><span class="ts">14:01:47</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-gate-block">FactGuard BLOCK</span><span>金额差 90%</span></div>LLM 报 C13H18O2 ≠ 解析 C9H8O4 —— 已阻止交付，不入缓存</div></div>
+      <div class="feed-item"><span class="ts">14:00:32</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-exec">执行</span><span>app_automate</span></div>Origin.ApplicationSI ← 滴定光谱.csv 导入完成</div></div>
+      <div class="feed-item"><span class="ts">13:58:09</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-route">路由</span><span>L2 任务书命中</span></div>「周报自动草稿」3/5 关键词 ≥ 0.34 → DAG 3 步</div></div>
+      <div class="feed-item"><span class="ts">13:55:20</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-artifact">产物</span><span>.sky-output</span></div>周报草稿.docx 落盘（18.9 KB）</div></div>
+      <div class="feed-item"><span class="ts">13:52:03</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-approval">写门审批</span><span>file_copy → D:\backup</span></div>用户裁定：总是允许（范围限定 D:\backup）</div></div>
+    </div>
+
+    <!-- ===== 能力与领域包市场 ===== -->
+    <div id="v-market" class="view hidden">
+      <h4 class="vh">能力层（CORE · 所有域共享）</h4>
+      <div class="mk-grid">
+        <div class="mk"><div class="mt"><span class="mn">文件读写</span><span class="installed">✓ 出厂</span></div><div class="md">read / write / move / copy / find / tree</div></div>
+        <div class="mk"><div class="mt"><span class="mn">知识检索</span><span class="installed">✓ 出厂</span></div><div class="md">knowledge_search 语义召回 · 引用可追溯</div></div>
+        <div class="mk"><div class="mt"><span class="mn">应用自动化</span><span class="installed">✓ 出厂</span></div><div class="md">COM 桥：Origin / ChemDraw / 任意 ProgID 白名单</div></div>
+        <div class="mk"><div class="mt"><span class="mn">MCP 服务</span><span class="installed">✓ 5 个解释器</span></div><div class="md">外部工具服务 · 子进程拉起 · fail-closed</div></div>
+      </div>
+      <h4 class="vh" style="margin-top:20px;">领域包（声明引用 CORE · 专业能力自带）</h4>
+      <div class="mk-grid">
+        <div class="mk"><div class="mt"><span class="mn">化学与化工</span><span class="installed">✓ 已挂载</span></div><div class="md">SMILES 解析/结构导出 · 光谱预处理 · Origin 绘图桥</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">app_automate</span> · 自带 <span class="cap">smiles_info</span> 等 3 项</div><div class="ab"><button class="btn s">打开工作台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">科学研究</span><span class="installed">✓ 已挂载</span></div><div class="md">段落精读 · 双语对照 · 引用检查 · 知识检索</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">llm_generate</span> · 自带 <span class="cap">段落锚点</span> 等 2 项</div><div class="ab"><button class="btn s">打开工作台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">财务与法务</span><span class="md" style="color:var(--warn);">未挂载</span></div><div class="md">合同审查 · 条款对比 · 金额 FactGuard 强化 · 报销检查</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">text_extract</span> · 自带 <span class="cap">条款对比</span> 等 4 项</div><div class="ab"><button class="btn s">查看安装说明</button></div></div>
+        <div class="mk" style="opacity:.55;"><div class="mt"><span class="mn">测绘与地理信息</span><span class="md">规划中</span></div><div class="md">坐标转换（CGCS2000↔WGS84）· 等高线数据 · 测量报表</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">app_automate</span> · 自带 <span class="cap">坐标引擎</span> 等 2 项</div><div class="ab"><button class="btn s" disabled>路线图</button></div></div>
+      </div>
+    </div>
+
+    <!-- ===== 设置 ===== -->
+    <div id="v-settings" class="view hidden">
+      <h3 class="sec">模型接入</h3>
+      <div class="set-row"><div class="l">GLM API 密钥<div class="d">环境变量 SKY_GLM_API_KEY 或此处配置；存本机 vault，绝不入库</div></div><input type="password" value="********"></div>
+      <div class="set-row"><div class="l">Ollama 本地发现<div class="d">127.0.0.1:11434 · 无密钥回退</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <h3 class="sec">驯化闸门（LLM 产出必须过；设置即驯化）</h3>
+      <div class="set-row"><div class="l">FactGuard 事实校验<div class="d">金额 ±10% / 日期 ±3 天 / 百分比 ±1% 超阈值阻断</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">引用锚点<div class="d">产出无原文片段时标记「模型推断」</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">LlmPolicy 禁词/必含<div class="d">任务书 llmPolicy 字段声明</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <h3 class="sec">缓存</h3>
+      <div class="set-row"><div class="l">路由缓存 / 步骤缓存<div class="d">37/200 · TTL 1h/24h · 持久化于 config/sky/</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">语义缓存（跨措辞）<div class="d">需真实 embedding 模型——当前未接入（诚实标注）</div></div><button class="swbtn off">待 embedding</button></div>
+    </div>
+
+    <!-- ===== 账号 ===== -->
+    <div id="v-account" class="view hidden">
+      <h3 class="sec">本机档案（本地优先：身份与密钥存本机）</h3>
+      <div class="card" style="border:1px solid var(--line);border-radius:var(--r);background:var(--m1);padding:14px;display:flex;gap:14px;align-items:center;max-width:480px;">
+        <span class="av" style="width:44px;height:44px;font-size:16px;">A</span>
+        <div><div style="font-size:15px;font-weight:700;">Administrator</div><div style="font-size:11px;color:var(--sub);">本机档案 · v0 无云登录（诚实边界）</div></div>
+      </div>
+      <h3 class="sec">密钥管理（vault · 绝不明文入库）</h3>
+      <div class="set-row"><div class="l">GLM API 密钥</div><input type="password" value="********"></div>
+      <div class="set-row"><div class="l">主题</div><button class="swbtn on">星空深色（当前唯一）</button></div>
+      <div class="set-row"><div class="l">语言</div><button class="swbtn on">中文主 · 英文辅</button></div>
+    </div>
+
+    <div class="statusbar">
+      <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+      <div class="sb-i">本次 <span class="num">620</span> tok</div>
+      <div class="sb-i">确定性 <span class="num">2/3</span></div>
+      <div class="sb-i">产物 <span class="num">3</span></div>
+      <div class="sb-i">Alt+1..5 切视图</div>
+      <div class="sb-i right"><span class="dot off"></span> Origin COM</div>
+      <div class="sb-i right"><span class="dot off"></span> ChemDraw COM</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 视图切换（含键盘 Alt+1..5）
+const VIEWS = ['chat','feed','market','settings','account'];
+function go(v) {
+  VIEWS.forEach(n => document.getElementById('v-'+n).classList.toggle('hidden', n !== v));
+  document.querySelectorAll('.nav-i[data-v]').forEach(e => e.classList.toggle('active', e.dataset.v === v));
+}
+document.querySelectorAll('.nav-i[data-v]').forEach(e => e.addEventListener('click', () => go(e.dataset.v)));
+document.addEventListener('keydown', e => {
+  if (!e.altKey) return;
+  const idx = parseInt(e.key) - 1;
+  if (idx >= 0 && idx < VIEWS.length) { go(VIEWS[idx]); e.preventDefault(); }
+});
+
+// 写门三态审批
+function approve(mode) {
+  const after = document.getElementById('after-approve');
+  if (mode === 'deny') {
+    after.innerHTML = '<div class="m"><div class="who">SKY · 写门</div><div class="text">已拒绝——文件未复制。fail-closed：没有授权就没有动作。</div></div>';
+  } else {
+    after.innerHTML = `<div class="m"><div class="who">SKY · 写门 · ${mode === 'always' ? '总是允许（范围限定 D:\\backup）' : '允许一次'}</div>
+      <div class="text">复制完成：D:\\backup\\周报草稿.docx。${mode === 'always' ? '该授权已记录（范围限定），下次同目录写入不再询问。' : '一次性授权，下次再询问。'}</div>
+      <div class="gates"><span class="gt pass">fail-closed ✓</span></div></div>`;
+  }
+  document.getElementById('approve-card').remove();
+}
+function sw(btn) {
+  const on = btn.textContent.startsWith('已启用');
+  btn.textContent = on ? '已停用' : '已启用';
+  btn.classList.toggle('on', !on);
+  btn.classList.toggle('off', on);
+}
+</script>
+</body>
+</html>
