@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY V6.2 · 全部界面逐一展示（主界面 + 各领域主界面）</title>
+<style>
+  :root {
+    --bg:#fff; --panel:#fafafa; --ink:#1a1a1a; --sub:#888; --line:#e0e0e0;
+    --accent:#2563eb; --ok:#16a34a; --warn:#b45309; --mono:'Consolas',monospace; --r:4px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#f0f1f3; color:var(--ink); padding:24px; display:flex; flex-direction:column; gap:36px; }
+  .scene-title { font-size:16px; font-weight:700; max-width:1100px; width:100%; margin:0 auto; }
+  .scene-title .no { color:var(--accent); margin-right:6px; }
+  .scene-title small { display:block; font-size:11.5px; color:var(--sub); font-weight:400; margin-top:4px; line-height:1.6; }
+  .app { width:1100px; max-width:100%; margin:0 auto; border:1px solid var(--line); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 2px 12px rgba(0,0,0,.07); background:var(--bg); }
+
+  header { display:flex; align-items:center; padding:8px 14px; border-bottom:1px solid var(--line); gap:12px; background:var(--panel); }
+  .brand { font-size:14px; font-weight:600; }
+  .host { font-size:11px; color:var(--sub); }
+  .host b { color:var(--ink); }
+  .spacer { flex:1; }
+  .engine { font-size:10.5px; color:var(--sub); }
+
+  /* 布局骨架：包侧栏 + 主区 */
+  .layout { display:flex; flex:1; min-height:0; }
+  .packs { width:185px; border-right:1px solid var(--line); background:var(--panel); padding:10px 8px; display:flex; flex-direction:column; gap:5px; }
+  .packs h5 { font-size:10px; color:var(--sub); padding:0 5px 4px; }
+  .pack { border:1px solid var(--line); border-radius:var(--r); padding:7px 9px; background:#fff; cursor:pointer; }
+  .pack.active { border-color:var(--accent); background:#eff6ff; }
+  .pack .n { font-size:12px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  .pack .d { font-size:9px; color:var(--sub); margin-top:1px; }
+  .mount { font-size:8.5px; padding:0 5px; border-radius:6px; }
+  .mount.on { color:var(--ok); background:#f0fdf4; }
+  .mount.off { color:var(--sub); background:var(--line); }
+  .install { margin-top:auto; font-size:9px; color:var(--sub); border-top:1px dashed var(--line); padding:6px 4px 0; line-height:1.5; }
+  .install code { font-family:var(--mono); font-size:8.5px; color:var(--accent); }
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; }
+
+  /* 通用条（V6.1 定稿样式） */
+  .common-bar { display:flex; align-items:center; gap:2px; padding:6px 12px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .core-mark { font-size:9px; letter-spacing:1px; color:var(--accent); background:#eff6ff; padding:2px 6px; border-radius:3px; margin-right:8px; font-weight:700; }
+  .cb { font-size:12px; padding:5px 12px; border-radius:var(--r); color:var(--ink); background:transparent; border:none; }
+  .cb.on { background:var(--accent); color:#fff; font-weight:600; }
+  .domain-mark { margin-left:auto; font-size:9px; letter-spacing:.5px; color:var(--warn); background:#fef3c7; padding:2px 6px; border-radius:3px; font-weight:700; }
+
+  .body { flex:1; padding:14px 18px; overflow-y:auto; }
+  .crumb { font-size:11px; color:var(--sub); margin-bottom:12px; }
+  .crumb a { color:var(--accent); cursor:pointer; }
+  .crumb b { color:var(--ink); }
+  h4 { font-size:12.5px; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+  .dt { font-size:9px; letter-spacing:1px; color:var(--warn); background:#fef3c7; padding:1px 6px; border-radius:3px; }
+  .ct { font-size:9px; letter-spacing:1px; color:var(--accent); background:#eff6ff; padding:1px 6px; border-radius:3px; }
+  .field { margin-bottom:10px; }
+  .field label { font-size:10.5px; color:var(--sub); display:block; margin-bottom:4px; }
+  .field textarea, .field input { width:100%; padding:8px; font-family:var(--mono); font-size:13px; border:1px solid var(--line); border-radius:var(--r); }
+  .field textarea { min-height:40px; resize:vertical; }
+  .btn { padding:7px 16px; font-size:12px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); cursor:pointer; font-weight:600; }
+  .btn.s { background:#fff; color:var(--ink); border:1px solid var(--line); font-weight:400; }
+  .actions { display:flex; gap:8px; margin:10px 0; }
+  .readout { border:1px solid var(--line); border-radius:var(--r); padding:12px 14px; margin-bottom:12px; }
+  .readout .status { display:flex; align-items:center; gap:6px; font-size:11px; margin-bottom:8px; }
+  .readout .vd { color:var(--ok); font-weight:600; }
+  .readout .src { color:var(--sub); }
+  .readout .formula { font-family:var(--mono); font-size:24px; font-weight:700; }
+  .readout .substats { display:flex; gap:18px; margin-top:6px; font-size:12px; }
+  .readout .substats .num { font-family:var(--mono); }
+  .kb-item { border:1px solid var(--line); border-radius:var(--r); padding:9px 11px; margin-bottom:7px; }
+  .kb-item .t { font-size:12px; font-weight:600; }
+  .kb-item .t .sc { font-family:var(--mono); font-size:10px; color:var(--accent); margin-left:5px; font-weight:400; }
+  .kb-item .b { font-size:11px; color:var(--sub); margin:3px 0; line-height:1.45; }
+  .kb-item .src { font-size:9.5px; color:var(--sub); }
+  .ev { border:1px solid var(--line); border-radius:var(--r); padding:7px 10px; margin-bottom:5px; background:#fff; }
+  .ev .head { display:flex; align-items:center; gap:6px; margin-bottom:2px; }
+  .ev .gate { font-size:9px; padding:0 6px; border-radius:3px; font-weight:700; }
+  .gate.fg { background:#f0fdf4; color:var(--ok); }
+  .gate.sm { background:#eff6ff; color:var(--accent); }
+  .gate.aa { background:#fef3c7; color:var(--warn); }
+  .ev .time { font-family:var(--mono); font-size:9px; color:var(--sub); margin-left:auto; }
+  .ev .body { font-size:11px; line-height:1.4; }
+  .ev.block { border-left:3px solid var(--warn); }
+  .empty { border:1px dashed var(--line); border-radius:var(--r); padding:14px; font-size:11px; color:var(--sub); text-align:center; line-height:1.7; }
+  .empty code { font-family:var(--mono); color:var(--accent); background:#eff6ff; padding:1px 4px; border-radius:3px; }
+
+  /* 对话（主界面）专属 */
+  .msgs { flex:1; overflow-y:auto; padding:14px 18px; }
+  .cards { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .dcard { border:1px solid var(--line); border-radius:6px; padding:8px 12px; font-size:11px; cursor:pointer; background:var(--panel); }
+  .dcard .dn { font-weight:600; margin-bottom:1px; }
+  .dcard .dd { color:var(--sub); font-size:10px; }
+  .m { margin-bottom:12px; max-width:640px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:2px; font-family:var(--mono); }
+  .m .who .layer { color:var(--accent); }
+  .m.user .text { background:#eff6ff; display:inline-block; padding:7px 11px; border-radius:8px; font-size:12.5px; }
+  .m .text { font-size:12.5px; line-height:1.6; }
+  .m .art { margin-top:5px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .composer { display:flex; gap:8px; padding:10px 18px; border-top:1px solid var(--line); }
+  .composer input { flex:1; padding:8px 11px; font-size:12.5px; border:1px solid var(--line); border-radius:var(--r); }
+  .composer button { padding:8px 18px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; font-size:12.5px; }
+
+  /* 未挂载包态 */
+  .locked { border:1px dashed var(--line); border-radius:var(--r); padding:24px; text-align:center; }
+  .locked .t { font-size:14px; font-weight:600; margin-bottom:8px; }
+  .locked .d { font-size:12px; color:var(--sub); margin-bottom:14px; line-height:1.6; }
+  .locked .cap-list { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin-bottom:14px; }
+  .locked .cap-tag { font-size:10px; color:var(--sub); background:var(--panel); border:1px solid var(--line); padding:2px 8px; border-radius:8px; }
+  .locked .btn { margin:0 auto; }
+
+  /* 底部状态栏 */
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--panel); font-size:10.5px; color:var(--sub); height:24px; margin-top:auto; }
+  .sb-i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb-i .num { font-family:var(--mono); color:var(--ink); }
+  .sb-i.right { margin-left:auto; border-right:none; border-left:1px solid var(--line); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:#ccc; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 界面 1：主界面（对话主控） ==================== -->
+<div class="scene-title"><span class="no">界面 1</span>主界面 · 对话主控（默认；启动即此）
+  <small>任何领域的任务都从这里开始：一句话 → 路由决策元信息直接挂在回复上（哪层命中、几步、LLM 几次、产物链接）。上方功能卡 = 已挂载包的入口；左栏 = 包系统（挂载状态 + 加领域方式）。</small>
+</div>
+<div class="app" style="height:560px;">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="host">宿主 <b>SKY 核心</b></span>
+    <span class="spacer"></span>
+    <span class="engine">GLM 在线 · 引擎 v0.3</span>
+  </header>
+  <div class="layout">
+    <aside class="packs">
+      <h5>领域包（3 挂载 / 1 未装）</h5>
+      <div class="pack active"><div class="n">SKY 核心</div><div class="d">对话 · 路由 · 任务书</div></div>
+      <div class="pack"><div class="n">化学硕博 <span class="mount on">挂载</span></div><div class="d">SMILES · 结构 · 绘图桥</div></div>
+      <div class="pack"><div class="n">科研论文 <span class="mount on">挂载</span></div><div class="d">精读 · 检索 · 标注</div></div>
+      <div class="pack"><div class="n">财务法务 <span class="mount off">未装</span></div><div class="d">合同 · FactGuard</div></div>
+      <div class="install">加领域 = 加 JSON<br><code>config/l2_manifests/</code><br>或 {userData} 包目录</div>
+    </aside>
+    <div class="main">
+      <div class="msgs">
+        <div class="cards">
+          <div class="dcard"><div class="dn">🧪 化学结构验证</div><div class="dd">化学硕博 · 0 token</div></div>
+          <div class="dcard"><div class="dn">📄 论文精读</div><div class="dd">科研论文 · 动作缓存</div></div>
+          <div class="dcard"><div class="dn">📊 数据→Origin</div><div class="dd">COM 桥 · 导入导出</div></div>
+        </div>
+        <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报</div></div>
+        <div class="m">
+          <div class="who">SKY · <span class="layer">L2 manifest 命中</span> · 3 步 · LLM 1 次 · FactGuard 通过</div>
+          <div class="text">已从任务书「周报自动草稿」展开执行：读目录 → 读文件 → 生成周报。</div>
+          <div class="art">📎 .sky-output/周报草稿.docx (18.9 KB)</div>
+        </div>
+        <div class="m user"><div class="who">你</div><div class="text">阿司匹林的 SMILES 是什么，分子量多少</div></div>
+        <div class="m">
+          <div class="who">SKY · <span class="layer">smiles_info</span> · 0 token</div>
+          <div class="text">CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol（本地解析器验证，非 LLM 判断）</div>
+        </div>
+      </div>
+      <div class="composer">
+        <input type="text" placeholder="描述你的任务——SKY 会先决定能不能不花 token">
+        <button type="button">发送</button>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb-i">命中率 <span class="num">71%</span></div>
+    <div class="sb-i">节省 <span class="num">12.4k</span> tok</div>
+    <div class="sb-i">驯化 <span class="num">3/3</span></div>
+    <div class="sb-i right"><span class="dot off"></span> Origin</div>
+  </div>
+</div>
+
+<!-- ==================== 界面 2：化学硕博主界面 ==================== -->
+<div class="scene-title"><span class="no">界面 2</span>化学硕博 · 领域主界面（点功能卡/左栏包卡进入）
+  <small>领域工作台 = CORE 通用工具条（常驻，切域不变）+ DOMAIN 专业面板（本包能力）。主工作面「结构解析」+ 副工作面「知识检索」（CORE 共享示例）+ 事件流（驯化裁决全记录）。</small>
+</div>
+<div class="app" style="height:560px;">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="host">宿主 <b>SKY 核心</b> · 包 <b>化学硕博</b></span>
+    <span class="spacer"></span>
+    <span class="engine">GLM 在线</span>
+  </header>
+  <div class="common-bar">
+    <span class="core-mark">CORE</span>
+    <button class="cb" type="button">文件</button>
+    <button class="cb" type="button">知识检索</button>
+    <button class="cb" type="button">文本处理</button>
+    <button class="cb" type="button">Shell</button>
+    <button class="cb" type="button">LLM 生成</button>
+    <button class="cb" type="button">应用自动化</button>
+    <button class="cb" type="button">产物</button>
+    <span class="domain-mark">化学硕博 · DOMAIN</span>
+  </div>
+  <div class="layout">
+    <aside class="packs">
+      <h5>领域包（3 挂载）</h5>
+      <div class="pack"><div class="n">SKY 核心</div><div class="d">对话 · 路由 · 任务书</div></div>
+      <div class="pack active"><div class="n">化学硕博 <span class="mount on">挂载</span></div><div class="d">SMILES · 结构 · 绘图桥</div></div>
+      <div class="pack"><div class="n">科研论文 <span class="mount on">挂载</span></div><div class="d">精读 · 检索 · 标注</div></div>
+      <div class="pack"><div class="n">财务法务 <span class="mount off">未装</span></div><div class="d">合同 · FactGuard</div></div>
+    </aside>
+    <div class="main">
+      <div class="body">
+        <div class="crumb"><a>← 对话主控</a> / <b>化学硕博</b> / 工作台</div>
+        <h4>结构解析 <span class="dt">DOMAIN</span></h4>
+        <div class="field"><label>SMILES</label><textarea>CC(=O)OC1=CC=CC=C1C(=O)O</textarea></div>
+        <div class="actions">
+          <button class="btn" type="button">解析验证</button>
+          <button class="btn s" type="button">导出 MOL</button>
+          <button class="btn s" type="button">ChemDraw 打开</button>
+        </div>
+        <div class="readout">
+          <div class="status"><span class="vd">✓ 机器验证通过</span><span class="src">· 本地解析器（非 LLM）</span><span style="margin-left:auto;font-family:var(--mono);color:var(--ok);font-weight:700;">0 token</span></div>
+          <div class="formula">C₉H₈O₄</div>
+          <div class="substats"><span class="num">180.16 g/mol</span><span class="num">21 原子</span></div>
+        </div>
+        <div class="field" style="margin-top:10px;"><label>知识检索 <span class="ct">CORE 共享</span> —— 查相关笔记（0 token）</label><textarea style="min-height:0;">阿司匹林 合成路线</textarea></div>
+        <div class="actions"><button class="btn s" type="button">检索</button></div>
+        <div class="kb-item"><div class="t">阿司匹林药理笔记<span class="sc">0.92</span></div><div class="b">乙酰水杨酸通过不可逆抑制 COX-1/COX-2……</div><div class="src">本地笔记/药理学.md</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb-i">包 <span class="num">化学硕博</span></div>
+    <div class="sb-i">通用 <span class="num">7</span> · 专业 <span class="num">3</span></div>
+    <div class="sb-i">驯化 <span class="num">3/3</span></div>
+    <div class="sb-i right"><span class="dot off"></span> Origin COM 未检测</div>
+    <div class="sb-i right"><span class="dot off"></span> ChemDraw COM 未检测</div>
+  </div>
+</div>
+
+<!-- ==================== 界面 3：科研论文主界面 ==================== -->
+<div class="scene-title"><span class="no">界面 3</span>科研论文 · 领域主界面（同一 CORE 工具条 + 论文专属面板——展示「换域只换 DOMAIN 区」）
+  <small>注意顶部 CORE 工具条与界面 2 完全一致；变的只有 DOMAIN 面板（段落精读/双语对照/动作缓存）。这正是能力模型的兑现：通用层恒定，专业层按包。</small>
+</div>
+<div class="app" style="height:560px;">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="host">宿主 <b>SKY 核心</b> · 包 <b>科研论文</b></span>
+    <span class="spacer"></span>
+    <span class="engine">GLM 在线</span>
+  </header>
+  <div class="common-bar">
+    <span class="core-mark">CORE</span>
+    <button class="cb" type="button">文件</button>
+    <button class="cb" type="button">知识检索</button>
+    <button class="cb" type="button">文本处理</button>
+    <button class="cb" type="button">Shell</button>
+    <button class="cb" type="button">LLM 生成</button>
+    <button class="cb" type="button">应用自动化</button>
+    <button class="cb" type="button">产物</button>
+    <span class="domain-mark">科研论文 · DOMAIN</span>
+  </div>
+  <div class="layout">
+    <aside class="packs">
+      <h5>领域包（3 挂载）</h5>
+      <div class="pack"><div class="n">SKY 核心</div><div class="d">对话 · 路由 · 任务书</div></div>
+      <div class="pack"><div class="n">化学硕博 <span class="mount on">挂载</span></div><div class="d">SMILES · 结构 · 绘图桥</div></div>
+      <div class="pack active"><div class="n">科研论文 <span class="mount on">挂载</span></div><div class="d">精读 · 检索 · 标注</div></div>
+      <div class="pack"><div class="n">财务法务 <span class="mount off">未装</span></div><div class="d">合同 · FactGuard</div></div>
+    </aside>
+    <div class="main">
+      <div class="body">
+        <div class="crumb"><a>← 对话主控</a> / <b>科研论文</b> / 精读工作台</div>
+        <h4>段落精读 <span class="dt">DOMAIN</span></h4>
+        <div class="field"><label>段落锚点（点选切换）</label></div>
+        <div class="actions" style="margin-bottom:10px;">
+          <button class="btn s" type="button" style="background:#2563eb;color:#fff;">§1 摘要</button>
+          <button class="btn s" type="button">§2 引言</button>
+          <button class="btn s" type="button">§3 方法</button>
+          <button class="btn s" type="button">§4 实验</button>
+        </div>
+        <h4 style="margin-top:6px;">动作（规范化键 · 同段同动作第二次 0 token）</h4>
+        <div class="actions">
+          <button class="btn" type="button">摘要本段</button>
+          <button class="btn s" type="button">问答本段</button>
+          <button class="btn s" type="button">双语对照</button>
+        </div>
+        <div class="readout">
+          <div class="status"><span style="color:var(--accent);font-weight:600;">⚡ 缓存回放</span><span class="src">· workmode:summarize?paragraph=1 · 0 token</span></div>
+          <div style="font-size:12px;line-height:1.6;margin-top:6px;">本段提出……（摘要内容，含引用锚点段原文）</div>
+        </div>
+        <h4 style="margin-top:14px;">知识检索 <span class="ct">CORE 共享</span></h4>
+        <div class="kb-item"><div class="t">相关文献：环氧化酶抑制机制<span class="sc">0.81</span></div><div class="b">与本文方法学直接相关……</div><div class="src">本地笔记/生化.md</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb-i">包 <span class="num">科研论文</span></div>
+    <div class="sb-i">CORE 工具条与化学域一致——只有本面板不同</div>
+    <div class="sb-i">驯化 <span class="num">3/3</span></div>
+  </div>
+</div>
+
+<!-- ==================== 界面 4：财务法务（未挂载态） ==================== -->
+<div class="scene-title"><span class="no">界面 4</span>财务法务 · 未挂载态（点未装包显示）——诚实展示：包未装、能力清单可见、装包路径可见
+  <small>不假装能用。展示「装上后会有什么」（能力清单预览）与「怎么装」（JSON 路径），用户自己决定。</small>
+</div>
+<div class="app" style="height:440px;">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="host">包 <b>财务法务</b> <span style="color:var(--warn);">未挂载</span></span>
+    <span class="spacer"></span>
+    <span class="engine">GLM 在线</span>
+  </header>
+  <div class="layout">
+    <aside class="packs">
+      <h5>领域包（3 挂载 / 1 未装）</h5>
+      <div class="pack"><div class="n">SKY 核心</div><div class="d">对话 · 路由 · 任务书</div></div>
+      <div class="pack"><div class="n">化学硕博 <span class="mount on">挂载</span></div><div class="d">SMILES · 结构 · 绘图桥</div></div>
+      <div class="pack"><div class="n">科研论文 <span class="mount on">挂载</span></div><div class="d">精读 · 检索 · 标注</div></div>
+      <div class="pack active"><div class="n">财务法务 <span class="mount off">未装</span></div><div class="d">合同 · FactGuard</div></div>
+      <div class="install">安装：把包目录放进<br><code>{userData}/holostarmap-packs/</code><br>或 <code>config/l2_manifests/</code> 加任务书</div>
+    </aside>
+    <div class="main">
+      <div class="body">
+        <div class="crumb"><a>← 对话主控</a> / 财务法务（未挂载）</div>
+        <div class="locked">
+          <div class="t">「财务法务」领域包未挂载</div>
+          <div class="d">挂载后你将获得以下能力（CORE 通用层已就绪，可直接用）：</div>
+          <div class="cap-list">
+            <span class="cap-tag">合同风险审查</span>
+            <span class="cap-tag">条款对比</span>
+            <span class="cap-tag">ND 审查清单</span>
+            <span class="cap-tag">金额 FactGuard 强化</span>
+            <span class="cap-tag">发票/报销检查</span>
+          </div>
+          <div class="d" style="margin-bottom:10px;">CORE 通用能力（文件/检索/文本处理/LLM）现在就可用——直接在对话主控输入任务即可。</div>
+          <button class="btn" type="button">查看安装说明</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="statusbar">
+    <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb-i">包 <span class="num">财务法务（未挂载）</span></div>
+    <div class="sb-i right"><span class="dot ok"></span> CORE 能力不受影响，对话照常可用</div>
+  </div>
+</div>
+
+</body>
+</html>
