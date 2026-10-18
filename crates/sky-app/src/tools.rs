@@ -778,17 +778,34 @@ pub fn replace_upstream_in_value(
     }
 }
 
-/// 步骤级响应缓存（进程内）。键 = djb2(替换上游引用后的完整 prompt)。
+/// 步骤级响应缓存（进程内 + 跨会话持久化）。
 ///
-/// 这是 `sky_cache::FingerprintCache` 的**首个生产消费者**——
-/// 该 crate 曾因零接线被记入「139 个测试保护未接线代码」清单。
+/// 键 = djb2(替换上游引用后的完整 prompt)。
+/// 这是 `sky_cache::FingerprintCache` 的生产消费者。
 /// TTL 24h 对齐任务书 cacheMeta 约定；容量 200 条。
+///
+/// **持久化**（95 册 §9.7 第 3 步）：启动时从
+/// `<config_dir>/sky/llm_response_cache.jsonl` 加载（加载的条目按
+/// saved_at 参与判定，过期的仍会被内存 TTL 拦下）；每次回填同步追加
+/// 到盘——同一段论文的翻译跨会话直接回放，经典文档只需算一次。
+/// 落盘失败静默容忍（缓存是优化，不是事实源——盘满/只读时退化为
+/// 纯内存行为，不阻断执行）。
 fn llm_response_cache() -> std::sync::MutexGuard<'static, sky_cache::FingerprintCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<sky_cache::FingerprintCache>> =
         std::sync::OnceLock::new();
     CACHE
         .get_or_init(|| {
-            std::sync::Mutex::new(sky_cache::FingerprintCache::new(200, 24 * 60 * 60 * 1000))
+            let mut cache = sky_cache::FingerprintCache::new(200, 24 * 60 * 60 * 1000);
+            // 启动加载：把持久化产物灌回内存（TTL 仍在内存侧生效）。
+            let path = sky_cache::default_store_path();
+            if let Ok(entries) = sky_cache::load_entries(&path) {
+                let now = now_millis();
+                for e in entries {
+                    cache.put(&e.key, &e.response, e.saved_at);
+                }
+                let _ = now; // TTL 由 get 时判定，加载不过滤
+            }
+            std::sync::Mutex::new(cache)
         })
         .lock()
         .unwrap()
@@ -881,7 +898,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             let caller = sky_llm::HttpProviderCall::with_key(key);
             let provider = sky_llm::glm_config_with(&model, &cfg.base_url);
             // 指纹先算——prompt 即将被 move 进消息体。
-            let fp = sky_cache::FingerprintCache::fingerprint(&prompt);
+            let prompt_fp = sky_cache::FingerprintCache::fingerprint(&prompt);
             let req = build_req(
                 sky_core::ChatMessage {
                     role: "user".into(),
@@ -895,7 +912,16 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                 match caller.call(&provider, &req).await {
                     Ok(r) => {
                         // 成功产出回填指纹缓存——同 prompt 下次零 token 回放。
-                        llm_response_cache().put(&fp, &r.content, now_millis());
+                        llm_response_cache().put(&prompt_fp, &r.content, now_millis());
+                        // 同步追加落盘（跨会话资产）。失败容忍：缓存是优化不是事实源。
+                        let _ = sky_cache::append_entry(
+                            &sky_cache::default_store_path(),
+                            &sky_cache::PersistedEntry {
+                                key: prompt_fp,
+                                response: r.content.clone(),
+                                saved_at: now_millis(),
+                            },
+                        );
                         Ok(r.content)
                     }
                     Err(e) => Err(format!("模型调用失败：{e}")),
