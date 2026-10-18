@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SKY V11 · 合成定稿（六轮调研收敛 · 落码权威规格）</title>
+<title>SKY V11.1 · 合成定稿（功能对账修订 · 落码权威规格）</title>
 <style>
   :root {
     --s0:#0b1020; --s1:#131a2e; --s2:#1a2340;
@@ -203,19 +203,21 @@
     <nav class="nav">
       <div class="nav-h">主控</div>
       <div class="nav-i active" data-v="chat">对话 <span class="key">1</span></div>
+      <div class="nav-i" data-v="sessions">会话历史 <span class="key">2</span></div>
       <div class="nav-h">内核机制</div>
-      <div class="nav-i" data-v="feed">事件流画布 <span class="key">2</span></div>
-      <div class="nav-i" data-v="route">路由决策 <span class="key">3</span></div>
+      <div class="nav-i" data-v="feed">事件流画布 <span class="key">3</span></div>
+      <div class="nav-i" data-v="route">路由决策 <span class="key">4</span></div>
       <div class="nav-h">能力层</div>
-      <div class="nav-i" data-v="knowledge">知识库 <span class="key">4</span></div>
-      <div class="nav-i" data-v="market">能力与领域包 <span class="key">5</span></div>
+      <div class="nav-i" data-v="manifests">任务书与技能 <span class="key">5</span></div>
+      <div class="nav-i" data-v="knowledge">知识库 <span class="key">6</span></div>
+      <div class="nav-i" data-v="market">能力与领域包 <span class="key">7</span></div>
       <div class="nav-h">领域包</div>
-      <div class="nav-i" data-v="workbench"><span class="lamp on"></span> 化学与化工 · 工作台 <span class="key">6</span></div>
+      <div class="nav-i" data-v="workbench"><span class="lamp on"></span> 化学与化工 · 工作台 <span class="key">8</span></div>
       <div class="nav-i"><span class="lamp on"></span> 科学研究 · 精读台</div>
       <div class="nav-i"><span class="lamp off"></span> 财务与法务</div>
       <div class="nav-h">系统</div>
-      <div class="nav-i" data-v="settings">设置 <span class="key">7</span></div>
-      <div class="nav-i" data-v="account">账号 <span class="key">8</span></div>
+      <div class="nav-i" data-v="settings">设置 <span class="key">9</span></div>
+      <div class="nav-i" data-v="account">账号</div>
     </nav>
     <div class="foot">
       <span class="u"><span class="av">A</span> Administrator</span>
@@ -291,7 +293,7 @@ dst: D:\backup\周报草稿.docx</div>
           <span style="background:var(--m2); flex:1;"></span>
         </div>
         <div class="leg">
-          <span style="color:var(--gold);">■ 对话 2.1k</span><span style="color:var(--cyan);">■ 工具流量 2.1k</span><span>■ 指令 ~0.1k</span><span>剩余 123.8k（分类不重复计数）</span>
+          <span style="color:var(--gold);">■ 对话 2.1k</span><span style="color:var(--cyan);">■ 工具流量 2.1k</span><span>■ 指令 ~0.1k</span><span>超 90% 按 trim_to_budget 裁剪最旧对话（工具产物保留）</span>
         </div>
       </div>
 
@@ -299,6 +301,27 @@ dst: D:\backup\周报草稿.docx</div>
         <input placeholder="描述任务——路由自动选择：确定性工具 / 任务书 / 探索">
         <button>发送</button><span class="hint">中断可随时 · 检查点自动记录<span class="rtag">检查点回滚·路线</span></span>
       </div>
+    </div>
+
+    <!-- ============ 2 会话历史（审计补缺：sky-memory 只有单会话窗口，历史列表落码时需新增存储层） ============ -->
+    <div id="v-sessions" class="view hidden">
+      <h4 class="vh">会话历史 · 本机存储（点击恢复上下文；对应磁盘 config/sky/sessions/）<span class="rtag">持久化层·落码新增</span></h4>
+      <div class="kb-i"><div class="kt"><span>实验数据周报（今天）</span><span class="sc">14:02 · 12 msg · 620 tok</span></div><div class="ks">摘要周报 → 复制备份 → 滴定数据绘图</div></div>
+      <div class="kb-i"><div class="kt"><span>咖啡因结构查询（今天）</span><span class="sc">11:20 · 4 msg · 320 tok</span></div><div class="ks">SMILES 解析 → 结构导出 → Origin 绘图桥</div></div>
+      <div class="kb-i"><div class="kt"><span>论文精读：电位滴定法综述（昨天）</span><span class="sc">16:45 · 28 msg · 4.1k tok</span></div><div class="ks">段落精读 ×12 → 双语对照 → 引用检查</div></div>
+      <div style="font-size:10px; color:var(--sub); margin-top:10px;">会话恢复 = 重放任务书 + 缓存命中（同任务回放近 0 tok）——本页为 V11 审计新增，后端需配套 sessions 持久化。</div>
+    </div>
+
+    <!-- ============ 5 任务书与技能（审计补缺：「加领域=加 JSON」的核心资产此前无管理视图） ============ -->
+    <div id="v-manifests" class="view hidden">
+      <h4 class="vh">任务书（领域包核心资产 · JSON 即接口）<span class="rtag">版本归档 v0/v1·路线</span><span class="rtag">IDE 化编辑器·路线</span></h4>
+      <div class="kb-i"><div class="kt"><span>周报自动草稿 <span class="rtag">v1</span></span><span class="sc">化学与化工 · L2 · 3 步</span></div><div class="ks">关键词 5 · 步骤：directory_tree → read_file → llm_generate · llmPolicy 禁词 3</div><div class="kmeta">本周命中 14 次 · 缓存回放率 86% · 0 FactGuard 拦截</div></div>
+      <div class="kb-i"><div class="kt"><span>滴定数据分析 <span class="rtag">v2</span></span><span class="sc">化学与化工 · L2 · 4 步</span></div><div class="ks">步骤：read_file → app_automate(Origin) → llm_generate → file_write</div><div class="kmeta">本周命中 6 次 · 检查点 2 个</div></div>
+      <div class="kb-i"><div class="kt"><span>论文段落精读 <span class="rtag">v1</span></span><span class="sc">科学研究 · L2 · 2 步</span></div><div class="ks">步骤：paragraph_anchors → llm_generate · 引用锚点强制</div><div class="kmeta">本周命中 9 次</div></div>
+      <h4 class="vh" style="margin-top:16px;">技能（workmode 动作模板 · sky-pack 已实现）</h4>
+      <div class="kb-i"><div class="kt"><span>翻译本段</span><span class="sc">精读台 · slot: 当前段</span></div><div class="ks">规范化键缓存 · 命中回放 0 tok</div></div>
+      <div class="kb-i"><div class="kt"><span>光谱预处理</span><span class="sc">化学台 · slot: 光谱文件</span></div><div class="ks">spectrum_prep 确定性管道（规划，随包物化）</div></div>
+      <div style="font-size:10px; color:var(--sub); margin-top:10px;">任务书数量增长后按 margin 规则分页（§9.4 既有债务）——本页为 V11 审计新增。</div>
     </div>
 
     <!-- ============ 2 事件流画布 ============ -->
@@ -413,12 +436,12 @@ dst: D:\backup\周报草稿.docx</div>
         <div class="mk"><div class="mt"><span class="mn">文件读写</span><span class="installed">✓ 出厂</span></div><div class="md">read / write / move / copy / find / tree</div></div>
         <div class="mk"><div class="mt"><span class="mn">知识检索</span><span class="installed">✓ 出厂</span></div><div class="md">knowledge_search 语义召回 · 引用可追溯</div></div>
         <div class="mk"><div class="mt"><span class="mn">应用自动化</span><span class="installed">✓ 出厂</span></div><div class="md">COM 桥：Origin / ChemDraw / 任意 ProgID 白名单</div></div>
-        <div class="mk"><div class="mt"><span class="mn">MCP 服务</span><span class="installed">✓ 5 个解释器</span></div><div class="md">外部工具服务 · 子进程拉起 · fail-closed</div></div>
+        <div class="mk"><div class="mt"><span class="mn">MCP 服务</span><span style="color:var(--warn); font-size:11px;">白名单已备·执行器待建</span></div><div class="md">外部工具服务 · 子进程拉起 · fail-closed<span class="rtag">执行器·落码新增</span></div></div>
       </div>
       <h4 class="vh" style="margin-top:20px;">领域包（声明引用 CORE · 专业能力自带 · 加领域=加 JSON）<span class="rtag">per-包 token 预算·路线</span></h4>
       <div class="mk-grid">
         <div class="mk"><div class="mt"><span class="mn">化学与化工</span><span class="installed">✓ 已挂载</span></div><div class="md">SMILES 解析/结构导出 · 光谱预处理 · Origin 绘图桥</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">app_automate</span> · 自带 <span class="cap">smiles_info</span> 等 3 项</div><div class="act-row"><button class="btn s" onclick="go('workbench')">打开工作台</button></div></div>
-        <div class="mk"><div class="mt"><span class="mn">科学研究</span><span class="installed">✓ 已挂载</span></div><div class="md">段落精读 · 双语对照 · 引用检查 · 知识检索</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">llm_generate</span> · 自带 <span class="cap">段落锚点</span> 等 2 项</div><div class="act-row"><button class="btn s">打开精读台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">科学研究</span><span style="color:var(--warn); font-size:11px;">样板在·包待物化</span></div><div class="md">段落精读 · 双语对照 · 引用检查 · 知识检索</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">llm_generate</span> · 自带 <span class="cap">段落锚点</span> 等 2 项<span class="rtag">pack.json 物化·落码新增</span></div><div class="act-row"><button class="btn s">打开精读台（rsx 样板）</button></div></div>
         <div class="mk"><div class="mt"><span class="mn">财务与法务</span><span style="color:var(--warn); font-size:11px;">未挂载</span></div><div class="md">合同审查 · 条款对比 · 金额 FactGuard 强化 · 报销检查</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">text_extract</span> · 自带 <span class="cap">条款对比</span> 等 4 项</div><div class="act-row"><button class="btn s">查看安装说明</button></div></div>
         <div class="mk" style="opacity:.55;"><div class="mt"><span class="mn">测绘与地理信息</span><span style="color:var(--sub); font-size:11px;">规划中</span></div><div class="md">坐标转换（CGCS2000↔WGS84）· 等高线数据 · 测量报表</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">app_automate</span> · 自带 <span class="cap">坐标引擎</span> 等 2 项</div><div class="act-row"><button class="btn s" disabled>路线图</button></div></div>
       </div>
@@ -458,7 +481,7 @@ dst: D:\backup\周报草稿.docx</div>
       <div class="sb-i">本次 <span class="num">620</span> tok</div>
       <div class="sb-i">确定性 <span class="num">2/3</span></div>
       <div class="sb-i">产物 <span class="num">3</span></div>
-      <div class="sb-i">Alt+1..8 切视图</div>
+      <div class="sb-i">Alt+1..9 切视图</div>
       <div class="sb-i right"><span class="dot off"></span> Origin COM</div>
       <div class="sb-i right"><span class="dot off"></span> ChemDraw COM</div>
     </div>
@@ -467,7 +490,7 @@ dst: D:\backup\周报草稿.docx</div>
 
 <script>
 // 8 视图切换 + Alt+1..8
-const VIEWS = ['chat','feed','route','knowledge','market','workbench','settings','account'];
+const VIEWS = ['chat','sessions','feed','route','manifests','knowledge','market','workbench','settings','account'];
 function go(v) {
   VIEWS.forEach(n => document.getElementById('v-'+n).classList.toggle('hidden', n !== v));
   document.querySelectorAll('.nav-i[data-v]').forEach(e => e.classList.toggle('active', e.dataset.v === v));
