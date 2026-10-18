@@ -252,6 +252,96 @@ pub fn tool_smiles_info(step: &std::collections::BTreeMap<String, Value>) -> Res
     }))
 }
 
+// ==================== 化学工作台状态层（UI 消费） ====================
+
+/// 事件种类（工作台产出流的条目来源）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum LabEvent {
+    /// 解析成功。
+    Parsed {
+        smiles: String,
+        formula: String,
+        molecular_weight: f64,
+        atom_count: u64,
+    },
+    /// 解析失败（幻觉/非法输入被闸门拦下）。
+    Rejected { smiles: String, reason: String },
+    /// 外部软件操作（Origin/ChemDraw）。
+    AppOperation { app: String, operation: String, detail: String },
+}
+
+impl LabEvent {
+    /// 流水条目的摘要文本（UI 直接渲染）。
+    pub fn summary(&self) -> String {
+        match self {
+            LabEvent::Parsed { smiles, formula, molecular_weight, atom_count } => {
+                format!(
+                    "{smiles} → {formula} · {molecular_weight:.2} g/mol · {atom_count} 原子"
+                )
+            }
+            LabEvent::Rejected { smiles, reason } => {
+                format!("✗ {smiles} —— {reason}")
+            }
+            LabEvent::AppOperation { app, operation, detail } => {
+                format!("[{app}/{operation}] {detail}")
+            }
+        }
+    }
+
+    /// 是否为告警级事件（UI 用不同颜色渲染）。
+    pub fn is_alert(&self) -> bool {
+        matches!(self, LabEvent::Rejected { .. })
+    }
+}
+
+/// 化学工作台状态：输入、最近解析结果、事件流水。
+#[derive(Debug, Clone, Default)]
+pub struct ChemLabState {
+    pub input: String,
+    /// 最近一次解析结果（formula, mw, atom_count）。
+    pub last_result: Option<(String, f64, u64)>,
+    /// 事件流水（最新在尾部）。
+    pub events: Vec<LabEvent>,
+}
+
+impl ChemLabState {
+    /// 解析当前输入并记录事件。这是 UI「解析验证」按钮的落点。
+    ///
+    /// 每次调用都产生一条流水（成功 Parsed / 失败 Rejected）——
+    /// 事件流即驯化闸门的可见记录。
+    pub fn analyze(&mut self) {
+        let smiles = self.input.trim().to_string();
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("smiles".to_string(), json!(smiles.clone()));
+        match tool_smiles_info(&m) {
+            Ok(v) => {
+                let formula = v["formula"].as_str().unwrap_or("?").to_string();
+                let mw = v["molecular_weight"].as_f64().unwrap_or(0.0);
+                let atom_count = v["atom_count"].as_u64().unwrap_or(0);
+                self.last_result = Some((formula.clone(), mw, atom_count));
+                self.events.push(LabEvent::Parsed {
+                    smiles,
+                    formula,
+                    molecular_weight: mw,
+                    atom_count,
+                });
+            }
+            Err(reason) => {
+                self.events.push(LabEvent::Rejected { smiles, reason });
+            }
+        }
+    }
+
+    /// 记录一次外部软件操作（app_automate 的 UI 落点）。
+    pub fn record_app_operation(&mut self, app: &str, operation: &str, detail: &str) {
+        self.events.push(LabEvent::AppOperation {
+            app: app.to_string(),
+            operation: operation.to_string(),
+            detail: detail.to_string(),
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,5 +400,44 @@ mod tests {
         assert_eq!(counts.get("C"), Some(&1));
         // H：Cl 价 1 占 1 → 0；Br 同；C 价 4 占 2（两根来键）→ 2
         assert_eq!(counts.get("H"), Some(&2));
+    }
+
+    /// ChemLabState：解析成功记录 Parsed 事件并更新结果。
+    #[test]
+    fn lab_state_analyze_success() {
+        let mut s = ChemLabState {
+            input: "CCO".into(),
+            ..Default::default()
+        };
+        s.analyze();
+        assert_eq!(s.events.len(), 1);
+        assert!(!s.events[0].is_alert());
+        let (f, mw, n) = s.last_result.clone().unwrap();
+        assert_eq!(f, "C2H6O");
+        assert!((mw - 46.07).abs() < 0.05);
+        assert_eq!(n, 9);
+        assert!(s.events[0].summary().contains("CCO → C2H6O"));
+    }
+
+    /// ChemLabState：非法输入记录 Rejected 事件（闸门可见）。
+    #[test]
+    fn lab_state_analyze_rejects_hallucination() {
+        let mut s = ChemLabState {
+            input: "XYZ假分子".into(),
+            ..Default::default()
+        };
+        s.analyze();
+        assert_eq!(s.events.len(), 1);
+        assert!(s.events[0].is_alert(), "非法 SMILES 应为告警事件");
+        assert!(s.last_result.is_none(), "失败不得更新结果卡");
+    }
+
+    /// ChemLabState：外部软件操作记录。
+    #[test]
+    fn lab_state_records_app_operation() {
+        let mut s = ChemLabState::default();
+        s.record_app_operation("origin", "import_data", "滴定光谱.csv 已导入");
+        assert!(s.events[0].summary().contains("origin/import_data"));
+        assert!(!s.events[0].is_alert());
     }
 }

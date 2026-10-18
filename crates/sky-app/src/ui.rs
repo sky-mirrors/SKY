@@ -70,6 +70,9 @@ pub fn MainView() -> Element {
     let reader = use_signal(crate::paper_reader::ReaderState::default);
     let mut reader_current = use_signal(|| 1u32);
 
+    // 化学工作台（§9.7 化学硕博）：SMILES 机器验证。
+    let mut chem = use_signal(crate::smiles::ChemLabState::default);
+
     let work_trigger = use_callback(move |(name, no): (&'static str, u32)| {
         let mut reader = reader;
         let pipeline = pipeline.read().clone();
@@ -328,6 +331,82 @@ pub fn MainView() -> Element {
                                 " · {name} · §{no}"
                             }
                             "{text}"
+                        }
+                    }
+                }
+
+                // 化学工作台（§9.7 化学硕博）：SMILES 机器验证 + 事件流。
+                // 输入 → smiles_info 解析（失败即幻觉告警）→ 读出格 + 事件流水。
+                div {
+                    style: "border-top: 1px solid #e0e0e0; padding: 12px 16px; background: #f4f7f6; max-height: 280px; overflow-y: auto;",
+
+                    div {
+                        style: "font-size: 13px; font-weight: 600; margin-bottom: 8px;",
+                        "化学工作台（硕博样板）"
+                        span {
+                            style: "margin-left: 8px; font-size: 11px; font-weight: 400; color: #0d7a5f;",
+                            "SMILES 机器验证 · 解析失败即幻觉"
+                        }
+                    }
+
+                    div {
+                        style: "display: flex; gap: 8px; margin-bottom: 8px; align-items: stretch;",
+                        input {
+                            style: "flex: 1; padding: 6px 10px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #d9ded8; border-radius: 4px;",
+                            placeholder: "粘贴 SMILES，例：CC(=O)OC1=CC=CC=C1C(=O)O",
+                            value: "{chem.read().input}",
+                            oninput: move |e| chem.write().input = e.value(),
+                        }
+                        button {
+                            style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; background: #0d7a5f; color: white; border: none; border-radius: 4px;",
+                            onclick: move |_| {
+                                let mut lab = chem.write();
+                                lab.analyze();
+                            },
+                            "解析验证"
+                        }
+                    }
+
+                    // 读出格：最近一次解析结果
+                    if let Some((formula, mw, atoms)) = chem.read().last_result.clone() {
+                        div {
+                            style: "display: flex; gap: 8px; margin-bottom: 8px;",
+                            div {
+                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
+                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{formula}" }
+                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "分子式" }
+                            }
+                            div {
+                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
+                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{mw:.2}" }
+                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "分子量 g/mol" }
+                            }
+                            div {
+                                style: "flex: 1; background: white; border: 1px solid #d9ded8; border-radius: 4px; padding: 8px; text-align: center;",
+                                div { style: "font-family: Consolas, monospace; font-size: 16px; font-weight: 700; color: #0d7a5f;", "{atoms}" }
+                                div { style: "font-size: 10px; color: #888; margin-top: 2px;", "原子数" }
+                            }
+                        }
+                    }
+
+                    // 事件流水（驯化闸门可见记录：绿=通过，橙=被拦）
+                    if chem.read().events.is_empty() {
+                        div {
+                            style: "font-size: 12px; color: #999;",
+                            "粘贴 SMILES 点「解析验证」；非法结构将被标记为告警（幻觉拦截）"
+                        }
+                    }
+                    for (i, ev) in chem.read().events.iter().cloned().enumerate() {
+                        div {
+                            key: "{i}",
+                            style: if ev.is_alert() {
+                                "padding: 6px 8px; margin-bottom: 4px; background: white; border-left: 3px solid #b45309; border-radius: 4px; font-size: 12px;"
+                            } else {
+                                "padding: 6px 8px; margin-bottom: 4px; background: white; border-left: 3px solid #0d7a5f; border-radius: 4px; font-size: 12px;"
+                            },
+                            if ev.is_alert() { "⚠ 幻觉拦截" } else { "✓ 验证通过" }
+                            " · "
+                            "{ev.summary()}"
                         }
                     }
                 }
