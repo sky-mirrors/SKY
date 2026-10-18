@@ -387,6 +387,49 @@ fn replace_in_value(v: &mut serde_json::Value, placeholder: &str, replacement: &
     }
 }
 
+impl Pipeline {
+    /// 工作台动作分发——「UI 化提高缓存命中率」的兑现点（95 册 §9.7）。
+    ///
+    /// UI 按钮发出规范化 [`sky_pack::WorkAction`]，经 `canonical_key()`
+    /// 生成可预测键后：
+    /// 1. **先查路由缓存**——命中即 0 成本回放计划（同一段论文第二次点
+    ///    「翻译」、guided tour 重走，都不再走路由）；
+    /// 2. 未命中走既有路由（任务书匹配等），命中后**以规范化键回填**——
+    ///    下次同按钮直达。
+    ///
+    /// 与聊天路径共用同一个 `plan_cache`：键形态不同（`workmode:*` vs 自由
+    /// 文本归一化），命名空间天然隔离，互不污染。
+    pub async fn dispatch_work_action(&self, action: &sky_pack::WorkAction) -> RouteOutcome {
+        let key = action.canonical_key();
+
+        // 第 1 步：规范化键直查路由缓存
+        if let Some((plan, confidence)) = self.plan_cache.lookup(&key) {
+            self.plan_cache_hits
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return RouteOutcome::Resolved {
+                source: "cache(workmode)".to_string(),
+                confidence,
+                plan,
+            };
+        }
+
+        // 第 2 步：未命中——动作名即路由输入（任务书关键词可覆盖动作语义），
+        // 命中后以规范化键回填，让同按钮下次直达。
+        let outcome = self.route_only(&action.action).await;
+        if let RouteOutcome::Resolved {
+            ref plan,
+            confidence,
+            ..
+        } = outcome
+        {
+            if !plan.steps.is_empty() && confidence >= 0.85 {
+                self.plan_cache.store(&key, plan);
+            }
+        }
+        outcome
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,5 +583,50 @@ mod tests {
             0,
             "确定性命中不该调用 LLM"
         );
+    }
+
+    /// workmode 分发：同一动作第二次调用命中缓存，规范化键与聊天路径隔离。
+    #[tokio::test]
+    async fn work_action_dispatch_hits_cache_on_repeat() {
+        use sky_pack::WorkAction;
+
+        let p = Pipeline::new();
+        // 动作名用任务书可匹配的自然语义（任务书关键词表是同义说法集合）
+        let action = WorkAction::new("帮我写一份本周的工作周报").slot("paragraph", "17");
+
+        // 第一次：无缓存，走路由（任务书或确定性段）
+        let first = p.dispatch_work_action(&action).await;
+        match &first {
+            RouteOutcome::Resolved { source, plan, .. } => {
+                assert!(
+                    source != "cache(workmode)",
+                    "第一次不应命中缓存，得到 {source}"
+                );
+                assert!(!plan.steps.is_empty(), "路由应产出可执行计划");
+            }
+            other => panic!("第一次应 Resolved，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_hits(), 0);
+
+        // 第二次：同动作 → cache(workmode) 直达
+        let second = p.dispatch_work_action(&action).await;
+        match &second {
+            RouteOutcome::Resolved { source, .. } => {
+                assert_eq!(source, "cache(workmode)", "第二次应命中 workmode 缓存");
+            }
+            other => panic!("第二次应 Resolved，得到 {other:?}"),
+        }
+        assert_eq!(p.plan_cache_hits(), 1);
+
+        // 键契约：不同槽位值不串
+        let other = p
+            .dispatch_work_action(&WorkAction::new("周报").slot("paragraph", "18"))
+            .await;
+        match &other {
+            RouteOutcome::Resolved { source, .. } => {
+                assert_ne!(source, "cache(workmode)", "不同槽位不得串缓存");
+            }
+            other => panic!("得到 {other:?}"),
+        }
     }
 }
