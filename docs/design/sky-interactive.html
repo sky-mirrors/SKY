@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY 总设计 · 交互原型（可点）</title>
+<style>
+  :root {
+    --s0:#0b1020; --s1:#131a2e; --s2:#1a2340;
+    --m0:#0f1526; --m1:#161d33; --m2:#1d2642;
+    --ink:#dfe6ff; --sub:#7c86ad; --line:#232c4a;
+    --gold:#e8b64c; --cyan:#5ad4e6; --ok:#7ee787; --warn:#f0a35e;
+    --accent:#6c9bff; --mono:'Consolas',monospace; --r:6px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#1a1f33; }
+  .app { width:1240px; max-width:100%; height:840px; margin:24px auto; border-radius:10px; overflow:hidden; display:flex; box-shadow:0 6px 30px rgba(0,0,0,.5); }
+
+  /* ===== 侧栏：成本账本 + 域切换 ===== */
+  .ledger { width:264px; background:var(--s0); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; flex-shrink:0; }
+  .brand { padding:14px 16px 10px; }
+  .brand .t { font-size:16px; font-weight:800; }
+  .brand .star { color:var(--gold); }
+  .brand .s { font-size:10px; color:var(--sub); margin-top:2px; }
+  .sum { margin:0 12px 10px; border:1px solid var(--line); border-radius:8px; background:linear-gradient(160deg,var(--s1),var(--s2)); padding:12px 14px; }
+  .sum .big { font-family:var(--mono); font-size:26px; font-weight:700; color:var(--gold); }
+  .sum .lbl { font-size:10px; color:var(--sub); }
+  .sum .saved { font-family:var(--mono); font-size:16px; color:var(--ok); font-weight:700; margin-top:8px; }
+  .sum .split { display:flex; gap:14px; margin-top:8px; }
+  .sum .cell .n { font-family:var(--mono); font-size:12px; color:var(--cyan); }
+  .sum .cell .l { font-size:9px; color:var(--sub); }
+  .nav { display:flex; flex-direction:column; gap:2px; padding:0 12px 8px; }
+  .nav-i { padding:8px 10px; border-radius:6px; font-size:12.5px; cursor:pointer; color:var(--sub); display:flex; align-items:center; gap:8px; }
+  .nav-i:hover { background:var(--s1); }
+  .nav-i.active { background:var(--s2); color:var(--ink); }
+  .nav-i .cnt { margin-left:auto; font-size:9.5px; background:var(--accent); color:#fff; padding:0 6px; border-radius:8px; font-weight:700; }
+  .nav-i .gate { margin-left:auto; font-size:9.5px; color:var(--ok); }
+  .trails-h { display:flex; justify-content:space-between; padding:6px 14px; font-size:10px; color:var(--sub); }
+  .trails-h .flt { color:var(--cyan); cursor:pointer; }
+  .trails { flex:1; overflow-y:auto; padding:0 10px; }
+  .trail { border:1px solid var(--line); border-radius:8px; background:var(--s1); padding:9px 11px; margin-bottom:6px; cursor:pointer; }
+  .trail:hover { border-color:var(--gold); }
+  .trail.cur { border-color:var(--gold); background:var(--s2); }
+  .trail .route { font-family:var(--mono); font-size:10px; margin-bottom:4px; display:flex; gap:5px; align-items:center; }
+  .node { padding:1px 6px; border-radius:4px; background:var(--s2); color:var(--sub); }
+  .node.hit { background:rgba(232,182,76,.15); color:var(--gold); font-weight:700; }
+  .node.block { background:rgba(240,163,94,.15); color:var(--warn); }
+  .trail .task { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trail .meta { display:flex; justify-content:space-between; margin-top:4px; font-size:9.5px; color:var(--sub); }
+  .trail .saved { color:var(--ok); font-family:var(--mono); }
+  .trail .pk { color:var(--cyan); }
+  .foot { padding:10px 14px; border-top:1px solid var(--line); font-size:10px; color:var(--sub); display:flex; justify-content:space-between; align-items:center; }
+  .foot .u { display:flex; align-items:center; gap:6px; color:var(--ink); }
+  .av { width:20px; height:20px; border-radius:50%; background:var(--gold); color:#0b1020; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; }
+
+  /* ===== 主区 ===== */
+  .main { flex:1; background:var(--m0); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; }
+  .mh { padding:12px 20px; border-bottom:1px solid var(--line); background:var(--m1); }
+  .mh .t { font-size:14px; font-weight:600; }
+  .mh .r { font-family:var(--mono); font-size:10.5px; color:var(--sub); margin-top:3px; }
+  .mh .r .layer { color:var(--gold); font-weight:600; }
+  .msgs { flex:1; overflow-y:auto; padding:16px 22px; }
+  .m { margin-bottom:14px; max-width:700px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:3px; font-family:var(--mono); }
+  .m.user .text { display:inline-block; padding:8px 12px; border-radius:8px; font-size:12.5px; background:var(--m2); border:1px solid var(--line); }
+  .m .text { font-size:12.5px; line-height:1.7; }
+  .m .art { margin-top:6px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .gates { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .gt { font-size:9.5px; padding:2px 8px; border-radius:8px; }
+  .gt.pass { background:rgba(126,231,135,.12); color:var(--ok); }
+  .gt.save { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .composer { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--line); background:var(--m1); }
+  .composer input { flex:1; padding:10px 12px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); font-size:12.5px; }
+  .composer input:focus { outline:1px solid var(--accent); }
+  .composer button { padding:10px 22px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; }
+
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--m1); font-size:10.5px; color:var(--sub); height:24px; }
+  .sb-i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb-i .num { font-family:var(--mono); color:var(--ink); }
+  .sb-i.right { margin-left:auto; border-right:none; border-left:1px solid var(--line); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:var(--line); }
+
+  /* ===== 工作台视图（chem）===== */
+  .wb { flex:1; overflow-y:auto; padding:16px 22px; }
+  .common-bar { display:flex; align-items:center; gap:2px; padding:6px 12px; background:var(--m1); border-bottom:1px solid var(--line); border-radius:var(--r); margin-bottom:14px; }
+  .core-mark { font-size:9px; letter-spacing:1px; color:var(--accent); background:rgba(108,155,255,.12); padding:2px 6px; border-radius:3px; margin-right:8px; font-weight:700; }
+  .cb { font-size:12px; padding:5px 12px; border-radius:var(--r); color:var(--ink); background:transparent; border:none; cursor:pointer; }
+  .cb:hover { background:var(--m2); }
+  .cb.active { background:var(--accent); color:#fff; font-weight:600; }
+  .domain-mark { margin-left:auto; font-size:9px; letter-spacing:.5px; color:var(--gold); background:rgba(232,182,76,.12); padding:2px 6px; border-radius:3px; font-weight:700; }
+  .field { margin-bottom:10px; }
+  .field label { font-size:10.5px; color:var(--sub); display:block; margin-bottom:4px; }
+  .field textarea, .field input {
+    width:100%; min-height:42px; padding:8px; font-family:var(--mono); font-size:13.5px;
+    border:1px solid var(--line); border-radius:var(--r); background:var(--m2); color:var(--ink); resize:vertical;
+  }
+  .field input { min-height:0; }
+  .field textarea:focus, .field input:focus { outline:1px solid var(--accent); }
+  .btn { padding:7px 18px; font-size:12.5px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); cursor:pointer; font-weight:600; }
+  .btn.s { background:var(--m2); color:var(--ink); border:1px solid var(--line); font-weight:400; }
+  .readout { border:1px solid var(--line); border-radius:var(--r); padding:12px 14px; background:var(--m1); margin-top:10px; }
+  .readout .status { display:flex; align-items:center; gap:6px; font-size:11px; margin-bottom:8px; }
+  .readout .vd { color:var(--ok); font-weight:600; }
+  .readout .src { color:var(--sub); }
+  .readout .formula { font-family:var(--mono); font-size:26px; font-weight:700; }
+  .readout .substats { display:flex; gap:20px; margin-top:8px; }
+  .readout .st .n { font-family:var(--mono); font-size:13px; }
+  .readout .st .l { font-size:10px; color:var(--sub); }
+  .readout .cost { margin-left:auto; text-align:right; }
+  .readout .cost .n { font-family:var(--mono); font-size:15px; color:var(--cyan); font-weight:700; }
+  .readout .cost .l { font-size:10px; color:var(--sub); }
+  .readout .err { color:var(--warn); font-size:12px; }
+  .gate { font-size:9px; padding:1px 7px; border-radius:3px; font-weight:700; }
+  .gate.fg { background:rgba(126,231,135,.12); color:var(--ok); }
+  .gate.sm { background:rgba(108,155,255,.12); color:var(--accent); }
+  .gate.aa { background:rgba(240,163,94,.12); color:var(--warn); }
+  .gate.ka { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .ev { border:1px solid var(--line); border-radius:var(--r); padding:8px 10px; margin-bottom:6px; background:var(--m1); }
+  .ev .head { display:flex; align-items:center; gap:6px; margin-bottom:3px; }
+  .ev .time { font-family:var(--mono); font-size:9.5px; color:var(--sub); margin-left:auto; }
+  .ev .body { font-size:11.5px; line-height:1.45; }
+  .ev.block { border-left:3px solid var(--warn); }
+
+  /* ===== 知识库视图 ===== */
+  .kb-item { border:1px solid var(--line); border-radius:var(--r); padding:10px 12px; margin-bottom:7px; background:var(--m1); }
+  .kb-item .t { font-size:12.5px; font-weight:600; }
+  .kb-item .t .sc { font-family:var(--mono); font-size:10.5px; color:var(--cyan); margin-left:6px; font-weight:400; }
+  .kb-item .b { font-size:11.5px; color:var(--sub); margin:4px 0; line-height:1.5; }
+  .kb-item .src { font-size:10px; color:var(--sub); }
+
+  /* ===== 路由可视化视图 ===== */
+  .flayer { display:flex; align-items:center; gap:10px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:6px; background:var(--m1); }
+  .flayer.hit { border-left:3px solid var(--gold); background:rgba(232,182,76,.06); }
+  .flayer.miss { opacity:.4; }
+  .flayer .ln { font-family:var(--mono); font-size:11px; min-width:96px; color:var(--sub); }
+  .flayer.hit .ln { color:var(--gold); font-weight:700; }
+  .flayer .ld { font-size:11.5px; flex:1; }
+  .flayer .cost { font-family:var(--mono); font-size:10.5px; }
+  .cost.zero { color:var(--ok); }
+  .explain { padding:12px 14px; background:var(--m1); border-radius:var(--r); font-size:11.5px; line-height:1.8; margin-top:10px; }
+  .explain b { color:var(--gold); }
+  .view { flex:1; overflow-y:auto; padding:16px 22px; }
+  .hidden { display:none !important; }
+  .crumb { font-size:11px; color:var(--sub); margin-bottom:12px; }
+  .crumb a { color:var(--cyan); cursor:pointer; }
+  .crumb b { color:var(--ink); }
+  h4 { font-size:12.5px; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  h4 .dt { font-size:9px; letter-spacing:1px; color:var(--gold); background:rgba(232,182,76,.12); padding:1px 6px; border-radius:3px; }
+  h4 .ct { font-size:9px; letter-spacing:1px; color:var(--accent); background:rgba(108,155,255,.12); padding:1px 6px; border-radius:3px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 侧栏 ===== -->
+  <aside class="ledger">
+    <div class="brand"><div class="t">SKY<span class="star"> ✦</span></div><div class="s">成本账本 · 路由全可见</div></div>
+    <div class="sum">
+      <div class="big">¥0.42</div><div class="lbl">本月实际 LLM 支出</div>
+      <div class="saved">↓ 已省 ¥3.86</div>
+      <div class="split">
+        <div class="cell"><div class="n" id="s-hit">71%</div><div class="l">命中率</div></div>
+        <div class="cell"><div class="n" id="s-cache">37/200</div><div class="l">缓存</div></div>
+        <div class="cell"><div class="n">3/3</div><div class="l">驯化</div></div>
+      </div>
+    </div>
+    <nav class="nav">
+      <div class="nav-i active" data-view="chat" onclick="switchView('chat')">💬 对话主控</div>
+      <div class="nav-i" data-view="chem" onclick="switchView('chem')">🧪 化学与化工</div>
+      <div class="nav-i" data-view="paper">📄 科学研究（规划中）</div>
+      <div class="nav-i" data-view="routes">📈 路由决策 <span class="gate ka" style="margin-left:6px;">可视化</span></div>
+      <div class="nav-i" data-view="kb" onclick="switchView('kb')">📚 知识库</div>
+    </nav>
+    <div class="trails-h"><span>决策轨迹（按包）</span><span class="flt" onclick="toggleBlock()">只看被拦截</span></div>
+    <div class="trails" id="trails"></div>
+    <div class="foot"><span class="u"><span class="av">A</span> Administrator</span><span>SKY v0.3</span></div>
+  </aside>
+
+  <!-- ===== 主区 ===== -->
+  <div class="main">
+    <!-- 对话主控 -->
+    <div class="view" id="v-chat" style="display:flex; flex-direction:column;">
+      <div class="mh"><div class="t">对话主控</div><div class="r">任何领域的任务从这里开始 · SKY 先决定能不能不花 token</div></div>
+      <div class="msgs" id="chat-msgs">
+        <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报</div></div>
+        <div class="m"><div class="who">SKY · L2 任务书命中 · 3 步 · LLM 1 次</div>
+          <div class="text">已从任务书「周报自动草稿」展开执行：读目录 → 读文件 → 生成周报。FactGuard 与源数据比对：0 冲突。</div>
+          <div class="art">📎 .sky-output/周报草稿.docx (18.9 KB)</div>
+          <div class="gates"><span class="gt pass">FactGuard ✓</span><span class="gt pass">引用锚点 ✓</span><span class="gt pass">LlmPolicy ✓</span><span class="gt save">⚡ 下次同任务 0 tok</span></div>
+        </div>
+        <div class="m user"><div class="who">你</div><div class="text">阿司匹林的 SMILES 是什么，分子量多少</div></div>
+        <div class="m"><div class="who">SKY · smiles_info · 0 token</div>
+          <div class="text">CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol（本地解析器验证，非 LLM 判断）</div>
+          <div class="gates"><span class="gt save">⚡ 指纹缓存命中 · 0 tok</span></div>
+        </div>
+      </div>
+      <div class="composer">
+        <input id="chat-in" type="text" placeholder="描述你的任务——SKY 会先决定能不能不花 token" onkeydown="if(event.key==='Enter')sendChat()">
+        <button onclick="sendChat()">发送</button>
+      </div>
+    </div>
+
+    <!-- 化学工作台 -->
+    <div class="view hidden" id="v-chem">
+      <div class="wb">
+        <div class="crumb"><a onclick="switchView('chat')">← 对话主控</a> / <b>化学与化工</b> / 工作台</div>
+        <div class="common-bar">
+          <span class="core-mark">CORE</span>
+          <button class="cb" type="button">文件</button>
+          <button class="cb" type="button">知识检索</button>
+          <button class="cb" type="button">文本处理</button>
+          <button class="cb" type="button">Shell</button>
+          <button class="cb" type="button">LLM 生成</button>
+          <button class="cb" type="button">应用自动化</button>
+          <button class="cb" type="button">产物</button>
+          <span class="domain-mark">化学与化工 · DOMAIN</span>
+        </div>
+        <h4 style="margin-top:14px;">结构解析 <span class="dt" style="font-size:9px;color:var(--gold);background:rgba(232,182,76,.12);padding:1px 6px;border-radius:3px;margin-left:4px;">DOMAIN</span></h4>
+        <div class="field"><label>SMILES</label><textarea id="chem-in" oninput="liveParse()">CC(=O)OC1=CC=CC=C1C(=O)O</textarea></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" onclick="liveParse()">解析验证</button>
+          <button class="btn s">导出 MOL</button>
+          <button class="btn s">ChemDraw 打开</button>
+        </div>
+        <div id="chem-out"></div>
+      </div>
+    </div>
+
+    <!-- 路由可视化 -->
+    <div class="view hidden" id="v-routes">
+      <div class="wb">
+        <div class="crumb"><a onclick="switchView('chat')">← 对话主控</a> / <b>路由决策</b></div>
+        <h4>六段漏斗 · 本次请求「实验数据.csv 摘要成周报」</h4>
+        <div class="flayer miss"><span class="ln">L0 规则</span><span class="ld">12 条内置规则未命中</span><span class="cost">—</span></div>
+        <div class="flayer miss"><span class="ln">L0.5 快配</span><span class="ld">关键词比率 0.2 &lt; 0.34</span><span class="cost">—</span></div>
+        <div class="flayer miss"><span class="ln">L1 直调</span><span class="ld">6 条直调规则未命中</span><span class="cost">—</span></div>
+        <div class="flayer hit"><span class="ln">L2 任务书</span><span class="ld">「周报自动草稿」命中（3/5 ≥ 0.34）</span><span class="cost zero">0 token</span></div>
+        <div class="flayer miss"><span class="ln">L3 仲裁</span><span class="ld">唯一候选，无需 LLM 仲裁</span><span class="cost">—</span></div>
+        <div class="flayer miss"><span class="ln">L4 探索</span><span class="ld">未触发</span><span class="cost">—</span></div>
+        <div class="explain">执行：3 步 DAG（<b>directory_tree → read_file → llm_generate</b>）· LLM 1 次（约 620 tok）· 确定性 2 次（0 tok）<br>驯化：FactGuard <b>通过</b> · 锚点 <b>命中</b> · LlmPolicy <b>通过</b> · 下次同输入 <b>0 tok</b></div>
+      </div>
+    </div>
+
+    <!-- 知识库 -->
+    <div class="view hidden" id="v-kb">
+      <div class="wb">
+        <div class="crumb"><a onclick="switchView('chat')">← 对话主控</a> / <b>知识库</b></div>
+        <h4>语义检索 <span class="ct">CORE 共享 · 0 token</span></h4>
+        <div class="field"><textarea id="kb-in">阿司匹林的作用机制</textarea></div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn" onclick="kbSearch()">检索</button>
+          <button class="btn s">添加条目</button>
+        </div>
+        <div id="kb-out">
+          <div class="kb-item"><div class="t">阿司匹林药理笔记<span class="sc">0.92</span></div><div class="b">乙酰水杨酸通过不可逆抑制 COX-1/COX-2……解热镇痛抗血小板。</div><div class="src">本地笔记/药理学.md · 2026-10-12</div></div>
+          <div class="kb-item"><div class="t">水杨酸与合成路线<span class="sc">0.78</span></div><div class="b">苯酚 Kolbe-Schmitt 羧化制水杨酸，再乙酰化。</div><div class="src">本地笔记/有机合成.md</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+      <div class="sb-i">本次 <span class="num">620</span> tok</div>
+      <div class="sb-i">确定性 <span class="num">2/3</span></div>
+      <div class="sb-i right"><span class="dot off"></span> Origin COM</div>
+      <div class="sb-i right"><span class="dot off"></span> ChemDraw COM</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 视图切换 =====
+function switchView(v) {
+  document.querySelectorAll('.view').forEach(e => e.classList.add('hidden'));
+  document.getElementById('v-' + v).classList.remove('hidden');
+  document.querySelectorAll('.nav-i').forEach(e => e.classList.remove('active'));
+  const nav = document.querySelector(`.nav-i[data-view="${v}"]`);
+  if (nav) nav.classList.add('active');
+}
+
+// ===== 决策轨迹（含过滤） =====
+const TRAILS = [
+  { route: ['L2 任务书', 'DAG 3 步'], task: '实验数据.csv 摘要成周报', pk: '化学与化工', saved: '省 2.8k tok', blocked: false },
+  { route: ['smiles_info', '本地解析'], task: '阿司匹林 SMILES 分子量', pk: '化学与化工', saved: '0 tok', blocked: false },
+  { route: ['FactGuard ✕'], task: '合同违约金条款审查', pk: '财务与法务', saved: '拦截 · 差 90%', blocked: true },
+];
+let blockOnly = false;
+function renderTrails() {
+  const box = document.getElementById('trails');
+  box.innerHTML = '';
+  TRAILS.filter(t => !blockOnly || t.blocked).forEach(t => {
+    const d = document.createElement('div');
+    d.className = 'trail' + (t.blocked ? ' block' : '');
+    d.innerHTML = `<div class="route">${t.route.map(n =>
+      `<span class="node ${n.includes('✕') ? 'block' : (n.startsWith('L') || n.startsWith('s') ? 'hit' : '')}">${n}</span>`
+    ).join('<span class="arr">→</span>')}</div>
+    <div class="task">${t.task}</div>
+    <div class="meta"><span class="pk">${t.pk}</span><span class="saved">${t.saved}</span></div>`;
+    box.appendChild(d);
+  });
+}
+function toggleBlock() { blockOnly = !blockOnly; renderTrails(); }
+renderTrails();
+
+// ===== SMILES 解析器（JS 版，与 Rust smiles_info 同语义的核心子集） =====
+const MASS = { H:1.008, B:10.81, C:12.011, N:14.007, O:15.999, F:18.998, P:30.974, S:32.06, Cl:35.45, Br:79.904, I:126.904 };
+const VALENCE = { C:4, N:3, P:3, B:3, O:2, S:2, F:1, Cl:1, Br:1, I:1 };
+
+function parseSmiles(s) {
+  const chars = [...s.trim()];
+  if (!chars.length) throw new Error('SMILES 为空');
+  const counts = {};
+  const atoms = []; const bonds = [];
+  const branch = []; const tail = []; const ring = {};
+  let bondOrder = 0; let depth = 0; let i = 0;
+  while (i < chars.length) {
+    const c = chars[i];
+    if (c === '(') { if (tail.length) branch.push(tail[tail.length-1]); depth++; i++; continue; }
+    if (c === ')') { depth--; if (depth < 0) throw new Error(`括号不匹配（位置 ${i}）`); if (branch.length) tail.push(branch.pop()); i++; continue; }
+    if (c === '.') { tail.pop(); i++; continue; }
+    if (/[0-9]/.test(c)) { bondOrder = 1; i++; continue; }
+    if ('=#-/\\'.includes(c)) { bondOrder = c === '=' ? 2 : c === '#' ? 3 : 1; i++; continue; }
+    let el = null;
+    const two = chars.slice(i, i+2).join('');
+    if (i+1 < chars.length && MASS[two] !== undefined) { el = two; }
+    else if (MASS[c] !== undefined) { el = c; }
+    else throw new Error(`不支持的原子/形态「${c}」（位置 ${i}）`);
+    const idx = atoms.length;
+    atoms.push(el);
+    if (tail.length) bonds.push([tail[tail.length-1], idx, bondOrder || 1]);
+    bondOrder = 0;
+    tail.splice(tail.length ? tail.length-1 : 0, tail.length ? 1 : 0, idx);
+    if (!tail.length) tail.push(idx);
+    i += el.length;
+  }
+  if (depth !== 0) throw new Error('括号不匹配（未闭合）');
+  if (!atoms.length) throw new Error('未解析出原子');
+  const used = new Array(atoms.length).fill(0);
+  for (const [a,b,o] of bonds) { used[a] += o; used[b] += o; }
+  let h = 0;
+  atoms.forEach((el, idx) => { h += Math.max(0, (VALENCE[el] || 0) - used[idx]); });
+  if (h > 0) counts['H'] = (counts['H'] || 0) + h;
+  atoms.forEach(el => counts[el] = (counts[el] || 0) + 1);
+  // 分子式（Hill 序）
+  let formula = '';
+  const order = Object.keys(counts).sort((a,b) => {
+    const r = e => e === 'C' ? 0 : e === 'H' ? 1 : 2;
+    return r(a) - r(b) || a.localeCompare(b);
+  });
+  for (const el of order) { formula += el + (counts[el] > 1 ? counts[el] : ''); }
+  let mw = 0;
+  for (const [el, n] of Object.entries(counts)) mw += MASS[el] * n;
+  mw = Math.round(mw * 100) / 100;
+  return { formula, mw, atoms: Object.values(counts).reduce((a,b)=>a+b,0) };
+}
+
+function liveParse() {
+  const input = document.getElementById('chem-in').value;
+  const out = document.getElementById('chem-out');
+  try {
+    const r = parseSmiles(input);
+    out.innerHTML = `<div class="readout">
+      <div class="status"><span class="vd">✓ 机器验证通过</span><span class="src">· 本地解析器（非 LLM）</span>
+        <span style="margin-left:auto;" class="gate fg">FactGuard ✓</span><span class="gate sm">锚点 ✓</span></div>
+      <div class="formula">${r.formula}</div>
+      <div class="substats">
+        <div class="st"><div class="n">${r.mw} g/mol</div><div class="l">分子量</div></div>
+        <div class="st"><div class="n">${r.atoms}</div><div class="l">原子数</div></div>
+        <div class="cost"><div class="n">0</div><div class="l">token</div></div>
+      </div></div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="readout"><div class="err">⚠ 幻觉拦截 / 解析失败：${e.message}</div>
+      <div style="font-size:11px;color:var(--sub);margin-top:4px;">解析失败即幻觉——不被采信，请检查 SMILES。</div></div>`;
+  }
+}
+liveParse();
+
+// ===== 知识库检索（本地语料模拟） =====
+const KB = [
+  { t: '阿司匹林药理笔记', sc: 0.92, b: '乙酰水杨酸通过不可逆抑制 COX-1/COX-2……解热镇痛抗血小板。', src: '本地笔记/药理学.md · 2026-10-12', kw: ['阿司匹林','作用机制','药理'] },
+  { t: '水杨酸与合成路线', sc: 0.78, b: '苯酚 Kolbe-Schmitt 羧化制水杨酸，再乙酰化。', src: '本地笔记/有机合成.md', kw: ['合成','水杨酸','路线'] },
+  { t: '环氧化酶抑制机制', sc: 0.71, b: '花生四烯酸代谢级联的第一步被 COX 催化……', src: '本地笔记/生化.md', kw: ['机制','抑制'] },
+];
+function kbSearch() {
+  const q = document.getElementById('kb-in').value;
+  const hits = KB.filter(e => e.kw.some(k => q.includes(k)) || q.split(/\s+/).some(w => w && (e.t + e.b).includes(w)));
+  const box = document.getElementById('kb-out');
+  box.innerHTML = hits.length ? hits.map(e =>
+    `<div class="kb-item"><div class="t">${e.t}<span class="sc">${e.sc}</span></div><div class="b">${e.b}</div><div class="src">${e.src}</div></div>`
+  ).join('') : '<div class="empty" style="border:1px dashed var(--line);padding:14px;color:var(--sub);font-size:11.5px;">无命中——换关键词或添加条目</div>';
+}
+
+// ===== 对话发送（模拟路由决策 + 回复） =====
+function sendChat() {
+  const input = document.getElementById('chat-in');
+  const text = input.value.trim();
+  if (!text) return;
+  const box = document.getElementById('chat-msgs');
+  const user = document.createElement('div');
+  user.className = 'm user';
+  user.innerHTML = `<div class="who">你</div><div class="text">${text}</div>`;
+  box.appendChild(user);
+  input.value = '';
+  // 模拟路由：含 SMILES/化学词 → smiles_info 0 token；含周报/摘要 → L2；否则 explore
+  let route, reply;
+  if (/SMILES|分子量|分子式/i.test(text)) {
+    route = 'smiles_info · 0 token';
+    reply = '（示例）CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol——本地解析器验证，非 LLM 判断。';
+  } else if (/周报|摘要|报告/.test(text)) {
+    route = 'L2 任务书命中 · 3 步 · LLM 1 次';
+    reply = '已从任务书「周报自动草稿」展开执行：读目录 → 读文件 → 生成周报。FactGuard 校验 0 冲突。';
+  } else {
+    route = 'L4 探索 · 需 LLM 规划';
+    reply = '（示例）该请求需要探索式规划——将调用 LLM 生成计划（本次演示不实际调网）。';
+  }
+  setTimeout(() => {
+    const m = document.createElement('div');
+    m.className = 'm';
+    m.innerHTML = `<div class="who">SKY · <span class="layer">${route}</span></div><div class="text">${reply}</div>`;
+    box.appendChild(m);
+    box.scrollTop = box.scrollHeight;
+  }, 400);
+}
+</script>
+</body>
+</html>
