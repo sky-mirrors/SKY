@@ -11,8 +11,13 @@
 pub mod gate;
 pub mod path;
 pub mod shell;
+pub mod task_gate;
 
 pub use gate::{deny_all_security, Action, Security, SecurityPolicy, Verdict};
+pub use task_gate::{
+    check_task_shell, TaskShellVerdict, DESTRUCTIVE_PATTERNS, DANGEROUS_SUBCOMMANDS,
+    TASK_SHELL_ALLOWED, UNEXPLAINABLE_CONSTRUCTS,
+};
 pub use path::{
     get_safe_extension, has_suspicious_basename, has_traversal_segment, is_within, validate_open_path,
     validate_path, validate_read_path, validate_write_path, PathCheck, DANGEROUS_EXTENSIONS,

@@ -932,71 +932,27 @@ fn build_req(msg: sky_core::ChatMessage, max_tokens: u32) -> sky_llm::ChatReques
 /// 局限（诚实记录）：黑名单可被绕过（如 `r''m -rf`）。真正的隔离需要
 /// 沙箱（容器/权限降级），当前实现是「降低误操作风险」而非「安全边界」。
 /// 这一点必须让调用方知道。
+///
+/// **安全规则单一事实源**（2026-10-18 收敛）：5 道闸门的白名单/模式定义
+/// 已上移到 `sky_security::task_gate`——本函数只做裁决调用与执行。
+/// 规则变更改 task_gate 一处即生效。
 fn tool_shell_exec(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<String, String> {
     let command = param_str(step, "command")
         .ok_or_else(|| "shell_exec 缺少 command 参数".to_string())?;
 
     let trimmed = command.trim();
-    if trimmed.is_empty() {
-        return Err("shell_exec 命令为空".to_string());
+
+    // 5 道闸门统一在 sky_security::task_gate 裁决（fail-closed）。
+    // 拒绝理由与原逐字实现一致（两侧测试共同锁定）。
+    match sky_security::check_task_shell(trimmed) {
+        sky_security::TaskShellVerdict::Denied(reason) => return Err(reason),
+        sky_security::TaskShellVerdict::Allowed => {}
     }
 
-    // 闸门 1：破坏性模式黑名单
-    if let Some(hit) = destructive_pattern(trimmed) {
-        return Err(format!(
-            "shell_exec 拒绝执行：命令含破坏性模式「{hit}」。\
-             如需执行请由用户手动确认后运行。命令：{trimmed}"
-        ));
-    }
-
-    // 闸门 2：复合命令（管道/重定向/命令替换）不可解释 → 拒绝
-    if let Some(hit) = unexplainable_shell_construct(trimmed) {
-        return Err(format!(
-            "shell_exec 拒绝执行：命令含「{hit}」等复合结构，\
-             无法静态判断其影响。如需执行请由用户手动确认。命令：{trimmed}"
-        ));
-    }
-
-    // 闸门 3：命令名必须是纯程序名，不能带路径
-    //
-    // 实测绕过：白名单含 "cat"，但 `/bin/cat`、`./cat`、`..\\cat` 都不等于
-    // "cat"，`contains` 判定会失败 → 直接拒绝（这个方向是安全的）。
-    // 但反过来，如果未来有人把白名单改成「以某名字结尾」，带路径就能绕过。
-    // 所以这里显式拒绝含路径分隔符的程序名——白名单只认裸名。
-    let prog = trimmed.split_whitespace().next().unwrap_or("");
-    if prog.contains('/') || prog.contains('\\') {
-        return Err(format!(
-            "shell_exec 拒绝执行：程序名不能带路径「{prog}」。\
-             请用裸名（如 cat 而非 /bin/cat）。如需执行请由用户手动确认。"
-        ));
-    }
-
-    // 闸门 4：白名单内命令的危险子命令
-    //
-    // 白名单里有 git 和 find，它们本身只读，但带某些子命令会破坏数据：
-    //   git clean -fdx  删除所有未跟踪文件
-    //   git reset --hard 丢改动
-    //   find . -delete  删除匹配文件
-    //   find . -exec rm 任意命令执行
-    // 这些必须单独拦——只靠程序名白名单不够。
-    let lower = trimmed.to_lowercase();
-    if let Some(hit) = dangerous_subcommand(&lower) {
-        return Err(format!(
-            "shell_exec 拒绝执行：命令含危险子操作「{hit}」。\
-             如需执行请由用户手动确认后运行。命令：{trimmed}"
-        ));
-    }
-
-    if !ALLOWED_SHELL_COMMANDS.contains(&prog) {
-        return Err(format!(
-            "shell_exec 拒绝执行：命令「{prog}」不在允许清单内。\
-             允许：{}。如需执行请由用户手动确认。",
-            ALLOWED_SHELL_COMMANDS.join(", ")
-        ));
-    }
+    // （闸门 3/4/5 已在 check_task_shell 内完成）
 
     let cwd = param_str(step, "cwd");
-    let mut cmd = std::process::Command::new(prog);
+    let mut cmd = std::process::Command::new(trimmed.split_whitespace().next().unwrap_or(""));
     let args: Vec<&str> = trimmed.split_whitespace().skip(1).collect();
     cmd.args(&args);
     if let Some(d) = &cwd {
@@ -1020,88 +976,6 @@ fn tool_shell_exec(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<
             out.status.code().unwrap_or(-1)
         ))
     }
-}
-
-/// 允许执行的命令白名单。
-///
-/// 保守清单——只含只读或低风险的查询类命令。写类操作（mv/rm/cp）
-/// 应由专用工具（`file_move` 等）完成，它们有参数校验与拒绝覆盖逻辑，
-/// 比裸 shell 命令安全得多。
-const ALLOWED_SHELL_COMMANDS: &[&str] = &[
-    "ls", "dir", "cat", "type", "head", "tail", "wc", "find", "grep", "rg", "echo", "pwd",
-    "date", "whoami", "git",
-];
-
-/// 检查白名单内命令的危险子操作。
-///
-/// 程序名白名单不够——`git` 与 `find` 都是只读工具，但带特定子命令会破坏数据。
-/// 实测清单：
-/// - `git clean -f/-d/-x` 删除未跟踪文件
-/// - `git reset --hard` 丢弃工作区改动
-/// - `git checkout --` / `git restore` 同上
-/// - `find ... -delete` / `-exec` 删除或执行任意命令
-/// - `echo ... > file` 覆写文件（重定向本应被闸门 2 拦，双保险）
-///
-/// 输入应为**已小写**的命令串。
-fn dangerous_subcommand(lower: &str) -> Option<&'static str> {
-    const PATTERNS: &[&str] = &[
-        "git clean",
-        "git reset --hard",
-        "git reset --mixed",
-        "git checkout --",
-        "git restore",
-        "git branch -d",
-        "git branch -D",
-        "git push -f",
-        "git push --force",
-        "git stash drop",
-        "-delete",
-        "-exec",
-        "--exec",
-        "find / -",
-    ];
-    PATTERNS
-        .iter()
-        .find(|p| lower.contains(&p.to_lowercase()))
-        .copied()
-}
-
-/// 检查破坏性模式。返回命中的模式文本。
-fn destructive_pattern(cmd: &str) -> Option<&'static str> {
-    const PATTERNS: &[&str] = &[
-        "rm -rf",
-        "rm -fr",
-        "rm -r",
-        "del /f",
-        "del /q",
-        "rmdir /s",
-        "format ",
-        "mkfs",
-        "dd of=",
-        "> /dev/sd",
-        ":(){",
-        "shutdown",
-        "reboot",
-        "chmod -R 777",
-        "> /dev/null 2>&1 &",
-    ];
-    let lower = cmd.to_lowercase();
-    PATTERNS.iter().find(|p| lower.contains(&p.to_lowercase())).copied()
-}
-
-/// 检查无法静态解释的复合结构。
-fn unexplainable_shell_construct(cmd: &str) -> Option<&'static str> {
-    const PATTERNS: &[(&str, &str)] = &[
-        ("|", "管道"),
-        (">", "输出重定向"),
-        ("<", "输入重定向"),
-        ("`", "命令替换"),
-        ("$(", "命令替换"),
-        ("&&", "命令串联"),
-        ("||", "命令串联"),
-        (";", "命令串联"),
-    ];
-    PATTERNS.iter().find(|(p, _)| cmd.contains(p)).map(|(_, name)| *name)
 }
 
 /// 注册所有已接入的工具。
