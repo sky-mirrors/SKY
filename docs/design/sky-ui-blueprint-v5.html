@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY UI 蓝图 V5 · 产品对齐稿（完整版）</title>
+<style>
+  :root {
+    --bg: #fff; --panel: #fafafa; --ink: #1a1a1a; --sub: #888;
+    --line: #e0e0e0; --accent: #2563eb; --ok: #16a34a; --warn: #b45309;
+    --mono: 'Consolas', monospace; --radius: 4px;
+    --dim: rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--ink);
+    display: flex; flex-direction: column; gap: 40px; padding: 28px; align-items: center;
+  }
+  h1.scenario { font-size: 18px; align-self: flex-start; max-width: 1100px; margin: 0 auto; width: 100%; }
+  h1.scenario small { display: block; font-size: 12px; color: var(--sub); font-weight: 400; margin-top: 6px; line-height: 1.6; }
+  .app {
+    width: 1100px; max-width: 100%; height: 640px; border: 1px solid var(--line);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+  header {
+    display: flex; align-items: center; padding: 8px 14px;
+    border-bottom: 1px solid var(--line); gap: 12px; background: var(--panel);
+  }
+  .brand { font-size: 14px; font-weight: 600; }
+  .spacer { flex: 1; }
+  .engine { font-size: 10.5px; color: var(--sub); }
+
+  /* 底部状态栏（V2 定稿，全场景共用） */
+  .statusbar {
+    display: flex; align-items: center; border-top: 1px solid var(--line); background: var(--panel);
+    font-size: 11px; color: var(--sub); height: 24px; margin-top: auto;
+  }
+  .sb { padding: 0 10px; height: 100%; display: flex; align-items: center; gap: 4px; border-right: 1px solid var(--line); }
+  .sb .num { font-family: var(--mono); color: var(--ink); }
+  .sb .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .dot.ok { background: var(--ok); } .dot.off { background: #ccc; }
+  .mini { width: 32px; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .mini .f { height: 100%; background: var(--ok); display: block; }
+  .sb.right { margin-left: auto; border-right: none; border-left: 1px solid var(--line); }
+
+  /* ===== 场景 1：对话主控 ===== */
+  .s1 { display: flex; flex: 1; overflow: hidden; }
+  .packs {
+    width: 190px; border-right: 1px solid var(--line); background: var(--panel);
+    padding: 10px 8px; display: flex; flex-direction: column; gap: 5px; overflow-y: auto;
+  }
+  .packs h4 { font-size: 10.5px; color: var(--sub); padding: 0 5px 4px; }
+  .pack { border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 9px; background: #fff; }
+  .pack.active { border-color: var(--accent); background: #eff6ff; }
+  .pack .n { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; }
+  .pack .d { font-size: 9.5px; color: var(--sub); margin-top: 1px; }
+  .mount { font-size: 8.5px; padding: 0 5px; border-radius: 6px; }
+  .mount.on { color: var(--ok); background: #f0fdf4; }
+  .mount.off { color: var(--sub); background: var(--line); }
+  .core.active { border-color: var(--accent); background: #eff6ff; border-style: solid; }
+  .install { margin-top: auto; font-size: 9px; color: var(--sub); border-top: 1px dashed var(--line); padding: 6px 4px 0; line-height: 1.5; }
+  .chat { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .msgs { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  .m { margin-bottom: 12px; max-width: 640px; }
+  .m .who { font-size: 10px; color: var(--sub); margin-bottom: 2px; font-family: var(--mono); }
+  .m .who .layer { color: var(--accent); }
+  .m.user .text { background: #eff6ff; display: inline-block; padding: 7px 11px; border-radius: 8px; font-size: 12.5px; }
+  .m .text { font-size: 12.5px; line-height: 1.6; }
+  .m .artifacts { margin-top: 6px; font-size: 11px; color: var(--ok); font-family: var(--mono); }
+  .cards { display: flex; gap: 8px; margin: 4px 0 14px; flex-wrap: wrap; }
+  .card {
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: var(--panel);
+    font-size: 11px; cursor: pointer;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card .cn { font-weight: 600; margin-bottom: 1px; }
+  .card .cd { color: var(--sub); font-size: 10px; }
+  .composer { display: flex; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line); }
+  .composer input {
+    flex: 1; padding: 8px 11px; font-size: 12.5px; border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .composer button {
+    padding: 8px 18px; background: var(--accent); color: #fff; border: none;
+    border-radius: var(--radius); font-weight: 600; cursor: pointer; font-size: 12.5px;
+  }
+
+  /* ===== 场景 2：路由决策可视化 ===== */
+  .funnel { padding: 8px 18px 14px; }
+  .flayer {
+    display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+    border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 6px; background: #fff;
+  }
+  .flayer.hit { border-left: 3px solid var(--ok); }
+  .flayer.miss { opacity: .45; }
+  .flayer.l3 { border-left: 3px solid var(--warn); }
+  .flayer .ln { font-family: var(--mono); font-size: 11px; min-width: 92px; color: var(--sub); }
+  .flayer.hit .ln, .flayer.l3 .ln { color: var(--ink); font-weight: 600; }
+  .flayer .ld { font-size: 11px; flex: 1; }
+  .flayer .cost { font-family: var(--mono); font-size: 10.5px; }
+  .cost.zero { color: var(--ok); }
+  .cost.llm { color: var(--warn); }
+  .explain {
+    margin: 0 18px 14px; padding: 10px 12px; background: var(--panel); border-radius: var(--radius);
+    font-size: 11.5px; line-height: 1.7;
+  }
+  .explain b { color: var(--accent); }
+
+  /* ===== 场景 3：领域工作台（化学） ===== */
+  .wb { padding: 12px 18px; overflow-y: auto; flex: 1; }
+  .wb-crumb { font-size: 11px; color: var(--sub); margin-bottom: 10px; }
+  .wb-crumb a { color: var(--accent); cursor: pointer; }
+  .wb-grid { display: flex; gap: 14px; }
+  .wb-left { flex: 1.2; }
+  .wb-right { flex: 1; }
+  .smiles-in {
+    width: 100%; padding: 10px; font-family: var(--mono); font-size: 13.5px;
+    border: 1px solid var(--line); border-radius: var(--radius); min-height: 46px;
+  }
+  .wb-actions { display: flex; gap: 8px; margin: 10px 0; }
+  .mol-sketch {
+    height: 130px; border: 1px dashed var(--line); border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); color: var(--sub); font-size: 13px; letter-spacing: 2px;
+  }
+  .gate-tag { display: inline-block; font-size: 9.5px; padding: 1px 7px; border-radius: 8px; margin-right: 4px; }
+  .gt-ok { background: #f0fdf4; color: var(--ok); }
+  .gt-warn { background: #fef3c7; color: var(--warn); }
+
+  /* ===== 场景 4：知识库 ===== */
+  .kb-entry { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; background: #fff; }
+  .kb-entry .t { font-size: 12.5px; font-weight: 600; }
+  .kb-entry .t .sc { font-family: var(--mono); font-size: 10.5px; color: var(--accent); margin-left: 6px; font-weight: 400; }
+  .kb-entry .b { font-size: 11.5px; color: var(--sub); margin: 4px 0; line-height: 1.5; }
+  .kb-entry .src { font-size: 10px; color: var(--sub); }
+</style>
+</head>
+<body>
+
+<!-- ==================== 场景 1 ==================== -->
+<h1 class="scenario">场景 1 · 对话主控（默认视图）——主功能 = 一句话任务；路由决策「摊开给人看」直接落在消息元信息里
+  <small>SKY 的第一论点：每次路由可见（哪层接的、花多少、产什么）。领域不是 tabs，是「包」——挂载状态、来源（加 JSON 即装）全部可见。下方三卡是已挂载包的功能入口，不是功能本身。</small>
+</h1>
+<div class="app">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="spacer"></span>
+    <span class="engine">GLM 在线 · 引擎 v0.3</span>
+  </header>
+  <div class="s1">
+    <aside class="packs">
+      <h4>领域包（3 已挂载）</h4>
+      <div class="pack active"><div class="n">SKY 核心</div><div class="d">对话 · 路由 · 任务书引擎</div></div>
+      <div class="pack"><div class="n">化学硕博 <span class="mount on">挂载</span></div><div class="d">SMILES · Origin/ChemDraw</div></div>
+      <div class="pack"><div class="n">科研论文 <span class="mount on">挂载</span></div><div class="d">双语精读 · 知识检索</div></div>
+      <div class="pack"><div class="n">财务法务 <span class="mount off">未装</span></div><div class="d">合同审查 · FactGuard</div></div>
+      <div class="install">加领域 = 加 JSON<br><b>config/l2_manifests/</b><br>或 {userData} 包目录</div>
+    </aside>
+    <div class="chat">
+      <div class="msgs">
+        <div class="cards">
+          <div class="card"><div class="cn">🧪 化学结构验证</div><div class="cd">化学硕博 · 0 token</div></div>
+          <div class="card"><div class="cn">📄 论文精读</div><div class="cd">科研论文 · 动作缓存</div></div>
+          <div class="card"><div class="cn">📊 数据→Origin</div><div class="cd">COM 桥 · 导入导出</div></div>
+        </div>
+        <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报</div></div>
+        <div class="m">
+          <div class="who">SKY · <span class="layer">L2 manifest 命中</span> · 3 步 · LLM 0 次</div>
+          <div class="text">已从任务书「周报自动草稿」展开：directory_tree → read_file → llm_generate。FactGuard 校验通过（金额 0 处冲突）。</div>
+          <div class="artifacts">📎 产出：.sky-output/周报草稿.docx (18.9 KB)</div>
+        </div>
+        <div class="m user"><div class="who">你</div><div class="text">阿司匹林的 SMILES 是什么，分子量多少</div></div>
+        <div class="m">
+          <div class="who">SKY · <span class="layer">smiles_info</span> · 0 token</div>
+          <div class="text">CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol（本地解析器验证，非 LLM 判断）</div>
+        </div>
+      </div>
+      <div class="composer">
+        <input type="text" placeholder="描述你的任务——SKY 会先决定能不能不花 token">
+        <button type="button">发送</button>
+      </div>
+    </div>
+    <footer class="statusbar">
+      <div class="sb"><span class="dot ok"></span> 引擎在线</div>
+      <div class="sb"><span class="mini"><span class="f" style="width:71%"></span></span> 命中 71%</div>
+      <div class="sb">省 <span class="num">12.4k</span> tok</div>
+      <div class="sb">缓存 <span class="num">37/200</span></div>
+      <div class="sb">驯化 <span class="num">3/3</span></div>
+      <div class="sb right"><span class="dot off"></span> Origin</div>
+      <div class="sb right"><span class="dot off"></span> ChemDraw</div>
+    </footer>
+  </div>
+</div>
+
+<!-- ==================== 场景 2 ==================== -->
+<h1 class="scenario">场景 2 · 路由决策可视化（点击消息的「L2 manifest 命中」展开）——产品的核心论点页
+  <small>六段漏斗逐层展示：哪层命中、哪层跳过、每层的 token 成本。隐藏的路由是 token 与信任同时泄漏的地方——这一页把两者都堵住。</small>
+</h1>
+<div class="app">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="engine">路由决策 · 本次请求</span>
+  </header>
+  <div class="funnel">
+    <div class="flayer miss"><span class="ln">L0 规则</span><span class="ld">12 条内置规则未命中「摘要成周报」</span><span class="cost">—</span></div>
+    <div class="flayer miss"><span class="ln">L0.5 快配</span><span class="ld">关键词比率 0.2 &lt; 0.34 未过门</span><span class="cost">—</span></div>
+    <div class="flayer miss"><span class="ln">L1 直调</span><span class="ld">6 条直调规则未命中</span><span class="cost">—</span></div>
+    <div class="flayer hit"><span class="ln">L2 任务书</span><span class="ld">「周报自动草稿」命中（关键词 3/5 ≥ 0.34）</span><span class="cost zero">0 token</span></div>
+    <div class="flayer miss"><span class="ln">L3 仲裁</span><span class="ld">唯一候选，无需 LLM 仲裁</span><span class="cost">—</span></div>
+    <div class="flayer miss"><span class="ln">L4 探索</span><span class="ld">未触发</span><span class="cost">—</span></div>
+  </div>
+  <div class="explain">
+    执行：3 步 DAG（<b>directory_tree → read_file → llm_generate</b>）· LLM 调用 <b>1 次</b>（约 620 token）· 确定性步骤 <b>2 次（0 token）</b><br>
+    驯化闸门：FactGuard <b>通过</b>（金额 0 冲突）· 引用锚点 <b>命中</b>（含原文片段）· LlmPolicy <b>通过</b><br>
+    下次相同输入：路由缓存直接命中（0 匹配成本）· llm_generate 指纹缓存命中（0 token）
+  </div>
+  <footer class="statusbar">
+    <div class="sb"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb">本次 <span class="num">620</span> tok</div>
+    <div class="sb">确定性步骤 <span class="num">2/3</span></div>
+    <div class="sb">下次 <span class="num">0</span> tok</div>
+  </footer>
+</div>
+
+<!-- ==================== 场景 3 ==================== -->
+<h1 class="scenario">场景 3 · 领域工作台（化学硕博·点功能卡进入）——领域包的工作模式，从包里来，回包里去
+  <small>面包屑显示宿主（SKY 核心 / 化学硕博包）。工作台功能全部来自该包声明：解析（机器验证闸门）、导出、COM 桥。事件流记录每次驯化裁决。</small>
+</h1>
+<div class="app">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="engine">宿主：SKY 核心 · 包：化学硕博</span>
+  </header>
+  <div class="wb">
+    <div class="wb-crumb"><a>← 对话主控</a> / <b>化学硕博</b> / 结构验证</div>
+    <div class="wb-grid">
+      <div class="wb-left">
+        <textarea class="smiles-in">CC(=O)OC1=CC=CC=C1C(=O)O</textarea>
+        <div class="wb-actions">
+          <button class="btn-p" type="button">解析验证</button>
+          <button class="btn-s" type="button">导出 MOL</button>
+          <button class="btn-s" type="button">ChemDraw 打开</button>
+        </div>
+        <div style="border:1px solid var(--line);border-radius:var(--radius);padding:14px;">
+          <div class="formula" style="font-family:var(--mono);font-size:22px;font-weight:700;">C₉H₈O₄</div>
+          <div class="stats" style="display:flex;gap:18px;margin-top:6px;">
+            <div class="stat"><div class="num" style="font-family:var(--mono);font-size:13px;">180.16</div><div class="lbl" style="font-size:10px;color:var(--sub);">g/mol</div></div>
+            <div class="stat"><div class="num" style="font-family:var(--mono);font-size:13px;">21</div><div class="lbl" style="font-size:10px;color:var(--sub);">原子数</div></div>
+            <div class="stat"><div class="num" style="font-family:var(--mono);font-size:13px;">0</div><div class="lbl" style="font-size:10px;color:var(--sub);">token</div></div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--ok);">✓ 机器验证通过（本地解析器）</div>
+        </div>
+      </div>
+      <div class="wb-right">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px;">事件流 · 驯化裁决记录</div>
+        <div class="kb-entry">
+          <div class="t">✓ 解析通过 <span class="gt-ok gate-tag">smiles_info</span></div>
+          <div class="b">CC(=O)O... → C₉H₈O₄ · 180.16 g/mol</div>
+          <div class="src">14:02 · 本地解析器 · 0 token</div>
+        </div>
+        <div class="kb-entry" style="border-left:3px solid var(--warn);">
+          <div class="t">⚠ 幻觉拦截 <span class="gt-warn gate-tag">FactGuard</span></div>
+          <div class="b">LLM 报 C13H18O2 ≠ 解析 C9H8O4 → 已阻止</div>
+          <div class="src">13:58 · 差 4 个碳</div>
+        </div>
+        <div class="kb-entry" style="border-left:3px solid var(--accent);">
+          <div class="t">⚡ 缓存回放 <span class="gt-ok gate-tag">指纹缓存</span></div>
+          <div class="b">咖啡因 C₈H₁₀N₄O₂ · 0 token</div>
+          <div class="src">13:51 · 同 prompt 第二次</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <footer class="statusbar">
+    <div class="sb"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb">包：化学硕博</div>
+    <div class="sb">驯化 <span class="num">3/3</span></div>
+    <div class="sb right"><span class="dot off"></span> ChemDraw COM</div>
+  </footer>
+</div>
+
+<!-- ==================== 场景 4 ==================== -->
+<h1 class="scenario">场景 4 · 知识库（对话主控的功能卡/包内入口）——语义召回 + 条目管理
+  <small>knowledge_search 语义召回（已落地零 token），条目来源可见——引用可追溯是 anti-hallucination 的知识侧配套。</small>
+</h1>
+<div class="app">
+  <header>
+    <span class="brand">SKY</span>
+    <span class="engine">知识库 · 本地</span>
+  </header>
+  <div class="wb">
+    <div class="wb-crumb"><a>← 对话主控</a> / 知识库</div>
+    <textarea class="smiles-in" style="min-height:0;">阿司匹林的作用机制</textarea>
+    <div class="wb-actions">
+      <button class="btn-p" type="button">检索</button>
+      <button class="btn-s" type="button">添加条目</button>
+    </div>
+    <div class="kb-entry">
+      <div class="t">阿司匹林药理笔记 <span class="sc">score 0.92</span></div>
+      <div class="b">乙酰水杨酸通过不可逆抑制 COX-1/COX-2，发挥解热、镇痛、抗血小板聚集作用……</div>
+      <div class="src">本地笔记/药理学.md · 2026-10-12</div>
+    </div>
+    <div class="kb-entry">
+      <div class="t">水杨酸与合成路线 <span class="sc">score 0.78</span></div>
+      <div class="b">苯酚 Kolbe-Schmitt 羧化制水杨酸，乙酸酐乙酰化得乙酰水杨酸。</div>
+      <div class="src">本地笔记/有机合成.md</div>
+    </div>
+    <div class="kb-entry">
+      <div class="t">环氧化酶抑制机制 <span class="sc">score 0.71</span></div>
+      <div class="b">花生四烯酸代谢级联的第一步被 COX 催化……</div>
+      <div class="src">本地笔记/生化.md</div>
+    </div>
+  </div>
+  <footer class="statusbar">
+    <div class="sb"><span class="dot ok"></span> 引擎在线</div>
+    <div class="sb">条目 <span class="num">42</span></div>
+    <div class="sb">召回 <span class="num">0</span> tok</div>
+  </footer>
+</div>
+
+</body>
+</html>
