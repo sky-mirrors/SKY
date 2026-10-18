@@ -251,9 +251,35 @@ pub fn MainView() -> Element {
                 );
                 return; // 审批卡回调里继续
             };
-            let result = pipeline
-                .run_prepared(&prepared, &crate::tools::register_all(), decision)
-                .await;
+            let result = {
+                // 步骤级流式：StepStart/Done/Failed 实时推到消息区，
+                // 用户看到「第几步在跑」而非黑盒等待（token 级流式待 sky-llm
+                // 流式客户端，见 §9.8.6）。
+                let mut state_ev = state;
+                let mut on_event = move |ev: sky_exec::ExecEvent| match ev {
+                    sky_exec::ExecEvent::StepStart { step, tool } => {
+                        state_ev.write().messages.push((
+                            "assistant".into(),
+                            format!("▸ 步骤 {step} 执行中：{tool}"),
+                        ));
+                    }
+                    sky_exec::ExecEvent::StepFailed { step, error } => {
+                        state_ev.write().messages.push((
+                            "assistant".into(),
+                            format!("✗ 步骤 {step} 失败：{error}"),
+                        ));
+                    }
+                    _ => {}
+                };
+                pipeline
+                    .run_prepared_with_events(
+                        &prepared,
+                        &crate::tools::register_all(),
+                        decision,
+                        &mut on_event,
+                    )
+                    .await
+            };
             // 计时留痕：确定性路径设计上应是微秒级，若这里出现数秒，
             // 说明实际走的是 explore（调了 LLM）。用户报告「转 pdf 也要
             // 五六秒」时，端到端耗时与 route_source 一起看才有判断依据。
@@ -281,14 +307,14 @@ pub fn MainView() -> Element {
 
     rsx! {
         div {
-            style: "display: flex; flex-direction: column; height: 100vh; font-family: 'Microsoft YaHei', sans-serif;",
+            style: "display: flex; flex-direction: column; height: 100vh; color: #dfe6ff; background: #0f1526; font-family: 'Microsoft YaHei', sans-serif;",
 
             // 顶部标题
             div {
-                style: "padding: 12px 16px; border-bottom: 1px solid #e0e0e0; font-size: 15px; font-weight: 600;",
+                style: "padding: 12px 16px; border-bottom: 1px solid #232c4a; background: #131a2e; font-size: 15px; font-weight: 600;",
                 "SKY"
                 span {
-                    style: "margin-left: 8px; font-size: 12px; font-weight: 400; color: #888;",
+                    style: "margin-left: 8px; font-size: 12px; font-weight: 400; color: #7c86ad;",
                     "本地优先的 AI 工具控制台"
                 }
             }
@@ -299,26 +325,26 @@ pub fn MainView() -> Element {
 
                 // 领域包侧栏——热插拔的可见表达（§9.7：换域即换工作台）
                 div {
-                    style: "width: 200px; border-right: 1px solid #e0e0e0; background: #fafafa; padding: 10px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;",
+                    style: "width: 200px; border-right: 1px solid #232c4a; background: #161d33; padding: 10px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;",
                     div {
-                        style: "font-size: 11px; color: #888; padding: 0 6px 6px; font-weight: 600;",
+                        style: "font-size: 11px; color: #7c86ad; padding: 0 6px 6px; font-weight: 600;",
                         "领域包"
                     }
                     div {
                         style: if state.read().active_view == "core" {
-                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                            "border: 1px solid #6c9bff; background: #1a2340; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
                         } else {
-                            "border: 1px dashed #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                            "border: 1px dashed #232c4a; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
                         },
                         onclick: move |_| state.write().active_view = "core",
                         div { style: "font-size: 12.5px; font-weight: 600;", "SKY 核心" }
-                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "对话 · 规则路由 · 任务书引擎" }
+                        div { style: "font-size: 10px; color: #7c86ad; margin-top: 2px;", "对话 · 规则路由 · 任务书引擎" }
                     }
                     div {
                         style: if state.read().active_view == "chem" {
-                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                            "border: 1px solid #6c9bff; background: #1a2340; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
                         } else {
-                            "border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
+                            "border: 1px solid #232c4a; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
                         },
                         onclick: move |_| state.write().active_view = "chem",
                         div {
@@ -329,13 +355,13 @@ pub fn MainView() -> Element {
                                 "已挂载"
                             }
                         }
-                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "SMILES 解析 · Origin/ChemDraw 桥" }
+                        div { style: "font-size: 10px; color: #7c86ad; margin-top: 2px;", "SMILES 解析 · Origin/ChemDraw 桥" }
                     }
                     div {
                         style: if state.read().active_view == "paper" {
-                            "border: 1px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
+                            "border: 1px solid #6c9bff; background: #1a2340; border-radius: 4px; padding: 8px 10px; cursor: pointer;"
                         } else {
-                            "border: 1px solid #e0e0e0; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
+                            "border: 1px solid #232c4a; border-radius: 4px; padding: 8px 10px; cursor: pointer; background: white;"
                         },
                         onclick: move |_| state.write().active_view = "paper",
                         div {
@@ -346,12 +372,15 @@ pub fn MainView() -> Element {
                                 "已挂载"
                             }
                         }
-                        div { style: "font-size: 10px; color: #888; margin-top: 2px;", "双语精读 · 标注 · 知识检索" }
+                        div { style: "font-size: 10px; color: #7c86ad; margin-top: 2px;", "双语精读 · 标注 · 知识检索" }
                     }
                     div {
-                        style: "margin-top: auto; padding: 8px 6px 0; font-size: 9.5px; color: #888; border-top: 1px dashed #e0e0e0; line-height: 1.5;",
+                        style: "margin-top: auto; padding: 8px 6px 0; font-size: 9.5px; color: #7c86ad; border-top: 1px dashed #232c4a; line-height: 1.5;",
                         "加领域 = 加 JSON："
-                        div { style: "font-family: Consolas, monospace; font-size: 9px; color: #2563eb;", "config/l2_manifests/" }
+                        div { style: "font-family: Consolas, monospace; font-size: 9px; color: #e8b64c;", "config/l2_manifests/" }
+                        div { style: "font-size: 9px; color: #5d6890; margin-top: 4px;",
+                            "多窗口机制就绪（WindowRegistry），独立建窗待接。"
+                        }
                     }
                 }
 
@@ -362,13 +391,13 @@ pub fn MainView() -> Element {
                     // 面包屑：进入领域工作台后显示，返回键回对话主控
                     if state.read().active_view != "core" {
                         div {
-                            style: "display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #e0e0e0; font-size: 12px; background: #fafafa;",
+                            style: "display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid #232c4a; font-size: 12px; background: #161d33;",
                             a {
-                                style: "color: #2563eb; cursor: pointer;",
+                                style: "color: #e8b64c; cursor: pointer;",
                                 onclick: move |_| state.write().active_view = "core",
                                 "← 对话主控"
                             }
-                            span { style: "color: #888;", "/" }
+                            span { style: "color: #7c86ad;", "/" }
                             span { style: "font-weight: 600;",
                                 if state.read().active_view == "chem" { "化学与化工工作台" } else { "科学研究工作台" }
                             }
@@ -384,16 +413,16 @@ pub fn MainView() -> Element {
                         div {
                             style: "display: flex; gap: 10px; padding: 4px 0 14px; flex-wrap: wrap;",
                             div {
-                                style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
+                                style: "border: 1px solid #232c4a; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #161d33; min-width: 150px;",
                                 onclick: move |_| state.write().active_view = "chem",
                                 div { style: "font-weight: 600; margin-bottom: 2px;", "化学结构验证" }
-                                div { style: "color: #888; font-size: 11px;", "SMILES → 分子式/分子量 · 0 token" }
+                                div { style: "color: #7c86ad; font-size: 11px;", "SMILES → 分子式/分子量 · 0 token" }
                             }
                             div {
-                                style: "border: 1px solid #e0e0e0; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #fafafa; min-width: 150px;",
+                                style: "border: 1px solid #232c4a; border-radius: 8px; padding: 10px 14px; font-size: 12px; cursor: pointer; background: #161d33; min-width: 150px;",
                                 onclick: move |_| state.write().active_view = "paper",
                                 div { style: "font-weight: 600; margin-bottom: 2px;", "论文精读" }
-                                div { style: "color: #888; font-size: 11px;", "双语对照 · 段落问答 · 动作缓存" }
+                                div { style: "color: #7c86ad; font-size: 11px;", "双语对照 · 段落问答 · 动作缓存" }
                             }
                         }
 
@@ -402,7 +431,7 @@ pub fn MainView() -> Element {
                                 key: "{i}",
                                 style: "margin-bottom: 12px;",
                                 div {
-                                    style: "font-size: 12px; color: #888; margin-bottom: 4px;",
+                                    style: "font-size: 12px; color: #7c86ad; margin-bottom: 4px;",
                                     "{role}"
                                 }
                                 div {
@@ -414,13 +443,13 @@ pub fn MainView() -> Element {
                         // 写门审批卡——fail-closed：出现即等裁决，期间禁输入
                         if let Some(p) = state.read().pending_approval.clone() {
                             div {
-                                style: "border: 1px solid #b45309; background: #fffbeb; border-radius: 6px; padding: 12px 14px; margin: 10px 0; max-width: 560px;",
+                                style: "border: 1px solid #b45309; background: #2a2417; border-radius: 6px; padding: 12px 14px; margin: 10px 0; max-width: 560px;",
                                 div {
-                                    style: "font-size: 12.5px; font-weight: 700; color: #b45309; margin-bottom: 8px;",
+                                    style: "font-size: 12.5px; font-weight: 700; color: #f0a35e; margin-bottom: 8px;",
                                     "写操作需要授权 —— 写门 fail-closed"
                                 }
                                 div {
-                                    style: "font-family: Consolas, monospace; font-size: 12px; background: #f5f5f5; border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; margin-bottom: 10px;",
+                                    style: "font-family: Consolas, monospace; font-size: 12px; background: #1d2642; border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; margin-bottom: 10px;",
                                     "{p.tool_name}\n操作：{p.operation}\n目标：{p.target}"
                                 }
                                 div {
@@ -431,7 +460,7 @@ pub fn MainView() -> Element {
                                         "允许一次"
                                     }
                                     button {
-                                        style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; color: #dc2626; border: 1px solid #e5e7eb; background: white; border-radius: 4px;",
+                                        style: "padding: 6px 14px; font-size: 12.5px; cursor: pointer; color: #dc2626; border: 1px solid #232c4a; background: white; border-radius: 4px;",
                                         onclick: move |_| resolve_approval.call(false),
                                         "拒绝"
                                     }
@@ -442,7 +471,7 @@ pub fn MainView() -> Element {
                         // 没有这条，用户会以为发送没反应。
                         if state.read().streaming {
                             div {
-                                style: "font-size: 13px; color: #888; font-style: italic;",
+                                style: "font-size: 13px; color: #7c86ad; font-style: italic;",
                                 "处理中…（正在生成计划，约需数秒）"
                             }
                         }
@@ -454,16 +483,16 @@ pub fn MainView() -> Element {
                         div {
                             style: "flex: 1; overflow-y: auto; padding: 16px;",
                             div {
-                                style: "font-size: 12px; color: #888; margin-bottom: 10px; line-height: 1.5;",
+                                style: "font-size: 12px; color: #7c86ad; margin-bottom: 10px; line-height: 1.5;",
                                 "粘贴 SMILES，本地解析分子式与分子量——解析失败即幻觉拦截，全程 0 token。"
-                                div { style: "font-size: 10px; color: #aaa; margin-top: 2px;",
+                                div { style: "font-size: 10px; color: #5d6890; margin-top: 2px;",
                                     "支持：有机主族 / 分支 / 环编号 / 双三键；立体@与电荷形态走 RDKit 通道（未接入）。"
                                 }
                             }
                             div {
                                 style: "display: flex; gap: 8px; margin-bottom: 10px;",
                                 input {
-                                    style: "flex: 1; padding: 7px 10px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #ccc; border-radius: 4px;",
+                                    style: "flex: 1; padding: 7px 10px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #232c4a; border-radius: 4px;",
                                     placeholder: "例：CC(=O)OC1=CC=CC=C1C(=O)O",
                                     value: "{chem.read().input}",
                                     oninput: move |e| chem.write().input = e.value(),
@@ -474,14 +503,14 @@ pub fn MainView() -> Element {
                                     },
                                 }
                                 button {
-                                    style: "padding: 7px 16px; font-size: 12.5px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 4px; font-weight: 600;",
+                                    style: "padding: 7px 16px; font-size: 12.5px; cursor: pointer; background: #6c9bff; color: white; border: none; border-radius: 4px; font-weight: 600;",
                                     onclick: move |_| chem.write().analyze(),
                                     "解析验证"
                                 }
                             }
                             if let Some((formula, mw, atoms)) = chem.read().last_result.clone() {
                                 div {
-                                    style: "border: 1px solid #e0e0e0; border-radius: 4px; padding: 14px; margin-bottom: 10px;",
+                                    style: "border: 1px solid #232c4a; border-radius: 4px; padding: 14px; margin-bottom: 10px;",
                                     div { style: "font-family: Consolas, monospace; font-size: 22px; font-weight: 700;", "{formula}" }
                                     div { style: "display: flex; gap: 20px; margin-top: 6px; font-size: 12px;",
                                         span { style: "font-family: Consolas, monospace;", "{mw:.2} g/mol" }
@@ -491,17 +520,17 @@ pub fn MainView() -> Element {
                                     div { style: "font-size: 11px; color: #16a34a; margin-top: 8px;", "✓ 机器验证通过（本地解析器，非 LLM）" }
                                 }
                             }
-                            div { style: "font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600;", "事件流（驯化闸门记录）" }
+                            div { style: "font-size: 12px; color: #7c86ad; margin-bottom: 6px; font-weight: 600;", "事件流（驯化闸门记录）" }
                             if chem.read().events.is_empty() {
-                                div { style: "font-size: 12px; color: #aaa;", "暂无记录——输入 SMILES 开始" }
+                                div { style: "font-size: 12px; color: #5d6890;", "暂无记录——输入 SMILES 开始" }
                             }
                             for (i, ev) in chem.read().events.iter().cloned().enumerate() {
                                 div {
                                     key: "{i}",
                                     style: if ev.is_alert() {
-                                        "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-left: 3px solid #b45309; border-radius: 4px; font-size: 12px;"
+                                        "padding: 6px 10px; margin-bottom: 5px; background: #161d33; border-left: 3px solid #f0a35e; border-radius: 4px; font-size: 12px;"
                                     } else {
-                                        "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-left: 3px solid #16a34a; border-radius: 4px; font-size: 12px;"
+                                        "padding: 6px 10px; margin-bottom: 5px; background: #161d33; border-left: 3px solid #7ee787; border-radius: 4px; font-size: 12px;"
                                     },
                                     if ev.is_alert() { "⚠ 幻觉拦截" } else { "✓ 验证通过" }
                                     " · {ev.summary()}"
@@ -515,7 +544,7 @@ pub fn MainView() -> Element {
                         div {
                             style: "flex: 1; overflow-y: auto; padding: 16px;",
                             div {
-                                style: "font-size: 12px; color: #888; margin-bottom: 10px;",
+                                style: "font-size: 12px; color: #7c86ad; margin-bottom: 10px;",
                                 "段落点选 → 动作按钮（规范化键缓存，同段同动作第二次 0 token）"
                             }
                             div {
@@ -524,9 +553,9 @@ pub fn MainView() -> Element {
                                     button {
                                         key: "{sec.no}",
                                         style: if reader_current.read().to_string() == sec.no.to_string() {
-                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 3px;"
+                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #6c9bff; color: white; border: none; border-radius: 3px;"
                                         } else {
-                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #e5e7eb; border: none; border-radius: 3px;"
+                                            "padding: 3px 10px; font-size: 11px; cursor: pointer; background: #232c4a; border: none; border-radius: 3px;"
                                         },
                                         onclick: move |_| reader_current.set(sec.no),
                                         "§{sec.no} {sec.digest}"
@@ -552,15 +581,15 @@ pub fn MainView() -> Element {
                                     "问答本段"
                                 }
                             }
-                            div { style: "font-size: 12px; color: #888; margin-bottom: 6px; font-weight: 600;", "产出" }
+                            div { style: "font-size: 12px; color: #7c86ad; margin-bottom: 6px; font-weight: 600;", "产出" }
                             if reader.read().outputs.is_empty() {
-                                div { style: "font-size: 12px; color: #aaa;", "选段后点动作按钮" }
+                                div { style: "font-size: 12px; color: #5d6890;", "选段后点动作按钮" }
                             }
                             for (i, (name, no, text, hit)) in reader.read().outputs.iter().cloned().enumerate() {
                                 div {
                                     key: "{i}",
-                                    style: "padding: 6px 10px; margin-bottom: 5px; background: #fafafa; border-radius: 4px; font-size: 12px;",
-                                    div { style: "color: #888; font-size: 11px; margin-bottom: 2px;",
+                                    style: "padding: 6px 10px; margin-bottom: 5px; background: #161d33; border-radius: 4px; font-size: 12px;",
+                                    div { style: "color: #7c86ad; font-size: 11px; margin-bottom: 2px;",
                                         if hit { "⚡ 缓存回放" } else { "首次执行" }
                                         " · {name} · §{no}"
                                     }
@@ -572,9 +601,9 @@ pub fn MainView() -> Element {
 
                     // 输入区
                     div {
-                        style: "display: flex; padding: 12px; border-top: 1px solid #e0e0e0; gap: 8px;",
+                        style: "display: flex; padding: 12px; border-top: 1px solid #232c4a; gap: 8px;",
                         input {
-                            style: "flex: 1; padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px;",
+                            style: "flex: 1; padding: 8px 12px; font-size: 14px; border: 1px solid #232c4a; border-radius: 4px;",
                             placeholder: "输入任务…（试试「把文档转 pdf」）",
                             value: "{state.read().input}",
                             oninput: move |e| state.write().input = e.value(),
@@ -597,38 +626,38 @@ pub fn MainView() -> Element {
 
                 // 路由决策面板——这是项目论点本身：把决策摊开给人看
                 div {
-                    style: "width: 280px; border-left: 1px solid #e0e0e0; padding: 16px; overflow-y: auto;",
+                    style: "width: 280px; border-left: 1px solid #232c4a; padding: 16px; overflow-y: auto;",
                     div {
                         style: "font-size: 13px; font-weight: 600; margin-bottom: 12px;",
                         "路由决策"
                     }
                     if let Some(w) = config_warning.read().as_ref() {
                         div {
-                            style: "font-size: 11px; color: #b45309; background: #fef3c7; padding: 8px; border-radius: 4px; margin-bottom: 12px; line-height: 1.5;",
+                            style: "font-size: 11px; color: #f0a35e; background: #2a2417; padding: 8px; border-radius: 4px; margin-bottom: 12px; line-height: 1.5;",
                             "{w}"
                         }
                     }
                     if state.read().route_trace.is_empty() {
                         div {
-                            style: "font-size: 12px; color: #999;",
+                            style: "font-size: 12px; color: #7c86ad;",
                             "尚无决策记录"
                         }
                     }
                     for (i, trace) in state.read().route_trace.iter().cloned().enumerate() {
                         div {
                             key: "{i}",
-                            style: "padding: 8px; margin-bottom: 8px; background: #f5f5f5; border-radius: 4px;",
+                            style: "padding: 8px; margin-bottom: 8px; background: #1d2642; border-radius: 4px;",
                             div {
                                 style: "font-size: 13px; font-weight: 600;",
                                 "{trace.source}"
                             }
                             div {
-                                style: "font-size: 11px; color: #666;",
+                                style: "font-size: 11px; color: #7c86ad;",
                                 "置信度 {trace.confidence:.2}"
                             }
                             if !trace.steps.is_empty() {
                                 div {
-                                    style: "font-size: 11px; color: #444; margin-top: 4px;",
+                                    style: "font-size: 11px; color: #dfe6ff; margin-top: 4px;",
                                     "步骤：{trace.steps.join(\" → \")}"
                                 }
                             }

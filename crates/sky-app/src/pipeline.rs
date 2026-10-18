@@ -13,7 +13,8 @@
 //! ```
 
 use sky_core::{ChatMessage, RouteInput, TaskPlan, WriteDecision, WriteRequest};
-use sky_exec::{execute_plan, ExecOptions, StepOutcome, StepRunner};
+use sky_exec::engine::EventSink;
+use sky_exec::{execute_plan, ExecEvent, ExecOptions, StepOutcome, StepRunner};
 use sky_router::{default_router_with_cache, Outcome, RouteCache, Router};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -325,11 +326,38 @@ impl Pipeline {
     ///   非写步骤，因为一次发送是一个语义整体，部分执行会让用户
     ///   以为任务完成了一半）；
     /// - `Some(Once/Always)`：正常执行。
+    ///
+    /// `on_event`：步骤级进度回调（StepStart/Done/Failed/Reused/Skipped），
+    /// UI 传它可实时显示执行轨迹；`None` 保持原行为。
+    /// **注**：token 级流式（SSE TokenDelta）需 sky-llm 暴露流式客户端，
+    /// 当前 `ProviderChain::call` 为一次性响应——见 95 册 §9.8.6 路线。
+    pub async fn run_prepared_with_events(
+        &self,
+        prepared: &PreparedRequest,
+        runner: &dyn StepRunner,
+        write_decision: Option<WriteDecision>,
+        on_event: &mut (dyn FnMut(ExecEvent) + 'static),
+    ) -> PipelineResult {
+        self.run_prepared_inner(prepared, runner, write_decision, Some(on_event))
+            .await
+    }
+
     pub async fn run_prepared(
         &self,
         prepared: &PreparedRequest,
         runner: &dyn StepRunner,
         write_decision: Option<WriteDecision>,
+    ) -> PipelineResult {
+        self.run_prepared_inner(prepared, runner, write_decision, None)
+            .await
+    }
+
+    async fn run_prepared_inner(
+        &self,
+        prepared: &PreparedRequest,
+        runner: &dyn StepRunner,
+        write_decision: Option<WriteDecision>,
+        mut sink: Option<&mut (dyn FnMut(ExecEvent) + '_)>,
     ) -> PipelineResult {
         let PreparedRequest {
             route_source,
@@ -366,7 +394,14 @@ impl Pipeline {
         let outcomes = if exec_plan.steps.is_empty() {
             vec![]
         } else {
-            match execute_plan(&exec_plan, runner, &ExecOptions::default(), None).await {
+            // Option<&mut dyn FnMut> → Option<&mut dyn FnMut>（reborrow）：
+            // EventSink 是 &'a mut dyn FnMut 的别名，直接构造避免
+            // as_deref_mut 的 HRTB 推断死结（实测两轮 E0597）。
+            let sink_opt: Option<EventSink<'_>> = match sink.take() {
+                Some(f) => Some(f),
+                None => None,
+            };
+            match execute_plan(&exec_plan, runner, &ExecOptions::default(), sink_opt).await {
                 Ok(r) => r.outcomes,
                 Err(_) => vec![],
             }
