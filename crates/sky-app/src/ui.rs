@@ -13,7 +13,8 @@
 //! 各视图订阅同一 Signal，不再需要现状的 `storeSync*` 四组同步通道。
 
 use crate::bridge::ProgressEvent;
-use crate::pipeline::{EchoRunner, Pipeline};
+use crate::pipeline::Pipeline;
+use crate::real_runner::RealRunner;
 use crate::window::WindowId;
 use dioxus::prelude::*;
 use std::sync::Arc;
@@ -84,7 +85,9 @@ pub fn MainView() -> Element {
             // 曾经的实现先调 route_only() 再调 run()，导致探索路径
             // 触发两次 LLM 调用，实测耗时从 7 秒翻倍到 14 秒。
             let started = std::time::Instant::now();
-            let result = pipeline.run(&text, &EchoRunner).await;
+            // 用 RealRunner 而非 EchoRunner：未接入的能力会明确报错，
+            // 而不是假装成功。这样 UI 显示的状态与真实发生的事一致。
+            let result = pipeline.run(&text, &RealRunner::new()).await;
             // 计时留痕：确定性路径设计上应是微秒级，若这里出现数秒，
             // 说明实际走的是 explore（调了 LLM）。用户报告「转 pdf 也要
             // 五六秒」时，端到端耗时与 route_source 一起看才有判断依据。
@@ -108,21 +111,42 @@ pub fn MainView() -> Element {
                     trace.source, trace.confidence
                 )
             } else {
+                // 如实呈现每一行的真实状态。
+                // 此前用 EchoRunner 对一切都返回 Ok("已执行 xxx")，
+                // 于是「能力未接入」被显示成「已执行」——用户以为文件已转换，
+                // 去目标目录却找不到。系统不能撒谎，所以这里按 status
+                // 分别渲染：成功、失败（含未接入）必须一眼可辨。
                 let lines: Vec<String> = result
                     .outcomes
                     .iter()
                     .map(|o| {
-                        o.result
-                            .clone()
-                            .unwrap_or_else(|| format!("步骤 {} 失败", o.step))
+                        if let Some(err) = &o.error {
+                            format!("✗ 步骤 {}：{}", o.step, err)
+                        } else {
+                            o.result
+                                .clone()
+                                .unwrap_or_else(|| format!("步骤 {} 无输出", o.step))
+                        }
                     })
                     .collect();
-                format!(
-                    "路由命中「{}」，置信度 {:.2}。\n执行结果：\n{}",
-                    trace.source,
-                    trace.confidence,
-                    lines.join("\n")
-                )
+                let failed = result.outcomes.iter().filter(|o| !o.is_success()).count();
+                let header = if failed == 0 {
+                    format!(
+                        "路由命中「{}」，置信度 {:.2}。",
+                        trace.source, trace.confidence
+                    )
+                } else {
+                    format!(
+                        "路由命中「{}」，置信度 {:.2}。\n\
+                         ⚠ {} 个步骤未完成（{}/{} 成功）。",
+                        trace.source,
+                        trace.confidence,
+                        failed,
+                        result.outcomes.len() - failed,
+                        result.outcomes.len()
+                    )
+                };
+                format!("{header}\n执行情况：\n{}", lines.join("\n"))
             };
 
             state.write().route_trace.push(trace);
