@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY V7 · 深色会话侧栏（对齐天枢结构 + SKY 风格）</title>
+<style>
+  :root {
+    /* 侧栏深色系（对齐参考） */
+    --sb-bg:#0d1117; --sb-bg2:#161b22; --sb-ink:#e6edf3; --sb-sub:#8b949e;
+    --sb-line:#21262d; --sb-accent:#58a6ff;
+    /* 主区浅色系（SKY 现有风格） */
+    --bg:#fff; --panel:#fafafa; --ink:#1a1a1a; --sub:#888; --line:#e0e0e0;
+    --accent:#2563eb; --ok:#16a34a; --warn:#b45309; --mono:'Consolas',monospace; --r:4px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#22262c; padding:20px; }
+  .app { width:1200px; max-width:100%; height:820px; margin:0 auto; border-radius:8px; overflow:hidden; display:flex; box-shadow:0 4px 24px rgba(0,0,0,.4); }
+
+  /* ============ 深色会话侧栏（对齐参考结构） ============ */
+  .side {
+    width:250px; background:var(--sb-bg); color:var(--sb-ink);
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  .brand { padding:14px 16px 10px; font-size:15px; font-weight:700; letter-spacing:.5px; }
+  .brand small { color:var(--sb-sub); font-weight:400; font-size:10px; margin-left:6px; letter-spacing:2px; }
+  .newtask {
+    margin:2px 12px 10px; padding:9px 12px; border-radius:6px;
+    border:1px solid var(--sb-line); background:var(--sb-bg2);
+    font-size:12.5px; cursor:pointer; display:flex; justify-content:space-between; align-items:center;
+    color:var(--sb-ink);
+  }
+  .newtask:hover { border-color:var(--sb-accent); }
+  .nav { display:flex; flex-direction:column; gap:2px; padding:0 12px 8px; }
+  .nav-item {
+    padding:8px 10px; border-radius:6px; font-size:12.5px; cursor:pointer;
+    display:flex; align-items:center; gap:8px; color:var(--sb-sub);
+  }
+  .nav-item.active { background:var(--sb-bg2); color:var(--sb-ink); }
+  .nav-item .cnt {
+    margin-left:auto; font-size:9.5px; background:var(--sb-accent); color:#0d1117;
+    padding:0 6px; border-radius:8px; font-weight:700;
+  }
+  .nav-item .gate { margin-left:auto; font-size:9.5px; color:var(--ok); }
+  .search { margin:2px 12px 8px; }
+  .search input {
+    width:100%; padding:7px 10px; border-radius:6px; border:1px solid var(--sb-line);
+    background:var(--sb-bg2); color:var(--sb-ink); font-size:11.5px;
+  }
+  .search input::placeholder { color:var(--sb-sub); }
+  .filters { display:flex; gap:4px; padding:0 12px 8px; }
+  .flt { padding:4px 12px; border-radius:6px; font-size:11px; color:var(--sb-sub); cursor:pointer; background:var(--sb-bg2); }
+  .flt.on { background:#2d3a4d; color:var(--sb-ink); }
+  .grp-head {
+    display:flex; align-items:center; padding:4px 12px; font-size:10px; color:var(--sb-sub);
+  }
+  .grp-head .by { background:var(--sb-bg2); padding:2px 8px; border-radius:4px; }
+  .grp-head .by b { color:var(--sb-ink); font-weight:600; }
+  /* 会话分组（按领域包）——热插拔语义在分组头 */
+  .group { margin:0 8px 2px; }
+  .g-head {
+    display:flex; align-items:center; gap:6px; padding:5px 6px; font-size:11px;
+    color:var(--sb-sub); cursor:pointer; border-radius:4px;
+  }
+  .g-head:hover { background:var(--sb-bg2); }
+  .g-head .gn { color:var(--sb-ink); font-weight:600; }
+  .g-head .gc { margin-left:auto; }
+  .sess {
+    padding:7px 9px 7px 22px; border-radius:6px; cursor:pointer; font-size:12px;
+    color:var(--sb-ink);
+  }
+  .sess:hover { background:var(--sb-bg2); }
+  .sess.cur { background:#2d3a4d; }
+  .sess .st { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sess .sm { display:flex; gap:6px; margin-top:2px; font-size:9.5px; color:var(--sb-sub); }
+  .sess .tok { color:var(--ok); font-family:var(--mono); }
+  /* 底部：引擎配额（SKY 灵魂指标）+ 用户 */
+  .quota {
+    margin:8px 12px; border:1px solid var(--sb-line); border-radius:8px;
+    background:var(--sb-bg2); padding:9px 12px; font-size:11px;
+  }
+  .quota .qm { display:flex; justify-content:space-between; align-items:center; color:var(--sb-sub); }
+  .quota .big { font-size:14px; color:var(--accent2, #7ee787); font-family:var(--mono); font-weight:700; }
+  .quota .lbl2 { font-size:9.5px; color:var(--sb-sub); margin-top:1px; }
+  .quota .accent2 { color:#7ee787; }
+  .userrow {
+    display:flex; align-items:center; gap:8px; padding:10px 14px;
+    border-top:1px solid var(--sb-line); font-size:12px;
+  }
+  .avatar { width:22px; height:22px; border-radius:50%; background:var(--sb-accent); color:#0d1117;
+    display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; }
+  .userrow .right { margin-left:auto; color:var(--sb-sub); font-size:10.5px; }
+
+  /* ============ 主区：浅色（SKY 现有风格） ============ */
+  .main { flex:1; background:var(--bg); color:var(--ink); display:flex; flex-direction:column; overflow:hidden; }
+  .main-header { padding:10px 20px; border-bottom:1px solid var(--line); font-size:14px; font-weight:600;
+    display:flex; align-items:center; gap:10px; }
+  .main-header .sub { font-size:11px; color:var(--sub); font-weight:400; }
+  .msgs { flex:1; overflow-y:auto; padding:16px 22px; }
+  .cards { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .dcard { border:1px solid var(--line); border-radius:6px; padding:8px 12px; font-size:11px; cursor:pointer; background:var(--panel); }
+  .dcard .dn { font-weight:600; margin-bottom:1px; }
+  .dcard .dd { color:var(--sub); font-size:10px; }
+  .m { margin-bottom:13px; max-width:660px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:2px; font-family:var(--mono); }
+  .m .who .layer { color:var(--accent); }
+  .m.user .text { background:#eff6ff; display:inline-block; padding:7px 11px; border-radius:8px; font-size:12.5px; }
+  .m .text { font-size:12.5px; line-height:1.6; }
+  .m .art { margin-top:5px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .composer { display:flex; gap:8px; padding:10px 20px; border-top:1px solid var(--line); }
+  .composer input { flex:1; padding:9px 11px; font-size:12.5px; border:1px solid var(--line); border-radius:var(--r); }
+  .composer button { padding:8px 20px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; font-size:12.5px; }
+
+  /* 底部状态栏（主区内） */
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--panel); font-size:10.5px; color:var(--sub); height:24px; }
+  .sb2 { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb2 .num { font-family:var(--mono); color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ 深色会话侧栏 ============ -->
+  <aside class="side">
+    <div class="brand">SKY<small>STELLAR</small></div>
+    <div class="newtask"><span>＋ 新建任务</span><span>⌄</span></div>
+    <nav class="nav">
+      <div class="nav-item active">💬 对话</div>
+      <div class="nav-item">🛡 驯化闸门 <span class="gate">3/3 启用</span></div>
+      <div class="nav-item">📦 领域包 <span class="cnt">3</span></div>
+      <div class="nav-item">••• 更多</div>
+    </nav>
+    <div class="search"><input type="text" placeholder="搜索会话..."></div>
+    <div class="filters">
+      <span class="flt on">全部</span><span class="flt">运行中</span><span class="flt">已拦截</span>
+    </div>
+    <div class="grp-head">分组 <span class="by">按 <b>领域包</b> ⌄</span></div>
+
+    <div class="group">
+      <div class="g-head"><span>▸</span><span class="gn">化学硕博</span><span class="gc">5</span></div>
+      <div class="sess"><div class="st">咖啡因分子量确认</div><div class="sm"><span class="tok">省 320 tok</span><span>13:51</span></div></div>
+      <div class="sess"><div class="st">阿司匹林结构验证</div><div class="sm"><span class="tok">省 180 tok</span><span>13:32</span></div></div>
+    </div>
+
+    <div class="group">
+      <div class="g-head"><span>▾</span><span class="gn">SKY 核心</span><span class="gc">13</span></div>
+      <div class="sess cur"><div class="st">更新工作区文档</div><div class="sm"><span class="tok">省 1.2k tok</span><span>10/18 13:45</span></div></div>
+      <div class="sess"><div class="st">周报：实验数据摘要</div><div class="sm"><span class="tok">L2 · 省 2.8k tok</span><span>10/18 11:20</span></div></div>
+      <div class="sess"><div class="st">桌面文件按类型整理</div><div class="sm"><span class="tok">L0 · 0 tok</span><span>10/17 16:04</span></div></div>
+    </div>
+
+    <div class="group">
+      <div class="g-head"><span>▸</span><span class="gn">科研论文</span><span class="gc">3</span></div>
+    </div>
+
+    <div class="quota">
+      <div class="qm"><span>GLM · default</span></div>
+      <div class="qm" style="margin-top:4px;">
+        <div><div class="big">↓ 12.4k</div><div class="lbl2">累计节省 token</div></div>
+        <div style="text-align:right;"><div class="big accent2">71%</div><div class="lbl2">缓存命中率</div></div>
+      </div>
+    </div>
+    <div class="userrow"><span class="avatar">A</span> Administrator <span class="right">SKY</span></div>
+  </aside>
+
+  <!-- ============ 主区：浅色对话主控（SKY 现有风格） ============ -->
+  <div class="main">
+    <div class="main-header">对话 <span class="sub">· SKY 核心 · 任何领域的任务从这里开始</span></div>
+    <div class="msgs">
+      <div class="cards">
+        <div class="dcard"><div class="dn">🧪 化学结构验证</div><div class="dd">化学硕博 · 0 token</div></div>
+        <div class="dcard"><div class="dn">📄 论文精读</div><div class="dd">科研论文 · 动作缓存</div></div>
+        <div class="dcard"><div class="dn">📊 数据→Origin</div><div class="dd">COM 桥 · 导入导出</div></div>
+      </div>
+      <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报</div></div>
+      <div class="m">
+        <div class="who">SKY · <span class="layer">L2 manifest 命中</span> · 3 步 · LLM 1 次 · FactGuard 通过</div>
+        <div class="text">已从任务书「周报自动草稿」展开执行：读目录 → 读文件 → 生成周报。</div>
+        <div class="art">📎 .sky-output/周报草稿.docx (18.9 KB) · 本次 620 tok · 下次同任务 0 tok</div>
+      </div>
+      <div class="m user"><div class="who">你</div><div class="text">阿司匹林的 SMILES 是什么，分子量多少</div></div>
+      <div class="m">
+        <div class="who">SKY · <span class="layer">smiles_info</span> · 0 token</div>
+        <div class="text">CC(=O)OC1=CC=CC=C1C(=O)O → C₉H₈O₄ · 180.16 g/mol（本地解析器验证，非 LLM 判断）</div>
+      </div>
+    </div>
+    <div class="composer">
+      <input type="text" placeholder="描述你的任务——SKY 会先决定能不能不花 token">
+      <button type="button">发送</button>
+    </div>
+    <div class="statusbar">
+      <div class="sb2">命中率 <span class="num">71%</span></div>
+      <div class="sb2">本次 <span class="num">620</span> tok</div>
+      <div class="sb2">驯化 <span class="num">3/3</span></div>
+      <div class="sb2">产物 <span class="num">3</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
