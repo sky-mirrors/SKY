@@ -9,6 +9,7 @@
 //! **本 crate 是唯一依赖 Dioxus 的 crate**——其余 8 个 crate 均为纯逻辑，
 //! 可脱离 GUI 单测（`cargo test -p sky-core` 等）。
 
+pub mod artifact;
 pub mod bridge;
 pub mod pipeline;
 pub mod planner;
@@ -17,6 +18,9 @@ pub mod tools;
 pub mod ui;
 pub mod window;
 
+pub use artifact::{
+    compose_document, pick_final_output, write_artifact, ArtifactConfig, ArtifactOutcome,
+};
 pub use bridge::{AutoDenyBridge, FrameCoalescer, ProgressEvent, DEFAULT_TIMEOUT_MS, FRAME_COALESCE_MS};
 pub use pipeline::{assistant_message, EchoRunner, Pipeline, PipelineResult, RouteOutcome};
 pub use planner::{parse_plan, LlmPlanner, PlanOutcome, PLANNER_SYSTEM_PROMPT};

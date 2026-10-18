@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 /// 一次请求的完整处理结果。
 #[derive(Debug, Clone, PartialEq)]
 pub struct PipelineResult {
-    /// 命中的路由段名（`cache` / `deterministic` / `retrieval` / `explore`）。
+    /// 命中的路由段名（`cache` / `manifest` / `deterministic` / `retrieval` / `explore`）。
     pub route_source: String,
     /// 路由置信度。
     pub route_confidence: f32,
@@ -28,6 +28,11 @@ pub struct PipelineResult {
     pub plan: TaskPlan,
     /// 执行结果（若计划含步骤）。
     pub outcomes: Vec<StepOutcome>,
+    /// 产出落盘的结果。
+    ///
+    /// 用户要的是「结果」——一份能打开的文件，不是控制台里的一行字。
+    /// 落盘在管线末端统一完成，不必让 20 份任务书各加 write_file 步骤。
+    pub artifact: crate::artifact::ArtifactOutcome,
 }
 
 /// 接线层。
@@ -46,6 +51,8 @@ pub struct Pipeline {
     planner_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// 已接入的工具名。传给 LLM 规划器，避免它发明不存在的工具。
     available_tools: Vec<String>,
+    /// 产出落盘配置。
+    artifact_config: crate::artifact::ArtifactConfig,
 }
 
 impl Default for Pipeline {
@@ -61,6 +68,7 @@ impl Pipeline {
             planner: None,
             planner_calls: Default::default(),
             available_tools: Vec::new(),
+            artifact_config: crate::artifact::ArtifactConfig::default(),
         }
     }
 
@@ -71,6 +79,7 @@ impl Pipeline {
             planner: Some(planner),
             planner_calls: Default::default(),
             available_tools: Vec::new(),
+            artifact_config: crate::artifact::ArtifactConfig::default(),
         }
     }
 
@@ -80,6 +89,14 @@ impl Pipeline {
     /// 不存在的工具名，导致全部步骤执行失败。
     pub fn with_tools(mut self, tools: Vec<String>) -> Self {
         self.available_tools = tools;
+        self
+    }
+
+    /// 配置产出落盘。
+    ///
+    /// 测试里通常传 `ArtifactConfig::disabled()`——单元测试不该往磁盘写文件。
+    pub fn with_artifact_config(mut self, cfg: crate::artifact::ArtifactConfig) -> Self {
+        self.artifact_config = cfg;
         self
     }
 
@@ -212,11 +229,32 @@ impl Pipeline {
             }
         };
 
+        // 产出落盘：把最后一个成功步骤的结果写成文件。
+        //
+        // 用户要的结果是「能打开的文件」，不是控制台一行字。
+        // 落盘放在管线末端而非任务书里，是为了一次覆盖全部 20 份任务书——
+        // 任务书管「怎么做」，落盘是运行环境的关切。
+        let artifact = match crate::artifact::pick_final_output(&outcomes) {
+            Some(final_text) => {
+                let doc = crate::artifact::compose_document(
+                    &plan.intent,
+                    &route_source,
+                    &outcomes,
+                    &final_text,
+                );
+                crate::artifact::write_artifact(&self.artifact_config, &plan.intent, &doc)
+            }
+            None => crate::artifact::ArtifactOutcome::Skipped {
+                reason: "本次执行没有可落盘的产出".to_string(),
+            },
+        };
+
         PipelineResult {
             route_source,
             route_confidence,
             plan,
             outcomes,
+            artifact,
         }
     }
 }

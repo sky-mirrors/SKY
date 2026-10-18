@@ -11,6 +11,7 @@
 use sky_app::pipeline::{Pipeline, PipelineResult};
 use sky_app::planner::LlmPlanner;
 use sky_app::tools::register_all;
+use sky_app::artifact::{write_artifact, ArtifactConfig, ArtifactOutcome};
 use sky_core::load_builtin;
 
 /// 构造一个带规划器与全部工具的 pipeline。
@@ -185,4 +186,74 @@ async fn fullwidth_input_still_hits_manifest() {
         r.route_source
     );
     assert_eq!(p.planner_call_count(), 0, "命中任务书应零 LLM 调用");
+}
+
+// ---------- 产出落盘（P1） ----------
+//
+// 用户要的是「结果」——一份能打开的文件。这些测试断言磁盘上真的出现了文件，
+// 而不是只看 `artifact` 字段的值。
+
+/// 任务书执行后，产出必须真实落盘。
+#[tokio::test]
+async fn artifact_is_written_to_disk() {
+    let dir = std::env::temp_dir().join("sky-manifest-artifact");
+    let out_dir = std::env::temp_dir().join("sky-manifest-artifact-out");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&out_dir);
+    std::fs::create_dir_all(&dir).expect("建源目录失败");
+    std::fs::write(dir.join("a.txt"), "本周完成了任务书引擎").unwrap();
+
+    let p = pipeline().with_artifact_config(ArtifactConfig::with_dir(&out_dir));
+    let q = format!("帮我写一份本周的工作周报，目录是 {}", dir.display());
+    let r = p.run(&q, &register_all()).await;
+    dump("产出落盘", &r);
+
+    // 断言：磁盘上真的有文件
+    let path = r
+        .artifact
+        .path()
+        .expect("产出应落盘成功")
+        .to_path_buf();
+    assert!(path.exists(), "产出文件必须真实存在：{}", path.display());
+
+    let content = std::fs::read_to_string(&path).expect("应可读取产出");
+    assert!(!content.trim().is_empty(), "产出不该是空文件");
+    assert!(
+        content.contains("路由来源"),
+        "产出应含元信息便于追溯：{content}"
+    );
+
+    println!("落盘路径：{}", path.display());
+    println!("文件大小：{} 字节", content.len());
+
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&out_dir);
+}
+
+/// 落盘禁用时不该写文件——测试与纯查询场景需要这个开关。
+#[tokio::test]
+async fn disabled_artifact_writes_nothing() {
+    let p = pipeline().with_artifact_config(ArtifactConfig::disabled());
+    let r = p.run("帮我写一份本周的工作周报", &register_all()).await;
+    assert!(
+        r.artifact.path().is_none(),
+        "禁用落盘时不该产生文件，实际：{:?}",
+        r.artifact
+    );
+}
+
+/// 落盘失败必须报出来，不能静默当成功。
+#[test]
+fn artifact_failure_is_surfaced() {
+    let bad = if cfg!(windows) {
+        std::path::PathBuf::from("Z:\nope\nope")
+    } else {
+        std::path::PathBuf::from("/proc/nope/nope")
+    };
+    let cfg = ArtifactConfig::with_dir(&bad);
+    let out = write_artifact(&cfg, "任务", "内容");
+    assert!(
+        matches!(out, ArtifactOutcome::Failed { .. }),
+        "写盘失败必须报 Failed，实际：{out:?}"
+    );
 }

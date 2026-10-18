@@ -46,3 +46,4 @@ exam-report.json
 # Rust
 /target/
 **/*.rs.bk
+.sky-output/

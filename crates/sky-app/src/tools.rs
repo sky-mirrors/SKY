@@ -732,8 +732,36 @@ fn tool_shell_exec(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<
         ));
     }
 
-    // 闸门 3：只允许白名单内的命令名
+    // 闸门 3：命令名必须是纯程序名，不能带路径
+    //
+    // 实测绕过：白名单含 "cat"，但 `/bin/cat`、`./cat`、`..\\cat` 都不等于
+    // "cat"，`contains` 判定会失败 → 直接拒绝（这个方向是安全的）。
+    // 但反过来，如果未来有人把白名单改成「以某名字结尾」，带路径就能绕过。
+    // 所以这里显式拒绝含路径分隔符的程序名——白名单只认裸名。
     let prog = trimmed.split_whitespace().next().unwrap_or("");
+    if prog.contains('/') || prog.contains('\\') {
+        return Err(format!(
+            "shell_exec 拒绝执行：程序名不能带路径「{prog}」。\
+             请用裸名（如 cat 而非 /bin/cat）。如需执行请由用户手动确认。"
+        ));
+    }
+
+    // 闸门 4：白名单内命令的危险子命令
+    //
+    // 白名单里有 git 和 find，它们本身只读，但带某些子命令会破坏数据：
+    //   git clean -fdx  删除所有未跟踪文件
+    //   git reset --hard 丢改动
+    //   find . -delete  删除匹配文件
+    //   find . -exec rm 任意命令执行
+    // 这些必须单独拦——只靠程序名白名单不够。
+    let lower = trimmed.to_lowercase();
+    if let Some(hit) = dangerous_subcommand(&lower) {
+        return Err(format!(
+            "shell_exec 拒绝执行：命令含危险子操作「{hit}」。\
+             如需执行请由用户手动确认后运行。命令：{trimmed}"
+        ));
+    }
+
     if !ALLOWED_SHELL_COMMANDS.contains(&prog) {
         return Err(format!(
             "shell_exec 拒绝执行：命令「{prog}」不在允许清单内。\
@@ -778,6 +806,40 @@ const ALLOWED_SHELL_COMMANDS: &[&str] = &[
     "ls", "dir", "cat", "type", "head", "tail", "wc", "find", "grep", "rg", "echo", "pwd",
     "date", "whoami", "git",
 ];
+
+/// 检查白名单内命令的危险子操作。
+///
+/// 程序名白名单不够——`git` 与 `find` 都是只读工具，但带特定子命令会破坏数据。
+/// 实测清单：
+/// - `git clean -f/-d/-x` 删除未跟踪文件
+/// - `git reset --hard` 丢弃工作区改动
+/// - `git checkout --` / `git restore` 同上
+/// - `find ... -delete` / `-exec` 删除或执行任意命令
+/// - `echo ... > file` 覆写文件（重定向本应被闸门 2 拦，双保险）
+///
+/// 输入应为**已小写**的命令串。
+fn dangerous_subcommand(lower: &str) -> Option<&'static str> {
+    const PATTERNS: &[&str] = &[
+        "git clean",
+        "git reset --hard",
+        "git reset --mixed",
+        "git checkout --",
+        "git restore",
+        "git branch -d",
+        "git branch -D",
+        "git push -f",
+        "git push --force",
+        "git stash drop",
+        "-delete",
+        "-exec",
+        "--exec",
+        "find / -",
+    ];
+    PATTERNS
+        .iter()
+        .find(|p| lower.contains(&p.to_lowercase()))
+        .copied()
+}
 
 /// 检查破坏性模式。返回命中的模式文本。
 fn destructive_pattern(cmd: &str) -> Option<&'static str> {
@@ -1268,6 +1330,97 @@ mod tests {
     fn shell_exec_rejects_empty_command() {
         let r = tool_shell_exec(&step("shell_exec", json!({})), &BTreeMap::new());
         assert!(r.is_err(), "空命令必须拒绝");
+    }
+
+    // ---- 闸门加固：实测发现的绕过路径 ----
+
+    /// 白名单含 "git"，但 `git clean -fdx` 会删掉所有未跟踪文件。
+    /// 只靠程序名白名单不够——必须拦危险子命令。
+    #[test]
+    fn shell_exec_rejects_git_clean() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "git clean -fdx"})),
+            &BTreeMap::new(),
+        );
+        let e = r.expect_err("git clean 必须被拒绝");
+        assert!(e.contains("危险子操作"), "应说明是子操作问题：{e}");
+    }
+
+    #[test]
+    fn shell_exec_rejects_git_reset_hard() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "git reset --hard HEAD~3"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "git reset --hard 必须被拒绝");
+    }
+
+    /// 白名单含 "find"，但 `find . -delete` 会删文件。
+    #[test]
+    fn shell_exec_rejects_find_delete() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "find . -name '*.tmp' -delete"})),
+            &BTreeMap::new(),
+        );
+        let e = r.expect_err("find -delete 必须被拒绝");
+        assert!(e.contains("危险子操作"), "{e}");
+    }
+
+    /// `find -exec` 可以执行任意命令——比 -delete 更危险。
+    #[test]
+    fn shell_exec_rejects_find_exec() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "find . -exec rm {} ;"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "find -exec 必须被拒绝");
+    }
+
+    /// 带路径的程序名绕过白名单检查——必须拒绝。
+    #[test]
+    fn shell_exec_rejects_path_qualified_program() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "/bin/cat /etc/passwd"})),
+            &BTreeMap::new(),
+        );
+        let e = r.expect_err("带路径的程序名必须拒绝");
+        assert!(e.contains("不能带路径"), "应说明原因：{e}");
+    }
+
+    #[test]
+    fn shell_exec_rejects_relative_path_program() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "./malicious.sh"})),
+            &BTreeMap::new(),
+        );
+        assert!(r.is_err(), "相对路径程序名必须拒绝");
+    }
+
+    /// 反例：白名单内的安全命令应放行。
+    #[test]
+    fn shell_exec_allows_safe_whitelisted_command() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "echo hello"})),
+            &BTreeMap::new(),
+        );
+        let out = r.expect("echo 应被允许");
+        assert!(out.contains("hello"), "{out}");
+    }
+
+    #[test]
+    fn shell_exec_allows_readonly_git() {
+        let r = tool_shell_exec(
+            &step("shell_exec", json!({"command": "git log --oneline -1"})),
+            &BTreeMap::new(),
+        );
+        // git log 是只读的，应放行（在仓库内会成功，不在则报错但非闸门拒绝）
+        match r {
+            Ok(_) => {}
+            Err(e) => assert!(
+                !e.contains("危险子操作") && !e.contains("不在允许清单"),
+                "只读 git 命令不该被闸门拦下：{e}"
+            ),
+        }
     }
 
     /// llm_generate 无密钥时必须明确报错，不能返回空串。
