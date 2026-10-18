@@ -877,6 +877,42 @@ fn fact_guard_verdict(source: &str, output: &str) -> Result<String, String> {
     }
 }
 
+/// 引用锚点闸门（anti-hallucination 第二环，95 册 §9.7）。
+///
+/// **规则**：有源文档时，产出必须包含至少一段原文片段（N 连续字符）——
+/// 「模型推断」允许存在，但必须锚在原文上；纯转述/纯编造（与原文零重叠）
+/// 一律打回。这是把「无锚点句标为推断」从渲染层约定升级为执行闸门。
+///
+/// 阈值：N=8（约 4 个汉字 / 8 个拉丁字符）——足以排除巧合命中，
+/// 又不要求逐字长引用。锚点不足时报「模型推断」提示而非硬错误：
+/// 产出仍可用，但带风险标注（fail-loud 而非 fail-closed——引用缺失是
+/// 质量问题不是安全问题）。
+fn citation_verdict(source: &str, output: &str) -> Result<String, String> {
+    const ANCHOR_LEN: usize = 8;
+    if source.trim().is_empty() || output.trim().is_empty() {
+        return Ok(output.to_string());
+    }
+    let src = source.trim();
+    let out = output.trim();
+    // 滑窗查原文片段是否出现在产出中
+    let chars: Vec<char> = src.chars().collect();
+    let anchored = if chars.len() < ANCHOR_LEN {
+        out.contains(src)
+    } else {
+        chars.windows(ANCHOR_LEN).any(|w| {
+            let fragment: String = w.iter().collect();
+            out.contains(&fragment)
+        })
+    };
+    if anchored {
+        Ok(output.to_string())
+    } else {
+        Ok(format!(
+            "{output}\n\n⚠ FactGuard 提示：本段产出未包含源文档原文片段，内容属模型推断，请核对原文后采信。"
+        ))
+    }
+}
+
 fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> ToolFuture {
     // 同步部分：参数校验 + 上游引用替换。这些不需要异步。
     let preparsed = (|| -> Result<LlmOutcome, String> {
@@ -920,6 +956,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
         };
         if let Some(text) = cached {
             let checked = fact_guard_verdict(&source_doc, &text)?;
+            let checked = citation_verdict(&source_doc, &checked)?;
             let checked = policy.check_output(&checked)?;
             return Ok(LlmOutcome::Cached { text: checked });
         }
@@ -983,6 +1020,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                         // FactGuard 裁决：critical 冲突阻断，小差异就地修正。
                         // 裁决在回填之前——被拦截的产出不得进缓存。
                         let checked = fact_guard_verdict(&source, &r.content)?;
+                        let checked = citation_verdict(&source, &checked)?;
                         // 领域约束裁决（禁词/必含）——同一原则：驯化靠闸门不靠恳求。
                         let checked = policy.check_output(&checked)?;
                         // 成功产出回填指纹缓存——同 prompt 下次零 token 回放。
@@ -2018,6 +2056,57 @@ mod tests {
             ),
             Ok(text) => panic!("含禁词的产出不应放行，实际返回了：{text}"),
         }
+    }
+
+    /// 引用锚点闸门：有源文档时，产出含原文片段 → 原样放行；
+    /// 纯转述（与原文零重叠）→ 追加「模型推断」标注（fail-loud）。
+    #[tokio::test]
+    async fn citation_gate_anchors_output_to_source() {
+        let mut results = BTreeMap::new();
+        results.insert(
+            1u32,
+            "合同第四条：交货期限为2025年3月15日之前，交付地点为上海市浦东新区。".to_string(),
+        );
+
+        // 含原文片段（「交货期限为2025年3月15日」8+ 字命中）→ 原样放行
+        let anchored_prompt = "总结：{{step_1_result}}";
+        let k1 = sky_cache::FingerprintCache::fingerprint(&replace_upstream_refs(
+            anchored_prompt,
+            &results,
+        ));
+        llm_response_cache().put(
+            &k1,
+            "要点：交货期限为2025年3月15日之前，请准时安排。",
+            now_millis(),
+        );
+        let mut s1 = step("llm_generate", json!({"prompt": anchored_prompt}));
+        s1.step = 2;
+        let r1 = tool_llm_generate_async(&s1, &results).await;
+        let ok1 = r1.unwrap();
+        assert!(
+            !ok1.contains("模型推断"),
+            "含原文锚点的产出不应被打标：{ok1}"
+        );
+
+        // 纯转述（零重叠）→ 追加标注
+        let paraphrase_prompt = "概括：{{step_1_result}}";
+        let k2 = sky_cache::FingerprintCache::fingerprint(&replace_upstream_refs(
+            paraphrase_prompt,
+            &results,
+        ));
+        llm_response_cache().put(
+            &k2,
+            "总之就是双方约好了送货的时间和地方。",
+            now_millis(),
+        );
+        let mut s2 = step("llm_generate", json!({"prompt": paraphrase_prompt}));
+        s2.step = 2;
+        let r2 = tool_llm_generate_async(&s2, &results).await;
+        let ok2 = r2.unwrap();
+        assert!(
+            ok2.contains("模型推断"),
+            "无锚点产出应被打上推断标注：{ok2}"
+        );
     }
 
     /// llm_generate 无密钥时必须明确报错，不能返回空串。
