@@ -11,9 +11,11 @@
 
 pub mod bridge;
 pub mod pipeline;
+pub mod planner;
 pub mod ui;
 pub mod window;
 
 pub use bridge::{AutoDenyBridge, FrameCoalescer, ProgressEvent, DEFAULT_TIMEOUT_MS, FRAME_COALESCE_MS};
 pub use pipeline::{assistant_message, EchoRunner, Pipeline, PipelineResult, RouteOutcome};
+pub use planner::{parse_plan, LlmPlanner, PlanOutcome, PLANNER_SYSTEM_PROMPT};
 pub use window::{OpenAction, WindowId, WindowRegistry};

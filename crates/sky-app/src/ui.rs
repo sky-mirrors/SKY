@@ -41,7 +41,16 @@ pub struct AppState {
 pub fn MainView() -> Element {
     let mut state = use_signal(AppState::default);
     // Pipeline 只构造一次，跨事件复用
-    let pipeline = use_signal(|| Arc::new(Pipeline::new()));
+    let pipeline = use_signal(|| {
+        // 有 GLM 密钥则接入 LLM 规划器，探索路径由 LLM 生成计划；
+        // 无密钥则保持骨架行为（探索返回空计划）。
+        let planner = crate::planner::LlmPlanner::from_env();
+        if planner.has_key() {
+            Arc::new(Pipeline::with_planner(planner))
+        } else {
+            Arc::new(Pipeline::new())
+        }
+    });
 
     let on_send = move |_| {
         let text = state.read().input.clone();

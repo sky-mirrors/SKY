@@ -32,10 +32,11 @@ pub struct PipelineResult {
 
 /// 接线层。
 ///
-/// 持有 Router 实例。真实场景下还应持有 Cache、LLM 等，
-/// 当前版本先打通「路由 → 执行」这条主干。
+/// 持有 Router 实例。`explore` 分支可选接 LLM 规划器——
+/// 未注入时探索路径返回空计划（保持骨架行为）。
 pub struct Pipeline {
     router: Router,
+    planner: Option<crate::planner::LlmPlanner>,
 }
 
 impl Default for Pipeline {
@@ -48,7 +49,21 @@ impl Pipeline {
     pub fn new() -> Self {
         Self {
             router: default_router(),
+            planner: None,
         }
+    }
+
+    /// 接入 LLM 规划器——探索路径将由 LLM 生成计划。
+    pub fn with_planner(planner: crate::planner::LlmPlanner) -> Self {
+        Self {
+            router: default_router(),
+            planner: Some(planner),
+        }
+    }
+
+    /// 是否已接入 LLM 规划器。
+    pub fn has_planner(&self) -> bool {
+        self.planner.is_some()
     }
 
     /// 仅路由——不执行。用于只想知道决策链的场景（如路由面板）。
@@ -63,11 +78,45 @@ impl Pipeline {
                 plan,
                 confidence,
                 source,
-            } => RouteOutcome::Resolved {
-                source: source.to_string(),
-                confidence,
-                plan,
-            },
+            } => {
+                // 探索段命中且接了规划器 → 由 LLM 生成真实计划
+                if source == "explore" && plan.steps.is_empty() {
+                    if let Some(planner) = &self.planner {
+                        return match planner.plan(text).await {
+                            crate::planner::PlanOutcome::Planned(p) => RouteOutcome::Resolved {
+                                source: "explore+llm".to_string(),
+                                confidence: 0.5,
+                                plan: p,
+                            },
+                            crate::planner::PlanOutcome::Unparsable { reason, .. } => {
+                                RouteOutcome::Resolved {
+                                    source: "explore+llm(解析失败)".to_string(),
+                                    confidence: 0.0,
+                                    plan: TaskPlan {
+                                        intent: text.to_string(),
+                                        needs: vec![reason],
+                                        steps: vec![],
+                                    },
+                                }
+                            }
+                            crate::planner::PlanOutcome::Failed(e) => RouteOutcome::Resolved {
+                                source: "explore+llm(调用失败)".to_string(),
+                                confidence: 0.0,
+                                plan: TaskPlan {
+                                    intent: text.to_string(),
+                                    needs: vec![e],
+                                    steps: vec![],
+                                },
+                            },
+                        };
+                    }
+                }
+                RouteOutcome::Resolved {
+                    source: source.to_string(),
+                    confidence,
+                    plan,
+                }
+            }
             Outcome::NeedsArbitration(candidates) => RouteOutcome::NeedsArbitration {
                 candidates: candidates.into_iter().map(|c| c.name).collect(),
             },
@@ -76,29 +125,26 @@ impl Pipeline {
     }
 
     /// 完整链路：路由 → 执行。
+    ///
+    /// **复用 `route_only`**——避免路由逻辑在两处分叉。
+    /// 曾经的实现各自复制了一份 router 调用，导致 planner 只接在
+    /// `route_only` 而未接在 `run`，探索路径在完整链路里拿不到 LLM 计划。
     pub async fn run(&self, text: &str, runner: &dyn StepRunner) -> PipelineResult {
-        let input = RouteInput {
-            text: text.to_string(),
-            ..Default::default()
-        };
-
-        let (route_source, route_confidence, plan) = match self.router.route(&input).await {
-            Outcome::Resolved {
-                plan,
-                confidence,
+        let (route_source, route_confidence, plan) = match self.route_only(text).await {
+            RouteOutcome::Resolved {
                 source,
-            } => (source.to_string(), confidence, plan),
-            Outcome::NeedsArbitration(candidates) => {
-                // 歧义时取第一名作为计划来源，并在 source 中标注
-                let names: Vec<String> = candidates.iter().map(|c| c.name.clone()).collect();
+                confidence,
+                plan,
+            } => (source, confidence, plan),
+            RouteOutcome::NeedsArbitration { candidates } => {
                 let plan = TaskPlan {
                     intent: text.to_string(),
-                    needs: names.clone(),
+                    needs: candidates.clone(),
                     steps: vec![],
                 };
-                (format!("arbitration({})", names.join(",")), 0.5, plan)
+                (format!("arbitration({})", candidates.join(",")), 0.5, plan)
             }
-            Outcome::Unresolved => (
+            RouteOutcome::Unresolved => (
                 "unresolved".to_string(),
                 0.0,
                 TaskPlan {

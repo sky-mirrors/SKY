@@ -30,3 +30,7 @@ tokio.workspace = true
 [[bin]]
 name = "sky"
 path = "src/main.rs"
+
+[[test]]
+name = "planner_integration"
+path = "tests/planner_integration.rs"
