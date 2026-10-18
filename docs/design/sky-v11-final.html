@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKY V11 · 合成定稿（六轮调研收敛 · 落码权威规格）</title>
+<style>
+  :root {
+    --s0:#0b1020; --s1:#131a2e; --s2:#1a2340;
+    --m0:#0f1526; --m1:#161d33; --m2:#1d2642;
+    --ink:#dfe6ff; --sub:#7c86ad; --line:#232c4a;
+    --gold:#e8b64c; --cyan:#5ad4e6; --ok:#7ee787; --warn:#f0a35e; --danger:#f85149;
+    --accent:#6c9bff; --mono:'Consolas',monospace; --r:6px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Microsoft YaHei',sans-serif; background:#141a2b; }
+  .app { width:1240px; max-width:100%; height:880px; margin:16px auto; border-radius:10px; overflow:hidden; display:flex; box-shadow:0 8px 36px rgba(0,0,0,.55); }
+
+  /* ===== 侧栏：三层 IA（V9 修正）===== */
+  .ledger { width:250px; background:var(--s0); color:var(--ink); display:flex; flex-direction:column; flex-shrink:0; }
+  .brand { padding:14px 16px 10px; font-size:15px; font-weight:800; }
+  .brand .star { color:var(--gold); }
+  .brand .s { font-size:9.5px; color:var(--sub); margin-top:1px; }
+  .sum { margin:0 12px 8px; border:1px solid var(--line); border-radius:8px; background:linear-gradient(160deg,var(--s1),var(--s2)); padding:10px 13px; }
+  .sum .big { font-family:var(--mono); font-size:24px; font-weight:700; color:var(--gold); }
+  .sum .lbl { font-size:9.5px; color:var(--sub); }
+  .sum .row2 { display:flex; justify-content:space-between; margin-top:7px; }
+  .sum .sv { font-family:var(--mono); font-size:14px; color:var(--ok); font-weight:700; }
+  .nav { display:flex; flex-direction:column; gap:1px; padding:0 10px 4px; }
+  .nav-h { font-size:9px; letter-spacing:1.5px; color:var(--sub); padding:8px 10px 3px; opacity:.75; }
+  .nav-i { padding:7px 10px; border-radius:6px; font-size:12.5px; cursor:pointer; color:var(--sub); display:flex; align-items:center; gap:8px; }
+  .nav-i:hover { background:var(--s1); color:var(--ink); }
+  .nav-i.active { background:var(--s2); color:var(--ink); }
+  .nav-i .key { margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--sub); border:1px solid var(--line); border-radius:3px; padding:0 4px; }
+  .nav-i .lamp { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .lamp.on { background:var(--ok); box-shadow:0 0 5px rgba(126,231,135,.55); }
+  .lamp.off { background:var(--line); }
+  .foot { margin-top:auto; padding:10px 14px; border-top:1px solid var(--line); font-size:10px; color:var(--sub); display:flex; justify-content:space-between; align-items:center; }
+  .foot .u { display:flex; align-items:center; gap:6px; color:var(--ink); cursor:pointer; }
+  .av { width:20px; height:20px; border-radius:50%; background:var(--gold); color:#0b1020; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:800; }
+
+  /* ===== 主区 ===== */
+  .main { flex:1; background:var(--m0); color:var(--ink); display:flex; flex-direction:column; min-width:0; }
+  .mh { padding:10px 20px; border-bottom:1px solid var(--line); background:var(--m1); display:flex; justify-content:space-between; align-items:center; }
+  .mh .t { font-size:14px; font-weight:600; }
+  .mh .r { font-family:var(--mono); font-size:10.5px; color:var(--sub); margin-top:3px; }
+  .mh .r .layer { color:var(--gold); font-weight:600; }
+  .view { flex:1; overflow-y:auto; padding:16px 22px; }
+  .view.hidden, .hidden { display:none !important; }
+
+  /* 对话 */
+  .chat-wrap { flex:1; display:flex; min-height:0; }
+  .msgs { flex:1; overflow-y:auto; padding:16px 22px; min-width:0; }
+  .m { margin-bottom:14px; max-width:660px; }
+  .m .who { font-size:10px; color:var(--sub); margin-bottom:3px; font-family:var(--mono); }
+  .m .who .layer { color:var(--gold); }
+  .m.user .text { display:inline-block; padding:8px 12px; border-radius:8px; background:var(--m2); border:1px solid var(--line); font-size:12.5px; }
+  .m .text { font-size:12.5px; line-height:1.7; }
+  .m .art { margin-top:6px; font-size:10.5px; color:var(--ok); font-family:var(--mono); }
+  .gates { display:flex; gap:5px; margin-top:8px; flex-wrap:wrap; }
+  .gt { font-size:9.5px; padding:2px 8px; border-radius:8px; }
+  .gt.pass { background:rgba(126,231,135,.12); color:var(--ok); }
+  .gt.save { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .composer { display:flex; gap:8px; padding:12px 22px; border-top:1px solid var(--line); background:var(--m1); }
+  .composer input { flex:1; padding:10px 12px; font-size:12.5px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  .composer input:focus { outline:1px solid var(--accent); }
+  .composer button { padding:10px 22px; background:var(--accent); color:#fff; border:none; border-radius:var(--r); font-weight:600; cursor:pointer; font-size:12.5px; }
+  .composer .hint { align-self:center; font-size:9.5px; color:var(--sub); }
+
+  /* 右侧上下文面板（V9 修正：路由时间线/闸门/产物） */
+  .ctxpanel { width:250px; border-left:1px solid var(--line); background:var(--m1); padding:12px 14px; overflow-y:auto; flex-shrink:0; }
+  .ctxpanel h5 { font-size:10px; letter-spacing:1px; color:var(--sub); margin:10px 0 8px; }
+  .ctxpanel h5:first-child { margin-top:0; }
+  .tl-i { display:flex; gap:8px; font-size:10.5px; color:var(--sub); padding:4px 0; border-left:2px solid var(--line); padding-left:9px; margin-left:2px; }
+  .tl-i .dot { width:6px; height:6px; border-radius:50%; margin-top:4px; flex-shrink:0; }
+  .ctx-row { display:flex; justify-content:space-between; align-items:center; font-size:11px; padding:5px 0; border-bottom:1px dashed var(--line); }
+  .swbtn { font-size:10px; padding:2px 10px; border-radius:8px; cursor:pointer; border:none; }
+  .swbtn.on { background:rgba(126,231,135,.15); color:var(--ok); }
+  .swbtn.off { background:var(--m2); color:var(--sub); }
+  .art-i { font-family:var(--mono); font-size:10.5px; color:var(--ink); padding:5px 8px; background:var(--m2); border-radius:5px; margin-bottom:5px; display:flex; justify-content:space-between; }
+  .art-i span { color:var(--sub); }
+
+  /* 审批卡（写门三态） */
+  .approve { border:1px solid var(--warn); border-radius:var(--r); background:var(--m1); padding:12px 14px; margin:10px 0; max-width:640px; }
+  .approve .ah { display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--warn); font-weight:700; margin-bottom:8px; }
+  .approve .ac { font-family:var(--mono); font-size:11px; background:var(--m2); border-radius:var(--r); padding:8px 10px; color:var(--ink); margin-bottom:10px; white-space:pre-wrap; }
+  .approve .ab { display:flex; gap:8px; }
+  .ab button { padding:6px 14px; border-radius:var(--r); font-size:11.5px; cursor:pointer; border:1px solid var(--line); background:var(--m2); color:var(--ink); }
+  .ab button.ok { background:rgba(126,231,135,.15); color:var(--ok); border-color:rgba(126,231,135,.3); font-weight:600; }
+  .ab button.no { color:var(--danger); }
+
+  /* 思考动态 + PLAN/ACT */
+  .pa { display:flex; gap:6px; margin-bottom:10px; align-items:center; }
+  .badge { font-size:9px; letter-spacing:1px; padding:2px 8px; border-radius:3px; font-weight:700; }
+  .badge.plan { background:rgba(232,182,76,.12); color:var(--gold); }
+  .badge.act { background:rgba(126,231,135,.12); color:var(--ok); }
+  .pa .pd { font-size:10px; color:var(--sub); }
+  .think { border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:9px 13px; margin:10px 0; font-family:var(--mono); font-size:11px; max-width:640px; }
+  .think .step { display:flex; align-items:center; gap:8px; padding:3px 0; color:var(--sub); }
+  .think .step.done { color:var(--ink); }
+  .think .mark { width:14px; text-align:center; }
+
+  /* 上下文水位条 */
+  .water { border-top:1px solid var(--line); padding:10px 22px; background:var(--m1); }
+  .water .wt { display:flex; justify-content:space-between; font-size:10px; color:var(--sub); margin-bottom:4px; }
+  .water .bar { height:6px; background:var(--m2); border-radius:3px; overflow:hidden; display:flex; }
+  .water .leg { display:flex; justify-content:space-between; font-size:9px; color:var(--sub); margin-top:3px; }
+
+  /* 路线项徽章（调研沉淀：已识别未实施） */
+  .rtag { display:inline-block; font-size:9px; padding:1px 7px; border-radius:3px; border:1px dashed var(--sub); color:var(--sub); margin-left:6px; vertical-align:1px; }
+
+  /* 事件流 */
+  .feed-item { display:flex; gap:10px; padding:9px 11px; border:1px solid var(--line); border-radius:var(--r); margin-bottom:7px; background:var(--m1); }
+  .feed-item .ts { font-family:var(--mono); font-size:9.5px; color:var(--sub); min-width:58px; padding-top:2px; }
+  .feed-item .fi-body { flex:1; font-size:11.5px; line-height:1.5; }
+  .feed-item .fi-head { display:flex; gap:6px; align-items:center; margin-bottom:3px; }
+  .fi-kind { font-size:9px; padding:1px 7px; border-radius:3px; font-weight:700; }
+  .fk-route { background:rgba(232,182,76,.12); color:var(--gold); }
+  .fk-exec { background:rgba(108,155,255,.12); color:var(--accent); }
+  .fk-gate-ok { background:rgba(126,231,135,.12); color:var(--ok); }
+  .fk-gate-block { background:rgba(248,81,73,.12); color:var(--danger); }
+  .fk-cache { background:rgba(90,212,230,.12); color:var(--cyan); }
+  .fk-artifact { background:rgba(126,231,135,.12); color:var(--ok); }
+  .fk-approval { background:rgba(240,163,94,.12); color:var(--warn); }
+  .fk-ckpt { background:rgba(108,155,255,.12); color:var(--accent); border:1px dashed rgba(108,155,255,.4); }
+  .ftabs { display:flex; gap:6px; margin-bottom:12px; }
+  .ftab { font-size:10.5px; padding:4px 12px; border-radius:var(--r); border:1px solid var(--line); color:var(--sub); cursor:pointer; background:var(--m1); }
+  .ftab.active { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+
+  /* 路由五段（对齐 sky-router 真实架构） */
+  .seg { display:flex; gap:12px; border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:12px 14px; margin-bottom:8px; }
+  .seg .no { font-family:var(--mono); font-size:16px; font-weight:700; color:var(--gold); width:26px; text-align:center; padding-top:2px; }
+  .seg.hit .no { color:var(--ok); }
+  .seg .sg-body { flex:1; }
+  .seg .sg-t { font-size:12.5px; font-weight:700; }
+  .seg .sg-t .src { font-family:var(--mono); font-size:9.5px; color:var(--sub); font-weight:400; margin-left:8px; }
+  .seg .sg-d { font-size:11px; color:var(--sub); margin-top:3px; line-height:1.6; }
+  .seg .sg-m { display:flex; gap:14px; margin-top:6px; font-family:var(--mono); font-size:10px; }
+  .seg .sg-m .tok { color:var(--gold); } .seg .sg-m .lat { color:var(--sub); } .seg .sg-m .hit { color:var(--ok); }
+  .seg.miss { opacity:.55; }
+
+  /* 工作台（V8.2 化学台 + OmniRad split-pane 印证） */
+  .wb { display:flex; height:100%; min-height:0; }
+  .wb-dom { flex:1.2; border-right:1px solid var(--line); padding:14px 18px; overflow-y:auto; min-width:0; }
+  .wb-core { flex:1; padding:14px 18px; overflow-y:auto; min-width:0; }
+  .wb-h { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .src-badge { font-size:9px; letter-spacing:1px; padding:2px 8px; border-radius:3px; font-weight:700; }
+  .src-badge.dom { background:rgba(232,182,76,.12); color:var(--gold); }
+  .src-badge.core { background:rgba(108,155,255,.12); color:var(--accent); }
+  .smi-in { width:100%; font-family:var(--mono); font-size:12.5px; padding:9px 11px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  .mol-card { border:1px solid var(--line); border-radius:var(--r); background:var(--m2); padding:12px 14px; margin-top:10px; }
+  .mol-card .mc-t { font-size:13px; font-weight:700; }
+  .mol-card .mc-row { display:flex; justify-content:space-between; font-size:11px; color:var(--sub); padding:3px 0; border-bottom:1px dashed var(--line); }
+  .mol-card .mc-row b { color:var(--ink); font-family:var(--mono); font-weight:600; }
+  .act-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .btn { padding:6px 14px; border-radius:var(--r); font-size:11px; border:1px solid var(--line); background:var(--m2); color:var(--ink); cursor:pointer; }
+  .btn.s { padding:4px 12px; font-size:10.5px; }
+  .btn.pri { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+
+  /* 知识库 */
+  .kb-search { display:flex; gap:8px; margin-bottom:12px; }
+  .kb-search input { flex:1; padding:9px 12px; font-size:12.5px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  .kb-i { border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:11px 14px; margin-bottom:8px; }
+  .kb-i .kt { font-size:12.5px; font-weight:700; display:flex; justify-content:space-between; }
+  .kb-i .kt .sc { font-family:var(--mono); font-size:10px; color:var(--cyan); }
+  .kb-i .ks { font-size:11px; color:var(--sub); line-height:1.6; margin-top:4px; }
+  .kb-i .ks mark { background:rgba(232,182,76,.18); color:var(--gold); padding:0 3px; border-radius:2px; }
+  .kb-i .kmeta { font-family:var(--mono); font-size:9.5px; color:var(--sub); margin-top:5px; }
+
+  /* 市场卡 */
+  .mk-grid { display:flex; gap:10px; flex-wrap:wrap; }
+  .mk { width:calc(50% - 5px); border:1px solid var(--line); border-radius:var(--r); background:var(--m1); padding:12px 14px; }
+  .mk .mt { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .mk .mn { font-size:13px; font-weight:700; }
+  .mk .md { font-size:11px; color:var(--sub); line-height:1.5; margin-bottom:8px; }
+  .mk .mc { font-family:var(--mono); font-size:9.5px; color:var(--sub); margin-bottom:8px; }
+  .mk .mc .cap { color:var(--cyan); }
+  .installed { color:var(--ok); font-size:11px; }
+
+  h4.vh { font-size:12px; color:var(--sub); letter-spacing:.5px; margin-bottom:10px; font-weight:700; }
+  .statusbar { display:flex; align-items:center; border-top:1px solid var(--line); background:var(--m1); font-size:10.5px; color:var(--sub); height:24px; flex-shrink:0; }
+  .sb-i { padding:0 10px; height:100%; display:flex; align-items:center; gap:4px; border-right:1px solid var(--line); }
+  .sb-i .num { font-family:var(--mono); color:var(--ink); }
+  .sb-i.right { margin-left:auto; border-right:none; border-left:1px solid var(--line); }
+  .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+  .dot.ok { background:var(--ok); } .dot.off { background:var(--line); }
+  .set-row { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px dashed var(--line); }
+  .set-row .l { font-size:12.5px; }
+  .set-row .l .d { font-size:10.5px; color:var(--sub); margin-top:2px; }
+  .set-row input { width:280px; padding:7px 10px; font-family:var(--mono); font-size:12px; background:var(--m2); border:1px solid var(--line); border-radius:var(--r); color:var(--ink); }
+  h3.sec { font-size:12.5px; margin:18px 0 10px; color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ===== 侧栏：三层 IA（V9 修正）× 成本账本（V8）===== -->
+  <aside class="ledger">
+    <div class="brand">SKY<span class="star"> ✦</span><div class="s">成本账本 · 路由全可见</div></div>
+    <div class="sum">
+      <div class="big">¥0.42</div><div class="lbl">本月 LLM 实付</div>
+      <div class="row2"><span class="sv">↓ 已省 ¥3.86</span></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-h">主控</div>
+      <div class="nav-i active" data-v="chat">对话 <span class="key">1</span></div>
+      <div class="nav-h">内核机制</div>
+      <div class="nav-i" data-v="feed">事件流画布 <span class="key">2</span></div>
+      <div class="nav-i" data-v="route">路由决策 <span class="key">3</span></div>
+      <div class="nav-h">能力层</div>
+      <div class="nav-i" data-v="knowledge">知识库 <span class="key">4</span></div>
+      <div class="nav-i" data-v="market">能力与领域包 <span class="key">5</span></div>
+      <div class="nav-h">领域包</div>
+      <div class="nav-i" data-v="workbench"><span class="lamp on"></span> 化学与化工 · 工作台 <span class="key">6</span></div>
+      <div class="nav-i"><span class="lamp on"></span> 科学研究 · 精读台</div>
+      <div class="nav-i"><span class="lamp off"></span> 财务与法务</div>
+      <div class="nav-h">系统</div>
+      <div class="nav-i" data-v="settings">设置 <span class="key">7</span></div>
+      <div class="nav-i" data-v="account">账号 <span class="key">8</span></div>
+    </nav>
+    <div class="foot">
+      <span class="u"><span class="av">A</span> Administrator</span>
+      <span>SKY v0.3</span>
+    </div>
+  </aside>
+
+  <!-- ===== 主区 ===== -->
+  <div class="main">
+
+    <!-- ============ 1 对话：PLAN/ACT + 思考动态 + 审批卡 + 右侧上下文面板 ============ -->
+    <div id="v-chat" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <div class="chat-wrap">
+        <div class="msgs">
+          <div class="m user"><div class="who">你</div><div class="text">把桌面上的实验数据.csv 摘要成周报，存到桌面</div></div>
+
+          <div class="pa">
+            <span class="badge plan">PLAN</span><span class="pd">L2 任务书「周报自动草稿」命中 · 3 步已展开</span>
+            <span style="font-family:var(--mono); font-size:10px; color:var(--sub); margin:0 4px;">→</span>
+            <span class="badge act">ACT</span><span class="pd">执行完成 3/3</span>
+          </div>
+          <div class="think">
+            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 路由：L2 任务书「周报自动草稿」命中（0 tok）</div>
+            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 执行 DAG：directory_tree → read_file（2/3 · 0 tok）</div>
+            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> llm_generate 完成（620 tok）· FactGuard 通过 · 引用锚点命中</div>
+          </div>
+
+          <div class="m">
+            <div class="who">SKY · <span class="layer">L2 任务书</span> · 3 步 · LLM 1 次 · 驯化三环全过</div>
+            <div class="text">周报已生成。金额与源数据比对 0 冲突，摘要含原文锚点两处。</div>
+            <div class="art">→ .sky-output/周报草稿.docx (18.9 KB)</div>
+            <div class="gates"><span class="gt pass">FactGuard ✓</span><span class="gt pass">引用锚点 ✓</span><span class="gt pass">LlmPolicy ✓</span><span class="gt save">下次同任务 0 tok</span></div>
+          </div>
+
+          <div class="m user"><div class="who">你</div><div class="text">再把它复制到 D 盘备份目录</div></div>
+
+          <div class="approve" id="approve-card">
+            <div class="ah">⚠ 写操作需要授权 —— 写门 fail-closed</div>
+            <div class="ac">file_copy
+src: C:\Users\你\Desktop\周报草稿.docx
+dst: D:\backup\周报草稿.docx</div>
+            <div class="ab">
+              <button class="ok" onclick="approve('once')">允许一次</button>
+              <button onclick="approve('always')">总是允许（写至 D:\backup）</button>
+              <button class="no" onclick="approve('deny')">拒绝</button>
+            </div>
+          </div>
+          <div id="after-approve"></div>
+        </div>
+
+        <!-- 右侧上下文面板（V9 修正） -->
+        <div class="ctxpanel">
+          <h5>路由时间线</h5>
+          <div class="tl-i"><span class="dot" style="background:var(--gold);"></span> 14:01 缓存未命中 → 任务书匹配</div>
+          <div class="tl-i"><span class="dot" style="background:var(--accent);"></span> 14:02 DAG 3 步执行</div>
+          <div class="tl-i"><span class="dot" style="background:var(--ok);"></span> 14:02 驯化三环通过 · 产物落盘</div>
+          <h5>闸门快捷开关</h5>
+          <div class="ctx-row"><span>FactGuard</span><button class="swbtn on" onclick="sw(this)">开</button></div>
+          <div class="ctx-row"><span>引用锚点</span><button class="swbtn on" onclick="sw(this)">开</button></div>
+          <div class="ctx-row"><span>LlmPolicy</span><button class="swbtn on" onclick="sw(this)">开</button></div>
+          <h5>本会话产物</h5>
+          <div class="art-i">周报草稿.docx <span>18.9 KB</span></div>
+          <div class="art-i">滴定曲线.png <span>142 KB</span></div>
+        </div>
+      </div>
+
+      <!-- 上下文水位条（LibreChat 模式 × token 账本） -->
+      <div class="water">
+        <div class="wt"><span>本会话上下文占用</span><span>4.2k / 128k · <span style="color:var(--cyan);">3.3%</span></span></div>
+        <div class="bar">
+          <span style="width:1.6%; background:var(--gold); display:block;"></span>
+          <span style="width:1.7%; background:var(--cyan); display:block;"></span>
+          <span style="background:var(--m2); flex:1;"></span>
+        </div>
+        <div class="leg">
+          <span style="color:var(--gold);">■ 对话 2.1k</span><span style="color:var(--cyan);">■ 工具流量 2.1k</span><span>■ 指令 ~0.1k</span><span>剩余 123.8k（分类不重复计数）</span>
+        </div>
+      </div>
+
+      <div class="composer">
+        <input placeholder="描述任务——路由自动选择：确定性工具 / 任务书 / 探索">
+        <button>发送</button><span class="hint">中断可随时 · 检查点自动记录<span class="rtag">检查点回滚·路线</span></span>
+      </div>
+    </div>
+
+    <!-- ============ 2 事件流画布 ============ -->
+    <div id="v-feed" class="view hidden">
+      <h4 class="vh">事件流画布 · 全部裁决与执行记录（事件流即真相）<span class="rtag">LLMOps 聚合时间线·路线</span><span class="rtag">审计轨迹·路线</span></h4>
+      <div class="ftabs">
+        <div class="ftab active">全部</div><div class="ftab">路由</div><div class="ftab">执行</div><div class="ftab">闸门</div><div class="ftab">产物</div>
+      </div>
+      <div class="feed-item"><span class="ts">14:02:11</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-cache">缓存命中</span><span>smiles_info · 指纹键命中</span></div>咖啡因 C₈H₁₀N₄O₂ · 0 token 回放</div></div>
+      <div class="feed-item"><span class="ts">14:01:47</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-gate-block">FactGuard BLOCK</span><span>金额差 90%</span></div>LLM 报 C13H18O2 ≠ 解析 C9H8O4 —— 已阻止交付，不入缓存</div></div>
+      <div class="feed-item"><span class="ts">14:00:32</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-exec">执行</span><span>app_automate</span></div>Origin.ApplicationSI ← 滴定光谱.csv 导入完成</div></div>
+      <div class="feed-item"><span class="ts">13:58:09</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-route">路由</span><span>L2 任务书命中</span></div>「周报自动草稿」3/5 关键词 ≥ 0.34 → DAG 3 步</div></div>
+      <div class="feed-item"><span class="ts">13:55:20</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-ckpt">检查点</span><span>自动记录<span class="rtag">回滚·路线</span></span></div>DAG 第 2 步前快照 · 输入哈希 a3f1…</div></div>
+      <div class="feed-item"><span class="ts">13:55:20</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-artifact">产物</span><span>.sky-output</span></div>周报草稿.docx 落盘（18.9 KB）</div></div>
+      <div class="feed-item"><span class="ts">13:52:03</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-approval">写门审批</span><span>file_copy → D:\backup</span></div>用户裁定：总是允许（范围限定 D:\backup）</div></div>
+    </div>
+
+    <!-- ============ 3 路由决策：五段（对齐 sky-router 真实架构） ============ -->
+    <div id="v-route" class="view hidden">
+      <h4 class="vh">路由决策 · 五段漏斗（本条消息的实际走向；token 只在 ④ 段产生）<span class="rtag">任务书版本归档 v0/v1·路线</span><span class="rtag">同输入换模型回放对比·路线</span></h4>
+      <div class="seg miss"><div class="no">1</div><div class="sg-body">
+        <div class="sg-t">缓存<span class="src">RouteCache · 0 tok</span></div>
+        <div class="sg-d">同指纹计划直接回放——计划不持久化（随任务书/规则版本漂移），产物缓存才持久化。</div>
+        <div class="sg-m"><span class="lat">37/200 条目 · TTL 1h</span><span class="lat">本条：未命中（新措辞）</span></div>
+      </div></div>
+      <div class="seg hit"><div class="no">2</div><div class="sg-body">
+        <div class="sg-t">任务书<span class="src">ManifestStage · 0 tok</span></div>
+        <div class="sg-d">「周报自动草稿」关键词 3/5 命中且 ≥0.34 → 展开 DAG 3 步（directory_tree → read_file → llm_generate）。</div>
+        <div class="sg-m"><span class="hit">命中 ✓</span><span class="lat">匹配耗时 ~2ms</span><span class="tok">0 tok</span></div>
+      </div></div>
+      <div class="seg hit"><div class="no">3</div><div class="sg-body">
+        <div class="sg-t">确定性工具<span class="src">CORE 步骤缓存 · 0 tok</span></div>
+        <div class="sg-d">directory_tree、read_file 按规范化键执行/回放——叶节点优先确定性，不烧 token。</div>
+        <div class="sg-m"><span class="hit">2/3 步确定性</span><span class="lat">12ms</span><span class="tok">0 tok</span></div>
+      </div></div>
+      <div class="seg hit"><div class="no">4</div><div class="sg-body">
+        <div class="sg-t">检索 / 仲裁<span class="src">llm_generate · 唯一 token 消耗点</span></div>
+        <div class="sg-d">摘要生成 620 tok → FactGuard 金额/日期校验通过 → 引用锚点两处命中 → LlmPolicy 禁词通过。</div>
+        <div class="sg-m"><span class="tok">620 tok（¥0.03）</span><span class="hit">驯化三环 ✓</span><span class="lat">2.8s</span></div>
+      </div></div>
+      <div class="seg miss"><div class="no">5</div><div class="sg-body">
+        <div class="sg-t">探索<span class="src">未触发</span></div>
+        <div class="sg-d">仅当任务书缺失、确定性不足时进入——自由工具链 + 高监督。本条未走到。</div>
+        <div class="sg-m"><span class="lat">—</span></div>
+      </div></div>
+    </div>
+
+    <!-- ============ 4 工作台（化学与化工 · DOMAIN+CORE 分屏） ============ -->
+    <div id="v-workbench" class="view hidden" style="padding:0; display:flex;">
+      <div class="wb" style="flex:1; min-height:0;">
+        <div class="wb-dom">
+          <div class="wb-h"><span class="src-badge dom">DOMAIN</span><b style="font-size:13px;">化学与化工 · 专业面板</b><span style="font-size:10px; color:var(--sub);">随包切换 · 包自带能力</span></div>
+          <input class="smi-in" value="CN1C=NC2=C1C(=O)N(C)C(=O)N2C" spellcheck="false">
+          <div style="font-size:9.5px; color:var(--sub); margin-top:5px;">SMILES 即时解析（JS 与 Rust 同语义 · 本地 0 tok）</div>
+          <div class="mol-card">
+            <div class="mc-t">咖啡因 Caffeine</div>
+            <div class="mc-row"><span>分子式</span><b>C₈H₁₀N₄O₂</b></div>
+            <div class="mc-row"><span>分子量</span><b>194.19 g/mol</b></div>
+            <div class="mc-row"><span>芳香环</span><b>2（咪唑 + 嘧啶二酮）</b></div>
+            <div class="mc-row"><span>H 键供体 / 受体</span><b>0 / 6</b></div>
+          </div>
+          <div class="act-row">
+            <button class="btn">导出结构.png</button>
+            <button class="btn">送 Origin 绘图</button>
+            <button class="btn">光谱预处理</button>
+          </div>
+          <div style="font-size:10px; color:var(--sub); margin-top:14px;">包自带能力：smiles_info · structure_export · spectrum_prep —— 声明引用 CORE 的 file_read / knowledge_search / app_automate。</div>
+        </div>
+        <div class="wb-core">
+          <div class="wb-h"><span class="src-badge core">CORE</span><b style="font-size:13px;">AI 助手（常驻工具条）</b></div>
+          <div class="act-row" style="margin:0 0 12px;">
+            <button class="btn s">翻译本段</button><button class="btn s">摘要</button><button class="btn s">问答</button>
+          </div>
+          <div class="m"><div class="who">SKY · <span class="layer">llm_generate</span> · 320 tok</div><div class="text">咖啡因是中枢神经兴奋剂，黄嘌呤生物碱。结构上由咪唑环与嘧啶二酮环稠合——<b>引用锚点：</b>与库内「甲基黄嘌呤类化合物」条目一致。</div>
+          <div class="gates"><span class="gt pass">FactGuard ✓</span><span class="gt pass">引用锚点 ✓</span><span class="gt save">回放 0 tok</span></div></div>
+          <div class="feed-item"><span class="ts">14:02:11</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-cache">缓存命中</span></div>smiles_info 指纹键命中 · 0 tok</div></div>
+          <div class="feed-item"><span class="ts">14:01:47</span><div class="fi-body"><div class="fi-head"><span class="fi-kind fk-gate-block">FactGuard BLOCK</span></div>分子式不符已拦截（演示样本）</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 5 知识库 ============ -->
+    <div id="v-knowledge" class="view hidden">
+      <h4 class="vh">知识库 · 引用可追溯（检索命中必须给原文锚点）<span class="rtag">摄取向导（Dify RAG 模式）·路线</span></h4>
+      <div class="kb-search">
+        <input value="滴定 终点 判断" readonly>
+        <button class="btn pri">检索</button>
+        <button class="btn">+ 添加条目</button>
+      </div>
+      <div class="kb-i">
+        <div class="kt"><span>电位滴定终点判定方法</span><span class="sc">score 0.91</span></div>
+        <div class="ks">……当 <mark>ΔE/ΔV 达到极大值</mark> 时对应等当点，二阶导数法过零点更精确……</div>
+        <div class="kmeta">来源：分析方法手册.pdf · 第 47 页 · 锚点命中</div>
+      </div>
+      <div class="kb-i">
+        <div class="kt"><span>酚酞指示剂适用范围</span><span class="sc">score 0.84</span></div>
+        <div class="ks">……酚酞变色域 <mark>pH 8.2–10.0</mark>，适用于强碱滴定弱酸……</div>
+        <div class="kmeta">来源：实验数据.csv 附注 · 锚点命中</div>
+      </div>
+      <div class="kb-i">
+        <div class="kt"><span>自动滴定仪参数表</span><span class="sc">score 0.77</span></div>
+        <div class="ks">……滴定速率 0.5 mL/min，<mark>终点灵敏度 ±0.1 pH</mark>……</div>
+        <div class="kmeta">来源：仪器说明.docx · 锚点命中</div>
+      </div>
+      <div style="font-size:10px; color:var(--sub); margin-top:10px;">条目 128 · 来源 6 个文件 · 引用锚点覆盖 92% —— 检索由 CORE knowledge_search 提供（0 tok 本地索引）。</div>
+    </div>
+
+    <!-- ============ 6 能力与领域包市场 ============ -->
+    <div id="v-market" class="view hidden">
+      <h4 class="vh">能力层（CORE · 所有域共享 · 出厂即含）</h4>
+      <div class="mk-grid">
+        <div class="mk"><div class="mt"><span class="mn">文件读写</span><span class="installed">✓ 出厂</span></div><div class="md">read / write / move / copy / find / tree</div></div>
+        <div class="mk"><div class="mt"><span class="mn">知识检索</span><span class="installed">✓ 出厂</span></div><div class="md">knowledge_search 语义召回 · 引用可追溯</div></div>
+        <div class="mk"><div class="mt"><span class="mn">应用自动化</span><span class="installed">✓ 出厂</span></div><div class="md">COM 桥：Origin / ChemDraw / 任意 ProgID 白名单</div></div>
+        <div class="mk"><div class="mt"><span class="mn">MCP 服务</span><span class="installed">✓ 5 个解释器</span></div><div class="md">外部工具服务 · 子进程拉起 · fail-closed</div></div>
+      </div>
+      <h4 class="vh" style="margin-top:20px;">领域包（声明引用 CORE · 专业能力自带 · 加领域=加 JSON）<span class="rtag">per-包 token 预算·路线</span></h4>
+      <div class="mk-grid">
+        <div class="mk"><div class="mt"><span class="mn">化学与化工</span><span class="installed">✓ 已挂载</span></div><div class="md">SMILES 解析/结构导出 · 光谱预处理 · Origin 绘图桥</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">app_automate</span> · 自带 <span class="cap">smiles_info</span> 等 3 项</div><div class="act-row"><button class="btn s" onclick="go('workbench')">打开工作台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">科学研究</span><span class="installed">✓ 已挂载</span></div><div class="md">段落精读 · 双语对照 · 引用检查 · 知识检索</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">llm_generate</span> · 自带 <span class="cap">段落锚点</span> 等 2 项</div><div class="act-row"><button class="btn s">打开精读台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">财务与法务</span><span style="color:var(--warn); font-size:11px;">未挂载</span></div><div class="md">合同审查 · 条款对比 · 金额 FactGuard 强化 · 报销检查</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">text_extract</span> · 自带 <span class="cap">条款对比</span> 等 4 项</div><div class="act-row"><button class="btn s">查看安装说明</button></div></div>
+        <div class="mk" style="opacity:.55;"><div class="mt"><span class="mn">测绘与地理信息</span><span style="color:var(--sub); font-size:11px;">规划中</span></div><div class="md">坐标转换（CGCS2000↔WGS84）· 等高线数据 · 测量报表</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">app_automate</span> · 自带 <span class="cap">坐标引擎</span> 等 2 项</div><div class="act-row"><button class="btn s" disabled>路线图</button></div></div>
+      </div>
+    </div>
+
+    <!-- ============ 7 设置 ============ -->
+    <div id="v-settings" class="view hidden">
+      <h3 class="sec">模型接入</h3>
+      <div class="set-row"><div class="l">GLM API 密钥<div class="d">环境变量 SKY_GLM_API_KEY 或此处配置；存本机 vault，绝不入库</div></div><input type="password" value="********"></div>
+      <div class="set-row"><div class="l">Ollama 本地发现<div class="d">127.0.0.1:11434 · 无密钥回退</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <h3 class="sec">驯化闸门（LLM 产出必须过；设置即驯化）</h3>
+      <div class="set-row"><div class="l">FactGuard 事实校验<div class="d">金额 ±10% / 日期 ±3 天 / 百分比 ±1% 超阈值阻断</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">引用锚点<div class="d">产出无原文片段时标记「模型推断」</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">LlmPolicy 禁词/必含<div class="d">任务书 llmPolicy 字段声明</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <h3 class="sec">缓存</h3>
+      <div class="set-row"><div class="l">路由缓存 / 步骤缓存<div class="d">37/200 · TTL 1h/24h · 只持久化产物缓存（计划随版本漂移）</div></div><button class="swbtn on" onclick="sw(this)">已启用</button></div>
+      <div class="set-row"><div class="l">语义缓存（跨措辞）<div class="d">需真实 embedding 模型——当前未接入（诚实标注）</div></div><button class="swbtn off">待 embedding</button></div>
+      <div class="set-row"><div class="l">同输入换模型回放对比<span class="rtag">路线</span><div class="d">验证换模型后产出一致性</div></div><button class="swbtn off">未实施</button></div>
+    </div>
+
+    <!-- ============ 8 账号 ============ -->
+    <div id="v-account" class="view hidden">
+      <h3 class="sec">本机档案（本地优先：身份与密钥存本机）</h3>
+      <div class="mk" style="width:480px; display:flex; gap:14px; align-items:center;">
+        <span class="av" style="width:44px; height:44px; font-size:16px;">A</span>
+        <div><div style="font-size:15px; font-weight:700;">Administrator</div><div style="font-size:11px; color:var(--sub);">本机档案 · v0 无云登录（诚实边界）</div></div>
+      </div>
+      <h3 class="sec">密钥管理（vault · 绝不明文入库 · 三级降级）</h3>
+      <div class="set-row"><div class="l">GLM API 密钥<div class="d">存储：OS 凭据管理器（当前）→ 无凭据管理器时加密文件 → 仅内存（不落盘）——降级阶梯在此明示当前级别</div></div><input type="password" value="********"></div>
+      <div class="set-row"><div class="l">操作审计轨迹<span class="rtag">路线·企业化</span><div class="d">全部裁决与执行留痕（事件流已具备数据源）</div></div><button class="swbtn off">未实施</button></div>
+      <div class="set-row"><div class="l">主题</div><button class="swbtn on">星空深色（当前唯一）</button></div>
+      <div class="set-row"><div class="l">语言</div><button class="swbtn on">中文主 · 英文辅</button></div>
+    </div>
+
+    <div class="statusbar">
+      <div class="sb-i"><span class="dot ok"></span> 引擎在线</div>
+      <div class="sb-i">本次 <span class="num">620</span> tok</div>
+      <div class="sb-i">确定性 <span class="num">2/3</span></div>
+      <div class="sb-i">产物 <span class="num">3</span></div>
+      <div class="sb-i">Alt+1..8 切视图</div>
+      <div class="sb-i right"><span class="dot off"></span> Origin COM</div>
+      <div class="sb-i right"><span class="dot off"></span> ChemDraw COM</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 8 视图切换 + Alt+1..8
+const VIEWS = ['chat','feed','route','knowledge','market','workbench','settings','account'];
+function go(v) {
+  VIEWS.forEach(n => document.getElementById('v-'+n).classList.toggle('hidden', n !== v));
+  document.querySelectorAll('.nav-i[data-v]').forEach(e => e.classList.toggle('active', e.dataset.v === v));
+}
+document.querySelectorAll('.nav-i[data-v]').forEach(e => e.addEventListener('click', () => go(e.dataset.v)));
+document.addEventListener('keydown', e => {
+  if (!e.altKey) return;
+  const idx = parseInt(e.key) - 1;
+  if (idx >= 0 && idx < VIEWS.length) { go(VIEWS[idx]); e.preventDefault(); }
+});
+
+// 写门三态审批
+function approve(mode) {
+  const after = document.getElementById('after-approve');
+  if (mode === 'deny') {
+    after.innerHTML = '<div class="m"><div class="who">SKY · 写门</div><div class="text">已拒绝——文件未复制。fail-closed：没有授权就没有动作。</div></div>';
+  } else {
+    after.innerHTML = `<div class="m"><div class="who">SKY · 写门 · ${mode === 'always' ? '总是允许（范围限定 D:\\backup）' : '允许一次'}</div>
+      <div class="text">复制完成：D:\\backup\\周报草稿.docx。${mode === 'always' ? '该授权已记录（范围限定），下次同目录写入不再询问。' : '一次性授权，下次再询问。'}</div>
+      <div class="gates"><span class="gt pass">fail-closed ✓</span></div></div>`;
+  }
+  document.getElementById('approve-card').remove();
+}
+function sw(btn) {
+  const on = btn.textContent.startsWith('已启用') || btn.textContent === '开';
+  btn.textContent = on ? (btn.textContent === '开' ? '关' : '已停用') : (btn.closest('.ctx-row') ? '开' : '已启用');
+  btn.classList.toggle('on', !on);
+  btn.classList.toggle('off', on);
+}
+// 事件流过滤 tab（视觉演示）
+document.querySelectorAll('.ftab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.ftab').forEach(x => x.classList.remove('active'));
+  t.classList.add('active');
+}));
+</script>
+</body>
+</html>
