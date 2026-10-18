@@ -44,6 +44,8 @@ pub struct Pipeline {
     /// 又调一次 `route_only`，导致同一次发送调用两次 LLM。这个计数器让
     /// 该回归可被测试锁住，而不是靠读代码发现。
     planner_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// 已接入的工具名。传给 LLM 规划器，避免它发明不存在的工具。
+    available_tools: Vec<String>,
 }
 
 impl Default for Pipeline {
@@ -58,6 +60,7 @@ impl Pipeline {
             router: default_router(),
             planner: None,
             planner_calls: Default::default(),
+            available_tools: Vec::new(),
         }
     }
 
@@ -67,7 +70,17 @@ impl Pipeline {
             router: default_router(),
             planner: Some(planner),
             planner_calls: Default::default(),
+            available_tools: Vec::new(),
         }
+    }
+
+    /// 声明已接入的工具名，供 LLM 规划器参考。
+    ///
+    /// 不声明时 LLM 只能靠猜，实测会产出「终端」「ls」等
+    /// 不存在的工具名，导致全部步骤执行失败。
+    pub fn with_tools(mut self, tools: Vec<String>) -> Self {
+        self.available_tools = tools;
+        self
     }
 
     /// LLM 规划器累计被调用次数。供测试断言「一次发送一次调用」。
@@ -98,7 +111,15 @@ impl Pipeline {
                     if let Some(planner) = &self.planner {
                         self.planner_calls
                             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        return match planner.plan(text).await {
+                        // 把已接入的工具清单交给规划器——不给清单时
+                        // LLM 会发明「终端」「ls」这类不存在的工具名，
+                        // 导致每一步都执行失败（实测确认）。
+                        let tool_names: Vec<&str> = self
+                            .available_tools
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect();
+                        return match planner.plan_with_tools(text, &tool_names).await {
                             crate::planner::PlanOutcome::Planned(p) => RouteOutcome::Resolved {
                                 source: "explore+llm".to_string(),
                                 confidence: 0.5,

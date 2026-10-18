@@ -87,11 +87,48 @@ impl LlmPlanner {
 
     /// 为用户输入生成计划。
     pub async fn plan(&self, user_input: &str) -> PlanOutcome {
+        self.plan_with_tools(user_input, &[]).await
+    }
+
+    /// 用指定的可用工具清单生成计划。
+    ///
+    /// **为什么必须传入工具清单**：实测发现不告诉 LLM 有哪些工具时，
+    /// 它会凭空发明「终端」「ls」「打开终端」这类不存在的工具名，
+    /// 导致每一步都「能力未接入」。把这个清单写进提示词，
+    /// LLM 才会在真实能力范围内规划。
+    pub async fn plan_with_tools(&self, user_input: &str, tools: &[&str]) -> PlanOutcome {
+        let system = if tools.is_empty() {
+            PLANNER_SYSTEM_PROMPT.to_string()
+        } else {
+            format!(
+                "{PLANNER_SYSTEM_PROMPT}\n\n\
+                 **本系统当前已接入的工具（只能用这些，禁止发明其它工具名）**：\n{}\n\n\
+                 **params 必须携带工具所需的全部参数**。实测提醒：\
+                 用户给出的路径/文件名一定要写进 params，\
+                 不要放进 needs，也不要省略——needs 只放能力标签（如 file_access）。\n\n\
+                 参数格式（params 是对象）：\n\
+                 - file_list：{{\"dir\":\"目录路径\"}}\n\
+                 - file_find：{{\"dir\":\"目录路径\",\"ext\":\"jpg,png\"}}\n\
+                 - file_read：{{\"path\":\"文件路径\"}}\n\
+                 - file_write：{{\"path\":\"路径\",\"content\":\"内容\"}}\n\
+                 - folder_create：{{\"path\":\"目录路径\"}}\n\
+                 - file_move：{{\"from\":\"源文件\",\"to\":\"目标目录\"}}\n\
+                 - file_copy：{{\"from\":\"源\",\"to\":\"目标\"}}\n\
+                 - text_summarize：{{\"text\":\"输入文本\"}}\n\
+                 - text_extract：{{\"text\":\"输入文本\"}}\n\n\
+                 完整示例——用户说「列出 /tmp/pics 下的文件」应输出：\n\
+                 {{\"intent\":\"列出目录文件\",\"needs\":[\"file_access\"],\"steps\":[{{\"step\":1,\
+                 \"description\":\"列出 /tmp/pics 下的文件\",\"tool\":\"file_list\",\
+                 \"depends_on\":[],\"params\":{{\"dir\":\"/tmp/pics\"}},\"expectedOutput\":\"文件列表\"}}]}}",
+                tools.join("、")
+            )
+        };
+
         let req = ChatRequest {
             messages: vec![
                 sky_core::ChatMessage {
                     role: "system".into(),
-                    content: PLANNER_SYSTEM_PROMPT.into(),
+                    content: system,
                     timestamp: None,
                 },
                 sky_core::ChatMessage {
@@ -108,9 +145,174 @@ impl LlmPlanner {
         let cfg = sky_llm::glm_config_with(&self.model, &self.base_url);
 
         match self.caller.call(&cfg, &req).await {
-            Ok(resp) => parse_plan(&resp.content),
+            Ok(resp) => {
+                let mut outcome = parse_plan(&resp.content);
+                // LLM 常把路径放进 needs 或干脆省略，导致工具因缺参数失败。
+                // 提示词约束对它不够硬（GLM-4-flash 实测反复不遵守），
+                // 所以这里做确定性兜底：从用户原文抽出路径补进 params。
+                if let PlanOutcome::Planned(plan) = &mut outcome {
+                    backfill_paths(plan, user_input);
+                }
+                outcome
+            }
             Err(e) => PlanOutcome::Failed(e),
         }
+    }
+}
+
+/// 从用户输入里抽出看起来像文件/目录路径的片段。
+///
+/// 识别规则（保守，宁可漏也不要错）：
+/// - 含 `/` 或 `\` 的连续非空白片段（如 `/tmp/pics`、`C:\Users\x`）
+/// - 或以常见盘符开头的片段
+fn extract_paths(text: &str) -> Vec<String> {
+    // 先剔除 URL——必须在标点切分之前做。
+    // 否则 `https://example.com/a` 会被 `:` 切分成 `https` 和
+    // `//example.com/a`，后者看起来像路径（实测踩过）。
+    let without_urls: String = text
+        .split_whitespace()
+        .filter(|w| !w.contains("://"))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // 不能只用 split_whitespace：中文标点（，。、（ ））不是空白字符，
+    // 「/tmp/pics，然后统计」会被当成一个片段（实测）。所以先把标点
+    // 统一替换成空格再切分。
+    let normalized: String = without_urls
+        .chars()
+        .map(|c| {
+            if matches!(
+                c,
+                '，' | '。'
+                    | '、'
+                    | '；'
+                    | '：'
+                    | '！'
+                    | '？'
+                    | ','
+                    | ';'
+                    | ':'
+                    | '!'
+                    | '?'
+                    | '"'
+                    | '\''
+                    | '“'
+                    | '”'
+                    | '‘'
+                    | '’'
+                    | '（'
+                    | '）'
+                    | '('
+                    | ')'
+                    | '【'
+                    | '】'
+                    | '['
+                    | ']'
+                    | '《'
+                    | '》'
+                    | '「'
+                    | '」'
+            ) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    normalized
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, '.' | '。')))
+        .filter(|w| (w.contains('/') || w.contains('\\')) && w.chars().count() > 1)
+        .map(|w| w.to_string())
+        .collect()
+}
+
+/// 修正 Windows 路径的常见变形。
+///
+/// **实测问题**：LLM 输出 JSON 时会把 `C:\Users\...` 的盘符吃掉，
+/// 变成 `\Users\...`（反斜杠被当成转义符）。这种路径在 Windows 上
+/// 会被解释成「当前盘符下的路径」，列错地方甚至失败。
+///
+/// 处理：形如 `\Xxx\...` 且首段是常见顶层目录时，补回 `C:`。
+/// 只补盘符不猜其它内容——宁可漏修也不要猜错路径。
+fn normalize_win_path(raw: &str) -> String {
+    // 只处理 Windows 风格路径（含反斜杠）。
+    // Unix 路径（/tmp/x、/model/gave）必须原样保留——
+    // 否则会把它篡改成 `\tmp\x`，在 Unix 上直接失效。
+    if !raw.contains('\\') {
+        return raw.to_string();
+    }
+
+    let p = raw.replace('/', "\\");
+    // 已是完整路径（含盘符 `X:` 或 UNC `\\`）→ 原样返回
+    if p.len() >= 2 && p.as_bytes()[1] == b':' {
+        return p;
+    }
+    if p.starts_with("\\\\") {
+        return p;
+    }
+    // 单反斜杠开头 → 大概率是丢了盘符
+    if p.starts_with('\\') {
+        let first = p.trim_start_matches('\\').split('\\').next().unwrap_or("");
+        let common = [
+            "Users", "Program", "Windows", "temp", "Temp", "AppData", "桌面", "Documents",
+        ];
+        if common.iter().any(|c| first.eq_ignore_ascii_case(c)) {
+            return format!("C:{p}");
+        }
+    }
+    p
+}
+
+/// 把从用户原文抽出的路径补进步骤的 params。
+///
+/// **保守原则**：只补「目录型」参数（dir/path），且只在完全缺失时补。
+///
+/// **为什么不补 file_move 的 from/to**：实测教训——用户说
+/// 「把 X 里的 a.jpg 移动到 Y」，原文里的路径片段是 [X, Y]，
+/// 若把 X 当作 from，就会把**整个目录**搬走而不是那个文件。
+/// 这是不可逆的破坏性操作。移动操作的参数必须由模型明确给出，
+/// 模型没给就报错让用户确认，绝不猜。
+fn backfill_paths(plan: &mut TaskPlan, user_input: &str) {
+    // 先修正模型已给出的路径（如吃掉盘符的 `\Users\...`）。
+    // 这不属于「猜测」——只是把被破坏的路径还原，不改变用户意图。
+    for step in &mut plan.steps {
+        for key in ["dir", "path", "from", "to", "source", "target"] {
+            if let Some(Value::String(v)) = step.params.get(key) {
+                let fixed = normalize_win_path(v);
+                if fixed != *v {
+                    step.params.insert(key.to_string(), Value::String(fixed));
+                }
+            }
+        }
+    }
+
+    let paths = extract_paths(user_input);
+    if paths.is_empty() {
+        return;
+    }
+    let primary = paths[0].clone();
+
+    for step in &mut plan.steps {
+        // 只处理「只读」类工具——补错了顶多查错地方，不会破坏数据。
+        let read_only_dir = matches!(
+            step.tool.as_str(),
+            "file_list" | "list_files" | "file_find" | "file_search"
+        );
+        let read_only_path = matches!(step.tool.as_str(), "file_read" | "read_file");
+
+        if read_only_dir && !step.params.contains_key("dir") && !step.params.contains_key("path") {
+            step.params
+                .insert("dir".into(), Value::String(primary.clone()));
+        }
+        if read_only_path && !step.params.contains_key("path") {
+            step.params
+                .insert("path".into(), Value::String(primary.clone()));
+        }
+        // 写操作（file_move/file_copy/file_write/folder_create）一律不兜底：
+        // 猜错会造成不可逆的数据移动。缺参数时让工具报错，
+        // 由用户明确指定后再执行。
     }
 }
 
@@ -390,5 +592,136 @@ mod tests {
             PlanOutcome::Failed(msg) => assert!(msg.contains("SKY_GLM_API_KEY")),
             other => panic!("无密钥应 Failed，得到 {other:?}"),
         }
+    }
+
+    // ========== 路径抽取与兜底 ==========
+
+    #[test]
+    fn extract_paths_finds_absolute_paths() {
+        let p = extract_paths("列出 /tmp/pics 下的文件");
+        assert_eq!(p, vec!["/tmp/pics"]);
+    }
+
+    #[test]
+    fn extract_paths_ignores_urls() {
+        let p = extract_paths("访问 https://example.com/a 看看");
+        assert!(p.is_empty(), "URL 不该被当成文件路径：{p:?}");
+    }
+
+    #[test]
+    fn extract_paths_handles_chinese_punctuation() {
+        let p = extract_paths("列出 /tmp/pics，然后统计。");
+        assert_eq!(p, vec!["/tmp/pics"]);
+    }
+
+    /// 兜底只补只读工具，绝不补写操作。
+    ///
+    /// 实测教训：给 file_move 补 from 后，用户说「移动 a.jpg」，
+    /// 结果整个 source 目录被搬走（三个文件一起），不可逆。
+    #[test]
+    fn backfill_only_touches_readonly_tools() {
+        let mut plan = TaskPlan {
+            intent: "t".into(),
+            needs: vec![],
+            steps: vec![
+                PlanStep {
+                    step: 1,
+                    description: "列目录".into(),
+                    tool: "file_list".into(),
+                    depends_on: vec![],
+                    params: BTreeMap::new(),
+                    expected_output: String::new(),
+                    fallback: None,
+                },
+                PlanStep {
+                    step: 2,
+                    description: "移动".into(),
+                    tool: "file_move".into(),
+                    depends_on: vec![],
+                    params: BTreeMap::new(),
+                    expected_output: String::new(),
+                    fallback: None,
+                },
+            ],
+        };
+        backfill_paths(&mut plan, "把 /tmp/src 里的 a.jpg 移动到 /tmp/dst");
+
+        assert!(
+            plan.steps[0].params.contains_key("dir"),
+            "只读工具应补 dir"
+        );
+        assert!(
+            plan.steps[1].params.is_empty(),
+            "写操作绝不能兜底——猜错会破坏数据：{:?}",
+            plan.steps[1].params
+        );
+    }
+
+    /// 不覆盖模型已给出的参数。
+    #[test]
+    fn backfill_does_not_override_existing_params() {
+        let mut plan = TaskPlan {
+            intent: "t".into(),
+            needs: vec![],
+            steps: vec![PlanStep {
+                step: 1,
+                description: "列目录".into(),
+                tool: "file_list".into(),
+                depends_on: vec![],
+                params: BTreeMap::from([(
+                    "dir".to_string(),
+                    Value::String("/model/gave".into()),
+                )]),
+                expected_output: String::new(),
+                fallback: None,
+            }],
+        };
+        backfill_paths(&mut plan, "列出 /tmp/from/user");
+        assert_eq!(
+            plan.steps[0].params.get("dir").unwrap().as_str().unwrap(),
+            "/model/gave",
+            "模型给了参数就该尊重"
+        );
+    }
+
+    // ========== Windows 路径修正 ==========
+
+    /// 实测 bug：LLM 输出 JSON 时把 `C:\Users\...` 的盘符吃掉，
+    /// 变成 `\Users\...`，于是列到当前盘符下的错误位置。
+    #[test]
+    fn normalize_restores_dropped_drive_letter() {
+        assert_eq!(
+            normalize_win_path(r"\Users\me\AppData\Local\Temp\x"),
+            r"C:\Users\me\AppData\Local\Temp\x"
+        );
+    }
+
+    #[test]
+    fn normalize_keeps_complete_windows_path() {
+        assert_eq!(
+            normalize_win_path(r"C:\Users\me\a.txt"),
+            r"C:\Users\me\a.txt"
+        );
+    }
+
+    /// Unix 路径必须原样保留——不能被 Windows 逻辑篡改成 `\tmp\x`。
+    #[test]
+    fn normalize_leaves_unix_paths_alone() {
+        assert_eq!(normalize_win_path("/tmp/pics"), "/tmp/pics");
+        assert_eq!(normalize_win_path("/model/gave"), "/model/gave");
+    }
+
+    #[test]
+    fn normalize_keeps_unc_path() {
+        assert_eq!(
+            normalize_win_path(r"\\server\share\x"),
+            r"\\server\share\x"
+        );
+    }
+
+    /// 不猜不常见的首层目录——宁可漏修也不能猜错。
+    #[test]
+    fn normalize_does_not_guess_unknown_roots() {
+        assert_eq!(normalize_win_path(r"\WeirdRoot\x"), r"\WeirdRoot\x");
     }
 }

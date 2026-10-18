@@ -14,7 +14,7 @@
 
 use crate::bridge::ProgressEvent;
 use crate::pipeline::Pipeline;
-use crate::real_runner::RealRunner;
+
 use crate::window::WindowId;
 use dioxus::prelude::*;
 use std::sync::Arc;
@@ -51,7 +51,15 @@ pub fn MainView() -> Element {
         // 密钥来源：环境变量 SKY_GLM_API_KEY > 用户目录配置文件。
         let planner = crate::planner::LlmPlanner::from_env();
         if planner.has_key() {
-            Arc::new(Pipeline::with_planner(planner))
+            // 把已接入的工具清单交给 pipeline → 再交给 LLM 规划器。
+            // 不给清单时实测 LLM 会发明「终端」「ls」等不存在的工具名，
+            // 导致每一步都执行失败。
+            let tools: Vec<String> = crate::tools::register_all()
+                .available_tools()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            Arc::new(Pipeline::with_planner(planner).with_tools(tools))
         } else {
             Arc::new(Pipeline::new())
         }
@@ -85,9 +93,10 @@ pub fn MainView() -> Element {
             // 曾经的实现先调 route_only() 再调 run()，导致探索路径
             // 触发两次 LLM 调用，实测耗时从 7 秒翻倍到 14 秒。
             let started = std::time::Instant::now();
-            // 用 RealRunner 而非 EchoRunner：未接入的能力会明确报错，
-            // 而不是假装成功。这样 UI 显示的状态与真实发生的事一致。
-            let result = pipeline.run(&text, &RealRunner::new()).await;
+            // 用已注册真实能力的 runner：文件系统类工具会真的读写文件，
+            // LLM 类工具会真的调模型。未实现的能力（如 PDF 转换）如实报
+            // 「未接入」，不假装成功。
+            let result = pipeline.run(&text, &crate::tools::register_all()).await;
             // 计时留痕：确定性路径设计上应是微秒级，若这里出现数秒，
             // 说明实际走的是 explore（调了 LLM）。用户报告「转 pdf 也要
             // 五六秒」时，端到端耗时与 route_source 一起看才有判断依据。
