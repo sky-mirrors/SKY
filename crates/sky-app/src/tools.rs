@@ -835,10 +835,13 @@ enum LlmOutcome {
     Call {
         prompt: String,
         max_tokens: u32,
+        temperature: f32,
         key: String,
         model: String,
         /// 上游步骤结果拼接（FactGuard 的源文档）。
         source: String,
+        /// 领域约束（产出校验用）。
+        policy: sky_pack::LlmPolicy,
     },
 }
 
@@ -902,6 +905,13 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
         // 步骤级响应缓存：命中即回放，不调模型、不需要密钥。
         // 必须排在密钥检查之前——命中回放是无密钥环境的可用路径。
         // 源文档在命中/未命中两路都要带（FactGuard 对缓存产出同样校验）。
+        // 领域约束（LlmPolicy）：任务书步骤可声明 `llmPolicy`——
+        // maxTokens/temperature 收紧 + 产出校验（禁词/必含），缓存回放同样过校验。
+        let policy: sky_pack::LlmPolicy = step
+            .params
+            .get("llmPolicy")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
         let cached = {
             let cache = llm_response_cache();
             cache
@@ -910,6 +920,7 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
         };
         if let Some(text) = cached {
             let checked = fact_guard_verdict(&source_doc, &text)?;
+            let checked = policy.check_output(&checked)?;
             return Ok(LlmOutcome::Cached { text: checked });
         }
 
@@ -921,16 +932,21 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             );
         };
 
-        let max_tokens = param_str(step, "maxTokens")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(1200u32);
+        let max_tokens = policy.effective_max_tokens(
+            param_str(step, "maxTokens")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1200u32),
+        );
+        let temperature = policy.effective_temperature(0.2);
 
         Ok(LlmOutcome::Call {
             prompt,
             max_tokens,
+            temperature,
             key,
             model: cfg.model,
             source: source_doc,
+            policy,
         })
     })();
 
@@ -940,22 +956,25 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
         Ok(LlmOutcome::Call {
             prompt,
             max_tokens,
+            temperature,
             key,
             model,
             source,
+            policy,
         }) => {
             let cfg = sky_llm::resolve_config();
             let caller = sky_llm::HttpProviderCall::with_key(key);
             let provider = sky_llm::glm_config_with(&model, &cfg.base_url);
             // 指纹先算——prompt 即将被 move 进消息体。
             let prompt_fp = sky_cache::FingerprintCache::fingerprint(&prompt);
-            let req = build_req(
+            let req = build_req_with_temperature(
                 sky_core::ChatMessage {
                     role: "user".into(),
                     content: prompt,
                     timestamp: None,
                 },
                 max_tokens,
+                temperature,
             );
             Box::pin(async move {
                 use sky_llm::ProviderCall;
@@ -964,6 +983,8 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
                         // FactGuard 裁决：critical 冲突阻断，小差异就地修正。
                         // 裁决在回填之前——被拦截的产出不得进缓存。
                         let checked = fact_guard_verdict(&source, &r.content)?;
+                        // 领域约束裁决（禁词/必含）——同一原则：驯化靠闸门不靠恳求。
+                        let checked = policy.check_output(&checked)?;
                         // 成功产出回填指纹缓存——同 prompt 下次零 token 回放。
                         llm_response_cache().put(&prompt_fp, &checked, now_millis());
                         // 同步追加落盘（跨会话资产）。失败容忍：缓存是优化不是事实源。
@@ -984,12 +1005,16 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
     }
 }
 
-/// 组装 ChatRequest。抽出来避免在异步闭包里重复构造。
-fn build_req(msg: sky_core::ChatMessage, max_tokens: u32) -> sky_llm::ChatRequest {
+/// 带温度的组装（领域 LlmPolicy 可收紧；默认 0.2）。
+fn build_req_with_temperature(
+    msg: sky_core::ChatMessage,
+    max_tokens: u32,
+    temperature: f32,
+) -> sky_llm::ChatRequest {
     sky_llm::ChatRequest {
         messages: vec![msg],
         model: String::new(), // 由 provider 配置决定
-        temperature: Some(0.2),
+        temperature: Some(temperature),
         max_tokens: Some(max_tokens),
     }
 }
@@ -1960,6 +1985,38 @@ mod tests {
         match r {
             Ok(text) => assert!(text.contains("500,000"), "一致产出应原样放行：{text}"),
             Err(e) => panic!("一致产出不应被拦截：{e}"),
+        }
+    }
+
+    /// LlmPolicy 接线：任务书步骤声明 `llmPolicy` 后，
+    /// 产出含禁词即被拒（缓存回放路径同样过校验）。
+    #[tokio::test]
+    async fn llm_policy_forbidden_term_blocks_cached_output() {
+        let results: BTreeMap<u32, String> = BTreeMap::new();
+        let prompt_text = "生成一段不含上游的化学结论说明。";
+        let key = sky_cache::FingerprintCache::fingerprint(prompt_text);
+        llm_response_cache().put(
+            &key,
+            "这个化合物大概是无害的。",
+            now_millis(),
+        );
+
+        let mut s = step(
+            "llm_generate",
+            json!({
+                "prompt": prompt_text,
+                "llmPolicy": { "forbidden_terms": ["大概"] }
+            }),
+        );
+        s.step = 1;
+        let fut = tool_llm_generate_async(&s, &results);
+        let r = fut.await;
+        match r {
+            Err(e) => assert!(
+                e.contains("禁词") && e.contains("大概"),
+                "禁词校验应拒绝含糊表述，实际：{e}"
+            ),
+            Ok(text) => panic!("含禁词的产出不应放行，实际返回了：{text}"),
         }
     }
 

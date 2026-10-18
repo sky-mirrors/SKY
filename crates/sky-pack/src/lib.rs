@@ -9,6 +9,7 @@
 //! 这也顺带解决了现状的缺口：`listEvaluators` 恒为空（编译期模块无法运行时加载）。
 
 pub mod dsl;
+pub mod llm_policy;
 pub mod loader;
 pub mod workmode;
 
@@ -21,3 +22,4 @@ pub use loader::{
     PackHost, PackManifest, PackSource, PackStep,
 };
 pub use workmode::{WorkAction, WorkMode};
+pub use llm_policy::LlmPolicy;
