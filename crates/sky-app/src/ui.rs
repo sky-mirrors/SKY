@@ -40,10 +40,14 @@ pub struct AppState {
 #[component]
 pub fn MainView() -> Element {
     let mut state = use_signal(AppState::default);
+    // 配置文件的解析警告——必须在界面上可见。
+    // 用户改了配置文件却没生效时，静默用默认值会让人排查很久。
+    let config_warning = use_signal(|| sky_llm::resolve_config().warning);
     // Pipeline 只构造一次，跨事件复用
     let pipeline = use_signal(|| {
         // 有 GLM 密钥则接入 LLM 规划器，探索路径由 LLM 生成计划；
         // 无密钥则保持骨架行为（探索返回空计划）。
+        // 密钥来源：环境变量 SKY_GLM_API_KEY > 用户目录配置文件。
         let planner = crate::planner::LlmPlanner::from_env();
         if planner.has_key() {
             Arc::new(Pipeline::with_planner(planner))
@@ -179,6 +183,12 @@ pub fn MainView() -> Element {
                     div {
                         style: "font-size: 13px; font-weight: 600; margin-bottom: 12px;",
                         "路由决策"
+                    }
+                    if let Some(w) = config_warning.read().as_ref() {
+                        div {
+                            style: "font-size: 11px; color: #b45309; background: #fef3c7; padding: 8px; border-radius: 4px; margin-bottom: 12px; line-height: 1.5;",
+                            "{w}"
+                        }
                     }
                     if state.read().route_trace.is_empty() {
                         div {

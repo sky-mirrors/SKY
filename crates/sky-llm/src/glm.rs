@@ -27,10 +27,17 @@ pub fn api_key_from_env() -> Option<String> {
 
 /// 构造 GLM provider 配置。
 pub fn glm_config(model: &str) -> ProviderConfig {
+    glm_config_with(model, GLM_BASE_URL)
+}
+
+/// 构造 GLM provider 配置，端点可覆盖。
+///
+/// 端点来自用户配置时用这个——尾部斜杠会归一化，避免拼出 `//chat/completions`。
+pub fn glm_config_with(model: &str, base_url: &str) -> ProviderConfig {
     ProviderConfig {
         name: "glm".into(),
         kind: ProviderKind::OpenAi,
-        base_url: GLM_BASE_URL.into(),
+        base_url: base_url.trim_end_matches('/').to_string(),
         model: model.into(),
         api_key: None, // 从环境变量取，不放入配置结构
         priority: 1,

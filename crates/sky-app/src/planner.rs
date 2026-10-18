@@ -43,14 +43,25 @@ pub enum PlanOutcome {
 pub struct LlmPlanner {
     caller: HttpProviderCall,
     model: String,
+    base_url: String,
+    /// 配置文件解析失败时的警告，随规划结果带出供 UI 展示。
+    config_warning: Option<String>,
 }
 
 impl LlmPlanner {
-    /// 从环境变量构造。无密钥时仍可构造，`plan` 会返回 `Failed`。
+    /// 从环境变量 + 用户目录配置构造。
+    ///
+    /// 无密钥时仍可构造，`plan` 会返回 `Failed`。
     pub fn from_env() -> Self {
+        let cfg = sky_llm::resolve_config();
         Self {
-            caller: HttpProviderCall::from_env(),
-            model: "glm-4-flash".into(),
+            caller: match &cfg.api_key {
+                Some(k) => HttpProviderCall::with_key(k),
+                None => HttpProviderCall::from_env(),
+            },
+            model: cfg.model,
+            base_url: cfg.base_url,
+            config_warning: cfg.warning,
         }
     }
 
@@ -58,12 +69,20 @@ impl LlmPlanner {
     pub fn with_key(key: impl Into<String>) -> Self {
         Self {
             caller: HttpProviderCall::with_key(key),
-            model: "glm-4-flash".into(),
+            model: sky_llm::DEFAULT_MODEL.into(),
+            base_url: sky_llm::GLM_BASE_URL.into(),
+            config_warning: None,
         }
     }
 
     pub fn has_key(&self) -> bool {
         self.caller.has_key()
+    }
+
+    /// 配置文件解析失败时的警告（若有）。UI 应展示它——
+    /// 否则用户改了配置却没生效，会以为问题在别处。
+    pub fn config_warning(&self) -> Option<&str> {
+        self.config_warning.as_deref()
     }
 
     /// 为用户输入生成计划。
@@ -86,7 +105,7 @@ impl LlmPlanner {
             max_tokens: Some(1200),
         };
 
-        let cfg = sky_llm::glm_config(&self.model);
+        let cfg = sky_llm::glm_config_with(&self.model, &self.base_url);
 
         match self.caller.call(&cfg, &req).await {
             Ok(resp) => parse_plan(&resp.content),
@@ -352,7 +371,9 @@ mod tests {
     fn missing_key_reports_failure() {
         let p = LlmPlanner {
             caller: HttpProviderCall::with_key(""),
-            model: "glm-4-flash".into(),
+            model: sky_llm::DEFAULT_MODEL.into(),
+            base_url: sky_llm::GLM_BASE_URL.into(),
+            config_warning: None,
         };
         // 空密钥在 call 时会被判为无效
         assert!(p.has_key());

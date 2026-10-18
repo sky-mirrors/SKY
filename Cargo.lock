@@ -4374,12 +4374,14 @@ name = "sky-llm"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "dirs",
  "reqwest",
  "serde",
  "serde_json",
  "sky-core",
  "thiserror 1.0.69",
  "tokio",
+ "toml",
 ]
 
 [[package]]
