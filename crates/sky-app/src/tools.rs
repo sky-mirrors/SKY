@@ -1094,9 +1094,48 @@ pub fn register_all() -> RealRunner {
         .register("directory_tree", wrap(tool_directory_tree))
         .register("knowledge_search", wrap(tool_knowledge_search))
         .register("shell_exec", wrap(tool_shell_exec))
+        .register("app_automate", wrap(tool_app_automate))
         // llm_generate 是唯一异步工具：它要调模型网关。
         // 无密钥时返回明确的 Err——静默返回空串会让下游步骤拿到空输入却「成功」。
         .register("llm_generate", tool_llm_generate_async)
+}
+
+/// `app_automate`：驱动外部专业软件（Origin/ChemDraw）——harness 本义。
+///
+/// 安全边界：命令由 `app_automation::render_automation` 从**固定模板**渲染
+/// （应用白名单 + 操作模板表 + 参数消毒），本函数只负责执行，不拼任何脚本。
+/// 可用性探测见 `app_automation::availability_probe`。
+fn tool_app_automate(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<String, String> {
+    let app = param_str(step, "app").ok_or_else(|| "app_automate 缺少 app 参数".to_string())?;
+    let operation = param_str(step, "operation")
+        .ok_or_else(|| "app_automate 缺少 operation 参数".to_string())?;
+    let params = step
+        .params
+        .get("params")
+        .cloned()
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+
+    let command = crate::app_automation::render_automation(&app, &operation, &params)?;
+
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &command])
+        .output()
+        .map_err(|e| format!("app_automate 启动 powershell 失败：{e}"))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() {
+        Ok(format!("[{app}/{operation}] 完成\n{stdout}"))
+    } else {
+        // 常见失败：COM 未安装（无 Origin/ChemDraw）——如实报告可用性。
+        let avail = crate::app_automation::availability_probe();
+        let hint: Vec<String> = avail.iter().map(|(n, ok)| format!("{n}={ok}")).collect();
+        Err(format!(
+            "app_automate 失败（退出码 {}）\nstderr: {stderr}\n本机可用性探测：{}",
+            out.status.code().unwrap_or(-1),
+            hint.join(", ")
+        ))
+    }
 }
 
 #[cfg(test)]

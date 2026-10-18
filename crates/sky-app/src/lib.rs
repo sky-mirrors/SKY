@@ -9,6 +9,7 @@
 //! **本 crate 是唯一依赖 Dioxus 的 crate**——其余 8 个 crate 均为纯逻辑，
 //! 可脱离 GUI 单测（`cargo test -p sky-core` 等）。
 
+pub mod app_automation;
 pub mod artifact;
 pub mod bridge;
 pub mod paper_reader;
