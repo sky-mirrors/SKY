@@ -175,6 +175,12 @@ fn extract_slots(manifest: &L2Manifest, input: &str) -> SlotValues {
             "file_path" | "path" | "file" => extract_first_path(input),
             // 整段输入当值
             "input_text" | "input" | "text" => Some(input.to_string()),
+            // 宿主槽位：若用户明确给了路径，用用户的；否则留空由宿主注入默认值。
+            //
+            // 语义：`{{workspace_dir}}` 是「工作目录」。用户说「目录是 X」
+            // 时意图是操作 X，不是当前目录。实测发现无条件注入 cwd 会让
+            // 任务书操作错误的位置——用户要求处理 X 目录，实际处理了 cwd。
+            "context" | "host" | "runtime" => extract_first_path(input),
             // 未知来源：不猜，留空
             _ => None,
         };

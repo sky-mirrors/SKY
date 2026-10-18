@@ -192,10 +192,21 @@ impl Pipeline {
             ),
         };
 
-        let outcomes = if plan.steps.is_empty() {
+        // 执行前注入宿主槽位（不改变返回给调用方的 plan——
+        // 调用方看到的是路由产出的原始计划，注入只发生在执行副本上）。
+        //
+        // `{{workspace_dir}}` 这类槽位的 `source = "context"`，由宿主在
+        // 执行期提供——不是用户输入，也不是上游结果。路由期把它们原样
+        // 保留下来（否则任务书会永远卡在「缺槽位」），到这里才替换成真实值。
+        //
+        // 实测教训：少了这一步，字面量 `{{workspace_dir}}` 会被当成路径
+        // 传给 directory_tree，报「目录不存在：{{workspace_dir}}」。
+        let exec_plan = inject_host_slots(plan.clone());
+
+        let outcomes = if exec_plan.steps.is_empty() {
             vec![]
         } else {
-            match execute_plan(&plan, runner, &ExecOptions::default(), None).await {
+            match execute_plan(&exec_plan, runner, &ExecOptions::default(), None).await {
                 Ok(r) => r.outcomes,
                 Err(_) => vec![],
             }
@@ -246,6 +257,53 @@ pub fn assistant_message(content: impl Into<String>) -> ChatMessage {
         role: "assistant".into(),
         content: content.into(),
         timestamp: None,
+    }
+}
+
+/// 执行前把宿主槽位替换成真实值。
+///
+/// 处理 `source = "context"` 的槽位（如 `{{workspace_dir}}`）：
+/// 它们既不是用户输入、也不是上游结果，而是运行环境提供的信息。
+///
+/// **当前注入的宿主槽位**：
+/// - `{{workspace_dir}}` → 进程当前工作目录
+///
+/// 未知的宿主槽位（如 `{{user_file}}` 若被误标为 context）**不注入**——
+/// 保留原样让下游工具报「路径不存在」，比静默替换成空串安全：
+/// 空串会让工具把当前目录当成目标，做错事还报成功。
+fn inject_host_slots(plan: TaskPlan) -> TaskPlan {
+    let workspace = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let mut plan = plan;
+    for step in &mut plan.steps {
+        for value in step.params.values_mut() {
+            replace_in_value(value, "{{workspace_dir}}", &workspace);
+        }
+    }
+    plan
+}
+
+/// 递归替换 JSON 值里的占位符（只处理字符串）。
+fn replace_in_value(v: &mut serde_json::Value, placeholder: &str, replacement: &str) {
+    match v {
+        serde_json::Value::String(s) => {
+            if s.contains(placeholder) {
+                *s = s.replace(placeholder, replacement);
+            }
+        }
+        serde_json::Value::Array(a) => {
+            for item in a {
+                replace_in_value(item, placeholder, replacement);
+            }
+        }
+        serde_json::Value::Object(o) => {
+            for item in o.values_mut() {
+                replace_in_value(item, placeholder, replacement);
+            }
+        }
+        _ => {}
     }
 }
 

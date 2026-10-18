@@ -85,11 +85,26 @@ impl StepRunner for RealRunner {
         step: &PlanStep,
         results: &BTreeMap<u32, String>,
     ) -> Result<String, String> {
-        match self.tools.get(&step.tool) {
-            Some(f) => f(step, results).await,
+        // 统一在此替换上游引用，而不是让每个工具各写一套。
+        //
+        // 为什么放在这里：上游引用（`{{step_1_top_files}}` 等）是**所有**
+        // 工具的共同需求，不是某个工具的特例。放在入口处，任何新增工具
+        // 都自动获得这个能力——若各工具自己实现，必然出现「这个工具支持、
+        // 那个工具漏了」的分叉。
+        //
+        // 实测教训：最初只在 llm_generate 里替换，结果 read_file 拿到
+        // 字面量 `{{step_1_top_files}}` 当路径，报「文件不存在」——
+        // 整个 DAG 断在第二步，而第一步明明成功。
+        let mut resolved = step.clone();
+        for value in resolved.params.values_mut() {
+            crate::tools::replace_upstream_in_value(value, results);
+        }
+
+        match self.tools.get(&resolved.tool) {
+            Some(f) => f(&resolved, results).await,
             None => Err(format!(
                 "能力未接入：{}（步骤 {}「{}」未执行——这不是失败，是尚未实现）",
-                step.tool, step.step, step.description
+                resolved.tool, resolved.step, resolved.description
             )),
         }
     }

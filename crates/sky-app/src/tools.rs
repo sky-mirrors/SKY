@@ -108,17 +108,70 @@ fn tool_file_list(step: &PlanStep, _results: &BTreeMap<u32, String>) -> Result<S
 ///
 /// 参数：`path`（文件路径）
 fn tool_file_read(step: &PlanStep, results: &BTreeMap<u32, String>) -> Result<String, String> {
-    let path = param_str(step, "path")
+    let raw = param_str(step, "path")
         .or_else(|| param_str(step, "file"))
         .ok_or_else(|| "file_read 缺少 path 参数".to_string())?;
 
-    let p = Path::new(&path);
-    if !p.exists() {
-        return Err(format!("文件不存在：{path}"));
-    }
-    let content = std::fs::read_to_string(p).map_err(|e| format!("读取失败 {path}：{e}"))?;
+    // 上游结果可能不是单个路径，而是一段文本（如 directory_tree 的输出）。
+    // 此时从中解析出第一个真实存在、可读的文件路径。
+    //
+    // 实测背景：任务书里 `{{step_1_top_files}}` 被替换成整个目录树文本，
+    // 直接当路径用会报「文件不存在：<整段文本>」，DAG 断在第二步。
+    // 这里做有界解析：只从文本里找「真实存在且是文件」的路径，找不到就报错，
+    // 绝不猜一个不存在的路径。
+    let path = if Path::new(&raw).is_file() {
+        raw
+    } else {
+        match first_existing_file(&raw) {
+            Some(p) => p,
+            None => return Err(format!("没有可读取的文件（输入不是有效路径）：{raw}")),
+        }
+    };
+
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("读取失败 {path}：{e}"))?;
     let _ = upstream_text(results, &step.depends_on);
     Ok(content)
+}
+
+/// 从一段文本里找出第一个「真实存在的文件」路径。
+///
+/// 用于上游结果不是单一路径的场景（如目录树文本）。
+/// 只接受确实存在的文件——不猜、不构造路径，找不到就返回 `None`。
+fn first_existing_file(text: &str) -> Option<String> {
+    // 目录树输出里，顶层是「<dir> 目录树（N 项）：」，之后每行是相对路径。
+    // 先尝试把首行的目录与后续每行拼成完整路径。
+    let dir = text
+        .lines()
+        .next()
+        .and_then(|l| l.strip_suffix(|c: char| c == '：' || c == ':'))
+        .and_then(|l| l.split(" 目录树").next())
+        .map(|s| s.trim().to_string());
+
+    if let Some(dir) = &dir {
+        let base = Path::new(dir);
+        if base.is_dir() {
+            for line in text.lines().skip(1) {
+                let candidate = base.join(line.trim());
+                if candidate.is_file() {
+                    return Some(candidate.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // 兜底：把每一行当作独立路径试一次（适用于「路径列表」型的上游结果）。
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if Path::new(t).is_file() {
+            return Some(t.to_string());
+        }
+    }
+
+    None
 }
 
 /// `file_write`：写文本文件。
@@ -486,6 +539,86 @@ fn tool_knowledge_search(step: &PlanStep, _results: &BTreeMap<u32, String>) -> R
 ///
 /// 无密钥时返回明确错误而非空串——静默返回空会让下游步骤
 /// 拿到空输入却「成功」。
+/// 替换文本里的所有上游步骤引用。
+///
+/// **支持任意后缀**：`{{step_1_result}}`、`{{step_1_top_files}}`、
+/// `{{step_2_summary}}` 等都要替换。
+///
+/// 实测教训：最初只认 `{{step_N_result}}` 字面形态，结果任务书里
+/// `{{step_1_top_files}}` 被漏掉，`read_file` 拿到字面量当路径，
+/// 报「文件不存在：{{step_1_top_files}}」——整个 DAG 断在第二步。
+///
+/// 替换规则：`{{step_<N>_<任意后缀>}}` → 第 N 步的结果。
+/// 找不到第 N 步结果时**保持原样**，让调用方检测到残留并报错——
+/// 静默替换成空串会让下游拿到空输入却「成功」。
+pub fn replace_upstream_refs(text: &str, results: &BTreeMap<u32, String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // 找 "{{step_"
+        if text[i..].starts_with("{{step_") {
+            if let Some(end_rel) = text[i..].find("}}") {
+                let end = i + end_rel;
+                let inner = &text[i + 2..end]; // "step_1_top_files"
+                if let Some(step_no) = parse_step_number(inner) {
+                    if let Some(result) = results.get(&step_no) {
+                        out.push_str(result);
+                        i = end + 2;
+                        continue;
+                    }
+                }
+                // 解析不出或没有该步结果 → 原样保留
+                out.push_str(&text[i..end + 2]);
+                i = end + 2;
+                continue;
+            }
+        }
+        // 逐字符推进（注意 UTF-8 边界）
+        let ch = text[i..].chars().next().unwrap_or('\0');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+
+    out
+}
+
+/// 从 `step_<N>_<后缀>` 里解析出 N。
+fn parse_step_number(inner: &str) -> Option<u32> {
+    let rest = inner.strip_prefix("step_")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// 递归替换 JSON 值里的所有上游引用。
+pub fn replace_upstream_in_value(
+    v: &mut serde_json::Value,
+    results: &BTreeMap<u32, String>,
+) {
+    match v {
+        serde_json::Value::String(s) => {
+            if s.contains("{{step_") {
+                *s = replace_upstream_refs(s, results);
+            }
+        }
+        serde_json::Value::Array(a) => {
+            for item in a {
+                replace_upstream_in_value(item, results);
+            }
+        }
+        serde_json::Value::Object(o) => {
+            for item in o.values_mut() {
+                replace_upstream_in_value(item, results);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> ToolFuture {
     // 同步部分：参数校验 + 上游引用替换。这些不需要异步。
     let preparsed = (|| -> Result<(String, u32, String, String), String> {
@@ -493,13 +626,11 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             .or_else(|| param_str(step, "text"))
             .ok_or_else(|| "llm_generate 缺少 prompt 参数".to_string())?;
 
-        // 执行期替换上游引用 {{step_N_result}}。
+        // 执行期替换上游引用。
         //
         // 这是「展开器保留、执行器替换」分工的兑现点：路由期不知道该结果，
         // 所以占位符被原样保留到这里；此刻上游步骤已执行完，可以替换了。
-        for (step_no, result) in results {
-            prompt = prompt.replace(&format!("{{{{step_{step_no}_result}}}}"), result);
-        }
+        prompt = replace_upstream_refs(&prompt, results);
 
         // 仍残留的上游占位符说明依赖步骤没成功执行。
         // 不能拿残缺 prompt 去调模型——那会得到看似合理实则错位的产出。
