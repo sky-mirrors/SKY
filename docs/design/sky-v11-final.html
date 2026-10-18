@@ -241,8 +241,8 @@
           </div>
           <div class="think">
             <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 路由：L2 任务书「周报自动草稿」命中（0 tok）</div>
-            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 执行 DAG：directory_tree → read_file（2/3 · 0 tok）</div>
-            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> llm_generate 完成（620 tok）· FactGuard 通过 · 引用锚点命中</div>
+            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> 执行 DAG：directory_tree → read_file（2/3 · 0 tok · 条件分支 evaluate_condition 已过）</div>
+            <div class="step done"><span class="mark" style="color:var(--ok);">✓</span> llm_generate 完成（620 tok · SSE 流式）· FactGuard 通过 · 引用锚点命中</div>
           </div>
 
           <div class="m">
@@ -314,9 +314,9 @@ dst: D:\backup\周报草稿.docx</div>
 
     <!-- ============ 5 任务书与技能（审计补缺：「加领域=加 JSON」的核心资产此前无管理视图） ============ -->
     <div id="v-manifests" class="view hidden">
-      <h4 class="vh">任务书（领域包核心资产 · JSON 即接口）<span class="rtag">版本归档 v0/v1·路线</span><span class="rtag">IDE 化编辑器·路线</span></h4>
-      <div class="kb-i"><div class="kt"><span>周报自动草稿 <span class="rtag">v1</span></span><span class="sc">化学与化工 · L2 · 3 步</span></div><div class="ks">关键词 5 · 步骤：directory_tree → read_file → llm_generate · llmPolicy 禁词 3</div><div class="kmeta">本周命中 14 次 · 缓存回放率 86% · 0 FactGuard 拦截</div></div>
-      <div class="kb-i"><div class="kt"><span>滴定数据分析 <span class="rtag">v2</span></span><span class="sc">化学与化工 · L2 · 4 步</span></div><div class="ks">步骤：read_file → app_automate(Origin) → llm_generate → file_write</div><div class="kmeta">本周命中 6 次 · 检查点 2 个</div></div>
+      <h4 class="vh">任务书（领域包核心资产 · JSON 即接口 · Schema 校验 + Applicability 关键词 + 可靠性三态）<span class="rtag">版本归档 v0/v1·路线</span><span class="rtag">IDE 化编辑器·路线</span></h4>
+      <div class="kb-i"><div class="kt"><span>周报自动草稿 <span class="rtag">v1</span></span><span class="sc">化学与化工 · L2 · 3 步</span></div><div class="ks">关键词 5（Applicability 匹配）· 步骤：directory_tree → read_file → llm_generate · llmPolicy 禁词 3</div><div class="kmeta">本周命中 14 次 · 缓存回放率 86% · Schema 校验通过 · <span style="color:var(--ok);">可靠（Reliable）</span></div></div>
+      <div class="kb-i"><div class="kt"><span>滴定数据分析 <span class="rtag">v2</span></span><span class="sc">化学与化工 · L2 · 4 步 · 条件分支 1</span></div><div class="ks">步骤：read_file → app_automate(Origin) → llm_generate → file_write · condition：光谱列缺失时走降级分支</div><div class="kmeta">本周命中 6 次 · 检查点 2 个 · <span style="color:var(--warn);">需复核（NeedsReview）</span></div></div>
       <div class="kb-i"><div class="kt"><span>论文段落精读 <span class="rtag">v1</span></span><span class="sc">科学研究 · L2 · 2 步</span></div><div class="ks">步骤：paragraph_anchors → llm_generate · 引用锚点强制</div><div class="kmeta">本周命中 9 次</div></div>
       <h4 class="vh" style="margin-top:16px;">技能（workmode 动作模板 · sky-pack 已实现）</h4>
       <div class="kb-i"><div class="kt"><span>翻译本段</span><span class="sc">精读台 · slot: 当前段</span></div><div class="ks">规范化键缓存 · 命中回放 0 tok</div></div>
@@ -387,8 +387,9 @@ dst: D:\backup\周报草稿.docx</div>
             <button class="btn">导出结构.png</button>
             <button class="btn">送 Origin 绘图</button>
             <button class="btn">光谱预处理</button>
+            <button class="btn">独立窗口打开</button>
           </div>
-          <div style="font-size:10px; color:var(--sub); margin-top:14px;">包自带能力：smiles_info · structure_export · spectrum_prep —— 声明引用 CORE 的 file_read / knowledge_search / app_automate。</div>
+          <div style="font-size:10px; color:var(--sub); margin-top:14px;">包自带能力：smiles_info · structure_export · spectrum_prep —— 声明引用 CORE 的 file_read / knowledge_search / app_automate。工作台可弹独立原生窗口（WindowRegistry，WebView2 多窗）。</div>
         </div>
         <div class="wb-core">
           <div class="wb-h"><span class="src-badge core">CORE</span><b style="font-size:13px;">AI 助手（常驻工具条）</b></div>
@@ -440,7 +441,7 @@ dst: D:\backup\周报草稿.docx</div>
       </div>
       <h4 class="vh" style="margin-top:20px;">领域包（声明引用 CORE · 专业能力自带 · 加领域=加 JSON）<span class="rtag">per-包 token 预算·路线</span></h4>
       <div class="mk-grid">
-        <div class="mk"><div class="mt"><span class="mn">化学与化工</span><span class="installed">✓ 已挂载</span></div><div class="md">SMILES 解析/结构导出 · 光谱预处理 · Origin 绘图桥</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">app_automate</span> · 自带 <span class="cap">smiles_info</span> 等 3 项</div><div class="act-row"><button class="btn s" onclick="go('workbench')">打开工作台</button></div></div>
+        <div class="mk"><div class="mt"><span class="mn">化学与化工</span><span class="installed">✓ 已挂载 · 4/4 阶段</span></div><div class="md">SMILES 解析/结构导出 · 光谱预处理 · Origin 绘图桥</div><div class="mc">挂载：manifest → knowledge → boundary → execution <span style="color:var(--ok);">全过</span> · 引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">app_automate</span></div><div class="act-row"><button class="btn s" onclick="go('workbench')">打开工作台</button></div></div>
         <div class="mk"><div class="mt"><span class="mn">科学研究</span><span style="color:var(--warn); font-size:11px;">样板在·包待物化</span></div><div class="md">段落精读 · 双语对照 · 引用检查 · 知识检索</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">knowledge_search</span> <span class="cap">llm_generate</span> · 自带 <span class="cap">段落锚点</span> 等 2 项<span class="rtag">pack.json 物化·落码新增</span></div><div class="act-row"><button class="btn s">打开精读台（rsx 样板）</button></div></div>
         <div class="mk"><div class="mt"><span class="mn">财务与法务</span><span style="color:var(--warn); font-size:11px;">未挂载</span></div><div class="md">合同审查 · 条款对比 · 金额 FactGuard 强化 · 报销检查</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">text_extract</span> · 自带 <span class="cap">条款对比</span> 等 4 项</div><div class="act-row"><button class="btn s">查看安装说明</button></div></div>
         <div class="mk" style="opacity:.55;"><div class="mt"><span class="mn">测绘与地理信息</span><span style="color:var(--sub); font-size:11px;">规划中</span></div><div class="md">坐标转换（CGCS2000↔WGS84）· 等高线数据 · 测量报表</div><div class="mc">引用：<span class="cap">file_read</span> <span class="cap">app_automate</span> · 自带 <span class="cap">坐标引擎</span> 等 2 项</div><div class="act-row"><button class="btn s" disabled>路线图</button></div></div>
