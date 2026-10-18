@@ -16,6 +16,7 @@ pub mod paper_reader;
 pub mod pipeline;
 pub mod planner;
 pub mod real_runner;
+pub mod smiles;
 pub mod tools;
 pub mod ui;
 pub mod window;

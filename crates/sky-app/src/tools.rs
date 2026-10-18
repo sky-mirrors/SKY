@@ -1158,6 +1158,9 @@ pub fn register_all() -> RealRunner {
         .register("knowledge_search", wrap(tool_knowledge_search))
         .register("shell_exec", wrap(tool_shell_exec))
         .register("app_automate", wrap(tool_app_automate))
+        .register("smiles_info", wrap(|step, _results| {
+            crate::smiles::tool_smiles_info(&step.params).map(|v| v.to_string())
+        }))
         // llm_generate 是唯一异步工具：它要调模型网关。
         // 无密钥时返回明确的 Err——静默返回空串会让下游步骤拿到空输入却「成功」。
         .register("llm_generate", tool_llm_generate_async)
