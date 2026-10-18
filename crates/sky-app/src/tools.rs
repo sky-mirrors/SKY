@@ -685,9 +685,16 @@ fn best_line(content: &str, terms: &[String]) -> String {
 ///
 /// 参数：`prompt`（必填）、`maxTokens`（可选）。
 ///
-/// **这是任务书里唯一消耗 token 的工具**（20 份任务书共引用 21 次）。
+/// **这是任务书里唯一消耗 token 的工具**（15 步引用，2026-10-18 实测）。
 /// 其余工具都是确定性的——这正是「路由降级省 token」的账：
 /// 一次任务书执行里通常只有 1 步走模型。
+///
+/// **步骤级响应缓存**（2026-10-18 接线）：以「替换上游引用后的完整 prompt」
+/// 指纹（djb2，`sky_cache::FingerprintCache`——它的首个生产消费者）查缓存，
+/// 命中即原样回放——不调模型、不需要密钥。任务书重复执行场景的 token 放血点：
+/// 同一份合同第二次审查、同一段数据第二次摘要，成本从一次 GLM 调用降为 0。
+/// TTL 24h（对齐任务书 cacheMeta 约定）、容量 200 条。
+/// 缓存查询**必须排在密钥检查之前**——命中回放是无密钥环境的可用路径。
 ///
 /// 无密钥时返回明确错误而非空串——静默返回空会让下游步骤
 /// 拿到空输入却「成功」。
@@ -771,9 +778,46 @@ pub fn replace_upstream_in_value(
     }
 }
 
+/// 步骤级响应缓存（进程内）。键 = djb2(替换上游引用后的完整 prompt)。
+///
+/// 这是 `sky_cache::FingerprintCache` 的**首个生产消费者**——
+/// 该 crate 曾因零接线被记入「139 个测试保护未接线代码」清单。
+/// TTL 24h 对齐任务书 cacheMeta 约定；容量 200 条。
+fn llm_response_cache() -> std::sync::MutexGuard<'static, sky_cache::FingerprintCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<sky_cache::FingerprintCache>> =
+        std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            std::sync::Mutex::new(sky_cache::FingerprintCache::new(200, 24 * 60 * 60 * 1000))
+        })
+        .lock()
+        .unwrap()
+}
+
+/// 当前毫秒时间戳（指纹缓存 TTL 判定用）。
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// `llm_generate` 的三态同步预处理结果。
+enum LlmOutcome {
+    /// 指纹缓存命中——直接回放，不调模型、不需要密钥。
+    Cached(String),
+    /// 未命中——需要真实调用。
+    Call {
+        prompt: String,
+        max_tokens: u32,
+        key: String,
+        model: String,
+    },
+}
+
 fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> ToolFuture {
     // 同步部分：参数校验 + 上游引用替换。这些不需要异步。
-    let preparsed = (|| -> Result<(String, u32, String, String), String> {
+    let preparsed = (|| -> Result<LlmOutcome, String> {
         let mut prompt = param_str(step, "prompt")
             .or_else(|| param_str(step, "text"))
             .ok_or_else(|| "llm_generate 缺少 prompt 参数".to_string())?;
@@ -792,6 +836,18 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             ));
         }
 
+        // 步骤级响应缓存：命中即回放，不调模型、不需要密钥。
+        // 必须排在密钥检查之前——命中回放是无密钥环境的可用路径。
+        let cached = {
+            let cache = llm_response_cache();
+            cache
+                .get(&sky_cache::FingerprintCache::fingerprint(&prompt), now_millis())
+                .map(|e| e.response_text.clone())
+        };
+        if let Some(text) = cached {
+            return Ok(LlmOutcome::Cached(text));
+        }
+
         let cfg = sky_llm::resolve_config();
         let Some(key) = cfg.api_key else {
             return Err(
@@ -804,15 +860,28 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             .and_then(|s| s.parse().ok())
             .unwrap_or(1200u32);
 
-        Ok((prompt, max_tokens, key, cfg.model))
+        Ok(LlmOutcome::Call {
+            prompt,
+            max_tokens,
+            key,
+            model: cfg.model,
+        })
     })();
 
     match preparsed {
         Err(e) => Box::pin(async move { Err(e) }),
-        Ok((prompt, max_tokens, key, model)) => {
+        Ok(LlmOutcome::Cached(text)) => Box::pin(async move { Ok(text) }),
+        Ok(LlmOutcome::Call {
+            prompt,
+            max_tokens,
+            key,
+            model,
+        }) => {
             let cfg = sky_llm::resolve_config();
             let caller = sky_llm::HttpProviderCall::with_key(key);
             let provider = sky_llm::glm_config_with(&model, &cfg.base_url);
+            // 指纹先算——prompt 即将被 move 进消息体。
+            let fp = sky_cache::FingerprintCache::fingerprint(&prompt);
             let req = build_req(
                 sky_core::ChatMessage {
                     role: "user".into(),
@@ -824,7 +893,11 @@ fn tool_llm_generate_async(step: &PlanStep, results: &BTreeMap<u32, String>) -> 
             Box::pin(async move {
                 use sky_llm::ProviderCall;
                 match caller.call(&provider, &req).await {
-                    Ok(r) => Ok(r.content),
+                    Ok(r) => {
+                        // 成功产出回填指纹缓存——同 prompt 下次零 token 回放。
+                        llm_response_cache().put(&fp, &r.content, now_millis());
+                        Ok(r.content)
+                    }
                     Err(e) => Err(format!("模型调用失败：{e}")),
                 }
             })
@@ -1712,6 +1785,51 @@ mod tests {
                 !e.contains("危险子操作") && !e.contains("不在允许清单"),
                 "只读 git 命令不该被闸门拦下：{e}"
             ),
+        }
+    }
+
+    /// 步骤级响应缓存：prompt 指纹命中时回放缓存产出，不调模型、不需要密钥。
+    /// 这是任务书重复执行场景的 token 放血点——同一份合同第二次审查应 0 token。
+    #[tokio::test]
+    async fn llm_generate_replays_cached_response_without_key() {
+        let prompt_text = "审查这份合同的风险条款（缓存命中测试载荷 v1）";
+        let cached_response = "【缓存回放】风险条款：第3条违约金过高——建议下调至20%";
+
+        // 预注入：以 djb2(替换后 prompt) 为键写入指纹缓存
+        {
+            let key = sky_cache::FingerprintCache::fingerprint(prompt_text);
+            llm_response_cache().put(&key, cached_response, now_millis());
+        }
+
+        let mut s = step("llm_generate", json!({"prompt": prompt_text}));
+        s.step = 1;
+        let fut = tool_llm_generate_async(&s, &BTreeMap::new());
+        let r = fut.await;
+        match r {
+            Ok(text) => assert_eq!(
+                text, cached_response,
+                "指纹命中必须原样回放缓存产出，而不是调模型"
+            ),
+            Err(e) => panic!("缓存命中时不应走到模型调用/密钥检查，实际报错：{e}"),
+        }
+    }
+
+    /// 缓存未命中时行为不变：无密钥仍明确报配置错误（不得静默空串）。
+    #[tokio::test]
+    async fn llm_generate_cache_miss_still_requires_key() {
+        let mut s = step(
+            "llm_generate",
+            json!({"prompt": "完全唯一的未缓存 prompt（cache-miss 探针 v1）"}),
+        );
+        s.step = 1;
+        let fut = tool_llm_generate_async(&s, &BTreeMap::new());
+        let r = fut.await;
+        match r {
+            Err(e) => assert!(
+                e.contains("密钥") || e.contains("模型调用失败"),
+                "未命中时应保持原行为（配置错误/调用失败），实际：{e}"
+            ),
+            Ok(_) => { /* 本机配了密钥且调用成功——可接受 */ }
         }
     }
 
