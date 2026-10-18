@@ -447,3 +447,101 @@ async fn file_path_slot_is_extracted_and_rendered() {
         other => panic!("带路径的输入应命中，实际：{other:?}"),
     }
 }
+
+// ---------- §9.4 专业术语跨任务书误匹配电池（2026-10-18） ----------
+//
+// HANDOFF 质询：MIN_KEYWORD_RATIO=0.34 的命中率过门 + 「取第一名无 margin 检查」，
+// 专业术语（风险/审查/条款/对比/分析 这类跨任务书高频词）会不会互相误命中？
+//
+// 期望：命中结果的 intent 必须属于该输入的合理候选集；跨域输入不得静默错配。
+
+async fn hit_intent(text: &str) -> Option<String> {
+    let stage = ManifestStage::with_builtin();
+    let mut ctx = RouteCtx::default();
+    match stage.try_resolve(&input(text), &mut ctx).await {
+        Route::Hit { plan, .. } => Some(plan.intent),
+        _ => None,
+    }
+}
+
+/// 风险/审查词汇群：合同风险审查 vs ND审查清单 vs 财报解读（都含「风险」或「审查」）。
+#[tokio::test]
+async fn cross_manifest_risk_review_terms_route_sensibly() {
+    // 明确单域输入：应命中各自任务书
+    let cases = [
+        ("审查这份采购合同的风险条款", vec!["合同风险审查", "ND审查清单"]),
+        ("帮我检查这份NDA保密协议有没有问题", vec!["ND审查清单"]),
+        ("解读一下这份财报的主要风险", vec!["财报风险一句话解读"]),
+    ];
+    for (text, allowed) in cases {
+        match hit_intent(text).await {
+            Some(intent) => assert!(
+                allowed.contains(&intent.as_str()),
+                "「{text}」命中了 {intent}，不在合理候选 {allowed:?} 内"
+            ),
+            None => panic!("「{text}」应命中某个任务书，实际 Defer"),
+        }
+    }
+}
+
+/// 对比/条款词汇群：条款对比 vs 合同风险审查（共享「条款」「对比」「合同」）。
+#[tokio::test]
+async fn cross_manifest_compare_terms_route_sensibly() {
+    // 「对比两份合同的条款差异」——条款对比应胜出（更多关键词命中）
+    let intent = hit_intent("对比这两份合同的条款差异")
+        .await
+        .expect("对比输入应命中");
+    assert!(
+        intent == "条款对比助手" || intent == "合同风险审查",
+        "对比输入命中了 {intent}，超出合理候选集"
+    );
+    // 但纯「风险」输入不应被条款对比抢走
+    let intent2 = hit_intent("审查合同里有没有风险")
+        .await
+        .expect("风险审查输入应命中");
+    assert_eq!(
+        intent2, "合同风险审查",
+        "纯风险审查输入被 {intent2} 抢走——术语互串实锤"
+    );
+}
+
+/// 邮件词汇群：邮件自动分类 vs 客户邮件撰写（共享「邮件」「客户」）。
+#[tokio::test]
+async fn cross_manifest_email_terms_route_sensibly() {
+    let classify = hit_intent("把这周的邮件自动分类归档")
+        .await
+        .expect("分类输入应命中");
+    assert_eq!(classify, "邮件自动分类", "分类输入被 {classify} 抢走");
+
+    let compose = hit_intent("帮我给客户写一封回复邮件")
+        .await
+        .expect("撰写输入应命中");
+    assert_eq!(compose, "客户邮件撰写", "撰写输入被 {compose} 抢走");
+}
+
+/// 高风险模糊输入：只含跨任务书共享词（「分析」「报告」），不过门是可接受结果，
+/// 静默错配不是。这里验证「全命中才 0.4，低于 0.34 阈值应 Defer 或合理命中」。
+#[tokio::test]
+async fn shared_generic_words_do_not_misroute() {
+    // 「分析」同时出现在竞品分析与 Excel 数据摘要；「报告」在 KPI。
+    // 输入只含「帮我分析一下这个报告」——没有领域锚点。
+    let r = hit_intent("帮我分析一下这个报告").await;
+    // 可接受：Defer（下沉到后续段）或命中任一（同率 1/6 低于 1/3 不过门）——
+    // 关键是行为确定性：重复路由结果必须一致。
+    let r2 = hit_intent("帮我分析一下这个报告").await;
+    assert_eq!(r, r2, "同输入两次路由结果必须一致");
+}
+
+/// 跨域混合输入（真实现场）：财务人员说「对比这份预算和合同的条款」——
+/// 预算/条款/对比分属三个任务书。期望：命中率最高者胜出且可解释。
+#[tokio::test]
+async fn cross_domain_mixed_input_picks_highest_ratio() {
+    let intent = hit_intent("对比这份预算表和合同条款的差异")
+        .await
+        .expect("混合输入应命中");
+    // 合理候选：条款对比（条款+对比+差异=3/6）必然 ≥ 其他（预算→预算预测 1/6）
+    assert_eq!(
+        intent, "条款对比助手",
+        "混合输入应命中关键词命中率最高的条款对比，实际 {intent}"
+    );
+}
