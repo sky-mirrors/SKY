@@ -10,6 +10,7 @@
 
 pub mod dsl;
 pub mod loader;
+pub mod workmode;
 
 pub use dsl::{
     evaluate_constraints, validate_all, validate_pack_constraint, Applicability, ConstraintResult,
@@ -17,5 +18,6 @@ pub use dsl::{
 };
 pub use loader::{
     KnowledgeEntry, MountError, MountFailReason, MountPhase, MountResult, MountedPack, PackExecution,
-    PackHost, PackManifest, PackSource,
+    PackHost, PackManifest, PackSource, PackStep,
 };
+pub use workmode::{WorkAction, WorkMode};

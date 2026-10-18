@@ -85,11 +85,31 @@ pub struct KnowledgeEntry {
 }
 
 /// 执行定义。
+///
+/// **2026-10-18 结构改造**：`steps` 从 `Vec<String>`（只装得下描述文本，
+/// 装不下 tool/params/depends_on——「接线了也装不下任务」）改为 `Vec<PackStep>`。
+/// 任务书 DAG 的真实形状：每步有工具名、参数表、依赖。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PackExecution {
     pub mode: String,
     #[serde(default)]
-    pub steps: Vec<String>,
+    pub steps: Vec<PackStep>,
+}
+
+/// 一条真实可执行的步骤。对应任务书 DAG 的节点。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PackStep {
+    /// 该步调用的工具名（与 sky-app tools.rs 注册表对齐）。
+    pub tool: String,
+    /// 步骤参数（如 `{"path": "{{input}}"}`；上游引用沿用 `{{step_N_*}}` 形态）。
+    #[serde(default)]
+    pub params: std::collections::BTreeMap<String, serde_json::Value>,
+    /// 依赖的步骤（0 起始索引的 Vec 下标）。
+    #[serde(default)]
+    pub depends_on: Vec<usize>,
+    /// 人话描述（供 UI / 产物说明）。
+    #[serde(default)]
+    pub description: String,
 }
 
 /// 已挂载的包。
